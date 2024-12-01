@@ -14,7 +14,7 @@ setup(
     author="Eric Wong",
     author_email="eric.wong@proenergy.vip",
     description="A flexible library for building AI agents with multiple LLM backends",
-    long_description=open("README").read(),
+    long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/ProEnergyVIP/intellifun",
     classifiers=[
