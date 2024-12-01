@@ -13,10 +13,10 @@ setup(
     ],
     author="Eric Wong",
     author_email="eric.wong@proenergy.vip",
-    description="A flexible framework for building AI agents with multiple LLM backends",
-    long_description=open("README.md").read(),
+    description="A flexible library for building AI agents with multiple LLM backends",
+    long_description=open("README").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/manyoo/intellifun",
+    url="https://github.com/ProEnergyVIP/intellifun",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
