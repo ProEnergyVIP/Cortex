@@ -5,11 +5,11 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
-        "openai",
-        "anthropic",
-        "boto3",
-        "pydantic",
-        "rich"
+        "openai==1.41.1",
+        "anthropic==0.30.0",
+        "boto3==1.39.0",
+        "pydantic==2.10.2",
+        "rich==13.7.1"
     ],
     author="Eric Wong",
     author_email="eric.wong@proenergy.vip",
