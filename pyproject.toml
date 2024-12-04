@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "intellifun"
+version = "0.1.1"
+description = "A flexible library for building AI agents with multiple LLM backends"
+authors = ["Eric Wong <eric.wong@proenergy.vip>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/ProEnergyVIP/intellifun"
+repository = "https://github.com/ProEnergyVIP/intellifun"
+keywords = ["AI", "agents", "LLM"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+openai = ">=1.56.0"
+anthropic = ">=0.40.0"
+boto3 = "*"
+pydantic = "*"
+rich = "*"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
