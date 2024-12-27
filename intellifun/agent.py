@@ -21,6 +21,19 @@ class Tool:
     parameters: dict
     prompt: str = None
 
+    __called_times = 0
+
+    def check_call_limit(self, limit=10):
+        '''Check if the tool has been called too many times'''
+        if self.__called_times >= limit:
+            return False
+        return True
+    
+    def increment_call_count(self):
+        '''Increment the call count of the tool'''
+        self.__called_times += 1
+
+
 @dataclass
 class ToolFuncResult:
     '''Result of running a tool function'''
@@ -133,6 +146,10 @@ class Agent:
         
         for tool in self.tools:
             if tool.name == tool_name:
+                if not tool.check_call_limit():
+                    self.tools.remove(tool)
+                    return ToolFuncResult(f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.')
+                
                 try:
                     tool_input = json.loads(func.arguments)
                     
@@ -147,6 +164,8 @@ class Agent:
                         res = tool.func(tool_input, self.context)
                     elif num_params == 3:
                         res = tool.func(tool_input, self.context, self)
+                    
+                    tool.increment_call_count()
 
                     # check result data type and wrap it into a ToolFuncResult
                     if isinstance(res, dict):
