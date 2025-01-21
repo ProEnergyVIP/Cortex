@@ -21,14 +21,14 @@ class CheckResult:
 
 JSON_FORMAT = '''
 Your answer MUST CONFORM to this JSON format:
-```json
+```
 {shape}
 ```
 
 Ensure your answer is a valid JSON object that can be parsed with Python's 
 json.loads() function successfully.
 DO NOT include the JSON schema itself in the output, only the JSON object conforming to the schema.
-DO NOT include the ```json ``` tag in your answer.
+DO NOT include the `json` tag in your answer.
 '''
 
 def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm_args={}):
