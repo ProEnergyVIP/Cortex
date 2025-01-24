@@ -21,9 +21,9 @@ class CheckResult:
 
 JSON_FORMAT = '''
 Your answer MUST CONFORM to this JSON format:
-```
+
 {shape}
-```
+
 
 Ensure your answer is a valid JSON object that can be parsed with Python's 
 json.loads() function successfully.
