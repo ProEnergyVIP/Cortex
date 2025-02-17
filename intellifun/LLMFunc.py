@@ -33,7 +33,7 @@ DO NOT include the JSON schema itself in the output, only the JSON object confor
 DO NOT include the `json` tag in your answer.
 '''
 
-def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm_args={}):
+def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm_args=None):
     '''Create a new LLMFunc, which is a LLM based intelligent function
     
     This function is used to create a new LLMFunc, which is a function that uses an LLM to
@@ -66,6 +66,8 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
 
     if is_debug:
         print_message(sys_msg)
+    
+    llm_args = llm_args or {}
 
     def func(msg, image_urls=None):
         if isinstance(msg, UserMessage):
