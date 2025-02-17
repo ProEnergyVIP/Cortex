@@ -43,9 +43,9 @@ class ToolFuncResult:
 
 
 class Agent:
-    def __init__(self, llm, tools=[], sys_prompt='', memory=None, context=None, json_reply=False):
+    def __init__(self, llm, tools=None, sys_prompt='', memory=None, context=None, json_reply=False):
         self.llm = llm
-        self.tools = tools
+        self.tools = tools or []
         self.sys_msg = sys_prompt if isinstance(sys_prompt, SystemMessage) else SystemMessage(content=sys_prompt)
         self.memory = memory
         self.context = context
@@ -78,6 +78,8 @@ class Agent:
         reply = None
 
         while i < 10:
+            i += 1
+
             msgs = [*history_msgs, *conversation]
 
             print_message(self.sys_msg)
@@ -95,9 +97,10 @@ class Agent:
                 self.process_func_call(ai_msg, conversation)
             elif ai_msg.content:
                 try:
-                    reply = self.process_ai_message(ai_msg)
-                except Exception as e:
-                    conversation.append(UserMessage(content=f'Error processing JSON message: {e}. Please make sure your response is a valid JSON string that can be loaded with python json.loads() function directly.'))
+                    reply = json.loads(ai_msg.content) if self.json_reply else ai_msg.content
+                except json.JSONDecodeError as e:
+                    err_msg = f'Error processing JSON message: {e}. Make sure your response is a valid JSON string, without the `json` tag.'
+                    conversation.append(UserMessage(content=err_msg))
                     continue
 
                 self.memory.add_messages(conversation)
@@ -106,11 +109,7 @@ class Agent:
         self.memory.add_messages(conversation)
 
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
-    
 
-    def process_ai_message(self, ai_msg):
-        '''Process the result message from LLM'''
-        return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
 
     def process_func_call(self, ai_msg, conversation):
         '''Process the function call in the LLM result'''
@@ -164,6 +163,8 @@ class Agent:
                         res = tool.func(tool_input, self.context)
                     elif num_params == 3:
                         res = tool.func(tool_input, self.context, self)
+                    else:
+                        raise ValueError(f'Invalid number of parameters for tool function {tool_name}: {num_params}')
                     
                     tool.increment_call_count()
 
