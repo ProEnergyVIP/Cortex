@@ -69,7 +69,8 @@ class OpenAIBackend(LLMBackend):
         '''encode a message as a dictionary for the OpenAI API'''
         if isinstance(msg, SystemMessage):
             return {'role': 'system', 'content': msg.content}
-        elif isinstance(msg, UserVisionMessage):
+        
+        if isinstance(msg, UserVisionMessage):
             message = msg.build_content()
 
             if not msg.image_urls:
@@ -83,22 +84,25 @@ class OpenAIBackend(LLMBackend):
                                             }
                             })
             return {'role': 'user', 'content': msgs }
-        elif isinstance(msg, UserMessage):
+        
+        if isinstance(msg, UserMessage):
             return {'role': 'user', 'content': msg.build_content() }
-        elif isinstance(msg, AIMessage):
+        
+        if isinstance(msg, AIMessage):
             m = {'role': 'assistant', 'content': msg.content}
 
             if msg.tool_calls:
                 m['tool_calls'] = [self.encode_toolcalling(t) for t in msg.tool_calls]
             
             return m
-        elif isinstance(msg, ToolMessage):
+        
+        if isinstance(msg, ToolMessage):
             return {'role': 'tool',
                     'content': msg.content,
                     'tool_call_id': msg.tool_call_id
                    }
-        else:
-            return {'role': 'user', 'content': msg.content}
+        
+        return {'role': 'user', 'content': msg.content}
 
     def encode_toolcalling(self, tool_call):
         '''encode a ToolCalling object as a dictionary for the OpenAI API'''

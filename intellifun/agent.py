@@ -94,7 +94,8 @@ class Agent:
             conversation.append(ai_msg)
             # check if we need to run a tool
             if ai_msg.tool_calls is not None:
-                self.process_func_call(ai_msg, conversation)
+                tool_msgs = self.process_func_call(ai_msg)
+                conversation.append(tool_msgs)
             elif ai_msg.content:
                 try:
                     reply = json.loads(ai_msg.content) if self.json_reply else ai_msg.content
@@ -105,13 +106,13 @@ class Agent:
 
                 self.memory.add_messages(conversation)
                 return reply
-        
+
         self.memory.add_messages(conversation)
 
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
 
-    def process_func_call(self, ai_msg, conversation):
+    def process_func_call(self, ai_msg):
         '''Process the function call in the LLM result'''
         actions = []
         tools = []
@@ -128,7 +129,6 @@ class Agent:
                 tools.extend(func_res.tools)
         
         msg_group = ToolMessageGroup(tool_messages=msgs)
-        conversation.append(msg_group)
 
         # accumulate actions and send them to the frontend
         send_resp = self.get_response_sender()
@@ -138,6 +138,8 @@ class Agent:
         # accumulate tools and add them to the agent
         if tools:
             self.tools.extend(tools)
+        
+        return msg_group
 
     def run_tool_func(self, func: Function):
         '''Run the given tool function and return the result'''
@@ -147,7 +149,7 @@ class Agent:
             if tool.name == tool_name:
                 if not tool.check_call_limit():
                     self.tools.remove(tool)
-                    return ToolFuncResult(f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.')
+                    return ToolFuncResult(content=f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.')
                 
                 try:
                     tool_input = json.loads(func.arguments)
@@ -164,7 +166,7 @@ class Agent:
                     elif num_params == 3:
                         res = tool.func(tool_input, self.context, self)
                     else:
-                        raise ValueError(f'Invalid number of parameters for tool function {tool_name}: {num_params}')
+                        return ToolFuncResult(content=f'Invalid number of parameters for tool function {tool_name}: {num_params}')
                     
                     tool.increment_call_count()
 
@@ -178,15 +180,18 @@ class Agent:
                         if 'action' in res:
                             func_res.frontend_content = res
                         return func_res
-                    elif isinstance(res, str):
+                    
+                    if isinstance(res, str):
                         return ToolFuncResult(content=res)
-                    else:
-                        return ToolFuncResult(content=f'tool function {tool_name} finished')
+
+                    return ToolFuncResult(content=f'tool function {tool_name} finished')
+                except json.JSONDecodeError as e:
+                    return ToolFuncResult(content=f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.')
                 except Exception as e:
                     if is_debug:
                         import traceback
                         traceback.print_exc()
 
-                    return ToolFuncResult(f'Error running tool "{tool_name}": {e}')
+                    return ToolFuncResult(content=f'Error running tool "{tool_name}": {e}')
         
-        return ToolFuncResult(f'No tool named "{tool_name}" found')
+        return ToolFuncResult(content=f'No tool named "{tool_name}" found. Do not call it again.')

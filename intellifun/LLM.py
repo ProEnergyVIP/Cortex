@@ -8,7 +8,7 @@ class LLM:
     def __init__(self, model, temperature = 0.5):
         self.temperature = temperature
         self.backend = LLMBackend.get_backend(model)
-    
+
     def call(self, sys_msg, msgs, max_tokens=None, tools=None, error_func=None, retry=0):
         '''Call the model with the given messages and return the response message
 
@@ -28,18 +28,23 @@ class LLM:
             return msg
         except Exception as e:
             print(e)
-            if retry < 2:
-                # wait for 3 seconds and try again
-                time.sleep(3)
-                
-                if error_func is not None:
-                    # get a random error message and send it to the user
-                    error_msg = random.choice(err_msgs)
-                    error_func(error_msg)
-                
-                return self.call(sys_msg, msgs, tools=tools, retry=retry+1, error_func=error_func)
-            else:
+            if retry == 2:
                 raise e
+
+            # wait for 3 seconds and try again
+            time.sleep(3)
+
+            if error_func is not None:
+                # get a random error message and send it to the user
+                error_msg = random.choice(err_msgs)
+                error_func(error_msg)
+
+            return self.call(sys_msg,
+                             msgs,
+                             max_tokens=max_tokens,
+                             tools=tools,
+                             retry=retry+1,
+                             error_func=error_func)
 
 
 err_msgs = [
