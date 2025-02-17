@@ -93,7 +93,7 @@ class Agent:
             except Exception as e:
                 err_msg = get_random_error_message()
                 err_func(err_msg)
-                return err_msg
+                raise e
             
             print_message(ai_msg)
             
