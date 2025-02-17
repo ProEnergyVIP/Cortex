@@ -1,5 +1,4 @@
 import random
-import time
 
 from intellifun.backend import LLMBackend, LLMRequest
 
@@ -9,7 +8,7 @@ class LLM:
         self.temperature = temperature
         self.backend = LLMBackend.get_backend(model)
 
-    def call(self, sys_msg, msgs, max_tokens=None, tools=None, error_func=None, retry=0):
+    def call(self, sys_msg, msgs, max_tokens=None, tools=None):
         '''Call the model with the given messages and return the response message
 
         Args:
@@ -17,35 +16,19 @@ class LLM:
 
         Returns: message like above
         '''
-        try:
-            req = LLMRequest(system_message=sys_msg,
-                            messages=msgs,
-                            temperature=self.temperature,
-                            max_tokens=max_tokens,
-                            tools=tools,
-                            )
-            msg = self.backend.call(req)
-            return msg
-        except Exception as e:
-            print(e)
-            if retry == 2:
-                raise e
+        req = LLMRequest(system_message=sys_msg,
+                         messages=msgs,
+                         temperature=self.temperature,
+                         max_tokens=max_tokens,
+                         tools=tools or [],
+                        )
+        msg = self.backend.call(req)
+        return msg
 
-            # wait for 3 seconds and try again
-            time.sleep(3)
 
-            if error_func is not None:
-                # get a random error message and send it to the user
-                error_msg = random.choice(err_msgs)
-                error_func(error_msg)
-
-            return self.call(sys_msg,
-                             msgs,
-                             max_tokens=max_tokens,
-                             tools=tools,
-                             retry=retry+1,
-                             error_func=error_func)
-
+def get_random_error_message():
+    '''Get a random error message'''
+    return random.choice(err_msgs)
 
 err_msgs = [
     'Hang on, network congestion on my end. One sec.',

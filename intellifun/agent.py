@@ -4,6 +4,7 @@ import json
 from typing import Callable, List, Optional
 from pydantic import BaseModel
 
+from intellifun.LLM import get_random_error_message
 from intellifun.debug import is_debug
 from intellifun.message import Function, SystemMessage, ToolMessage, ToolMessageGroup, UserMessage, print_message
 
@@ -87,7 +88,12 @@ class Agent:
                 print_message(m)
             
             # call the model
-            ai_msg = self.llm.call(self.sys_msg, msgs, tools=self.tools, error_func=err_func)
+            try:
+                ai_msg = self.llm.call(self.sys_msg, msgs, tools=self.tools)
+            except Exception as e:
+                err_msg = get_random_error_message()
+                err_func(err_msg)
+                return err_msg
             
             print_message(ai_msg)
             
