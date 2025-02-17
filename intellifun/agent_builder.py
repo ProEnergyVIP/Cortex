@@ -49,7 +49,7 @@ Here's the basic building components of intellifun:
         message: str = None
 
         @classmethod
-        def success(cls, value):
+        def ok(cls, value):
             return cls(success=True, value=value)
         
         @classmethod
@@ -215,7 +215,7 @@ def sms_message_reader():
             return CheckResult.fail('"agree" field is missing in the result')
         if 'reply' not in result:
             return CheckResult.fail('"reply" field is missing in the result')
-        return CheckResult.success(result)
+        return CheckResult.ok(result)
     
     f = llmfunc(llm, 
                 SMS_READER_PROMPT,

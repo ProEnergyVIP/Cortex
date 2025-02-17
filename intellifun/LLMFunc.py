@@ -11,13 +11,15 @@ class CheckResult:
     message: str = None
 
     @classmethod
-    def success(cls, value):
+    def ok(cls, value):
+        '''Return a success CheckResult and the given value'''
         return cls(success=True, value=value)
-    
+
     @classmethod
     def fail(cls, message):
+        '''Return a failure CheckResult with the given message'''
         return cls(success=False, message=message)
-    
+
 
 JSON_FORMAT = '''
 Your answer MUST CONFORM to this JSON format:
@@ -111,7 +113,7 @@ def check_result(ai_msg, result_shape=None, check_func=None):
         return CheckResult.fail(str(e))
     
     if not check_func:
-        return CheckResult.success(answer)
+        return CheckResult.ok(answer)
     
     try:
         return check_func(answer)
