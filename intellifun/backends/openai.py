@@ -11,7 +11,7 @@ class GPTModels(str, Enum):
     '''OpenAI GPT models'''
     GPT_4 = 'gpt-4'
 
-    GPT_4O = 'gpt-4o-2024-08-06'
+    GPT_4O = 'gpt-4o'
 
     GPT_4O_MINI = 'gpt-4o-mini'
 

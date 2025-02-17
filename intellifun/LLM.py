@@ -4,9 +4,42 @@ from intellifun.backend import LLMBackend, LLMRequest
 
 class LLM:
     '''default LLM based on OpenAI's API'''
+    # Class-level state for backup backends and failed models
+    _backup_backends = {}  # Maps model -> backup_model
+    _failed_models = set()  # Set of models that have failed
+
+    @classmethod
+    def set_backup_backend(cls, model: str, backup_model: str) -> None:
+        '''Set a backup backend model to use if the primary model fails.
+        
+        Args:
+            model: The primary model identifier
+            backup_model: The backup model identifier to use if primary fails
+        '''
+        cls._backup_backends[model] = backup_model
+
+    @classmethod
+    def clear_backup_backends(cls) -> None:
+        '''Clear all backup backend configurations and reset failed models'''
+        cls._backup_backends.clear()
+        cls._failed_models.clear()
+
+    @classmethod
+    def _get_effective_model(cls, model: str) -> str:
+        '''Get the effective model to use, considering failures and backups'''
+        if model in cls._failed_models and model in cls._backup_backends:
+            return cls._backup_backends[model]
+        return model
+
     def __init__(self, model, temperature = 0.5):
+        self.model = model
         self.temperature = temperature
-        self.backend = LLMBackend.get_backend(model)
+        self._initialize_backend()
+
+    def _initialize_backend(self):
+        '''Initialize the backend using the effective model'''
+        effective_model = self._get_effective_model(self.model)
+        self.backend = LLMBackend.get_backend(effective_model)
 
     def call(self, sys_msg, msgs, max_tokens=None, tools=None):
         '''Call the model with the given messages and return the response message
@@ -16,15 +49,24 @@ class LLM:
 
         Returns: message like above
         '''
-        req = LLMRequest(system_message=sys_msg,
-                         messages=msgs,
-                         temperature=self.temperature,
-                         max_tokens=max_tokens,
-                         tools=tools or [],
-                        )
-        msg = self.backend.call(req)
-        return msg
-
+        try:
+            req = LLMRequest(system_message=sys_msg,
+                            messages=msgs,
+                            temperature=self.temperature,
+                            max_tokens=max_tokens,
+                            tools=tools or [],
+                            )
+            return self.backend.call(req)
+        except Exception as e:
+            # If this model hasn't failed before and has a backup
+            if self.model not in self._failed_models and self.model in self._backup_backends:
+                # Mark this model as failed
+                self._failed_models.add(self.model)
+                # Reinitialize with backup backend
+                self._initialize_backend()
+                # Retry the call with the backup backend
+                return self.call(sys_msg, msgs, max_tokens, tools)
+            raise  # Re-raise the exception if no backup available or already using backup
 
 def get_random_error_message():
     '''Get a random error message'''
