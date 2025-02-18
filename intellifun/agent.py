@@ -43,6 +43,8 @@ class ToolFuncResult:
     tools: List[Tool] = field(default_factory=list)
 
 
+MAX_RECENT_CALLS = 5  # Only track the last 5 calls
+
 class Agent:
     def __init__(self, llm, tools=None, sys_prompt='', memory=None, context=None, json_reply=False):
         self.llm = llm
@@ -51,7 +53,22 @@ class Agent:
         self.memory = memory
         self.context = context
         self.json_reply = json_reply
-    
+        # Track recent tool calls to detect repetition
+        self._recent_tool_calls = []
+
+    def _is_repeated_tool_call(self, func: Function) -> bool:
+        '''Check if this exact tool call was made recently'''
+        current_call = (func.name, func.arguments)
+        # Look for the same tool name and arguments in recent calls
+        return current_call in self._recent_tool_calls
+
+    def _add_tool_call(self, func: Function):
+        '''Add a tool call to the recent calls list'''
+        current_call = (func.name, func.arguments)
+        self._recent_tool_calls.append(current_call)
+        # Keep only the most recent calls
+        self._recent_tool_calls = self._recent_tool_calls[-MAX_RECENT_CALLS:]
+
     def get_response_sender(self):
         '''Get the response sender function'''
         if self.context is not None:
@@ -125,14 +142,24 @@ class Agent:
         
         msgs = []
         for fc in ai_msg.tool_calls:
+            # Check if this is a repeated tool call
+            if self._is_repeated_tool_call(fc.function):
+                msg = f'Tool "{fc.function.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
+                msgs.append(ToolMessage(content=msg, tool_call_id=fc.id))
+                continue
+
             func_res = self.run_tool_func(fc.function)
             tool_res_msg = ToolMessage(content=func_res.content, tool_call_id=fc.id)
             msgs.append(tool_res_msg)
             
             if func_res.frontend_content is not None:
                 actions.append(func_res.frontend_content)
+            
             if func_res.tools:
                 tools.extend(func_res.tools)
+
+            # Track this tool call
+            self._add_tool_call(fc.function)
         
         msg_group = ToolMessageGroup(tool_messages=msgs)
 
