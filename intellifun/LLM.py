@@ -9,13 +9,45 @@ class LLM:
     _failed_models = set()  # Set of models that have failed
 
     @classmethod
+    def _detect_cycle(cls, start_model: str, backup_model: str) -> bool:
+        '''Check if adding this backup would create a cycle in the backup chain'''
+        # First check if this would create an immediate cycle
+        if start_model == backup_model:
+            return True
+            
+        # Then check for indirect cycles
+        current = backup_model
+        visited = {start_model}
+        
+        # Follow the backup chain
+        while current in cls._backup_backends:
+            if current in visited:  # We've seen this model before - cycle detected
+                return True
+            visited.add(current)
+            current = cls._backup_backends[current]
+            
+            # Also check if this would complete a cycle back to our start
+            if current == start_model:
+                return True
+        
+        return False
+
+    @classmethod
     def set_backup_backend(cls, model: str, backup_model: str) -> None:
         '''Set a backup backend model to use if the primary model fails.
         
         Args:
             model: The primary model identifier
             backup_model: The backup model identifier to use if primary fails
+            
+        Raises:
+            ValueError: If setting this backup would create a cycle in the backup chain
         '''
+        if cls._detect_cycle(model, backup_model):
+            raise ValueError(
+                f"Cannot set {backup_model} as backup for {model} as it would create a cycle in the backup chain"
+            )
+        
         cls._backup_backends[model] = backup_model
 
     @classmethod
