@@ -1,4 +1,5 @@
 import random
+from threading import Lock
 
 from intellifun.backend import LLMBackend, LLMRequest
 
@@ -7,6 +8,7 @@ class LLM:
     # Class-level state for backup backends and failed models
     _backup_backends = {}  # Maps model -> backup_model
     _failed_models = set()  # Set of models that have failed
+    _runtime_lock = Lock()  # Lock for protecting runtime state changes
 
     @classmethod
     def _detect_cycle(cls, start_model: str, backup_model: str) -> bool:
@@ -53,12 +55,16 @@ class LLM:
     @classmethod
     def clear_backup_backends(cls) -> None:
         '''Clear all backup backend configurations and reset failed models'''
-        cls._backup_backends.clear()
-        cls._failed_models.clear()
+        with cls._runtime_lock:  # Need lock here as it affects runtime state
+            cls._backup_backends.clear()
+            cls._failed_models.clear()
 
     @classmethod
     def _get_effective_model(cls, model: str) -> str:
-        '''Get the effective model to use, considering failures and backups'''
+        '''Get the effective model to use, considering failures and backups.
+        Note: This method can be called without a lock for initialization,
+        but should be called with a lock when switching models during runtime.
+        '''
         if model in cls._failed_models and model in cls._backup_backends:
             return cls._backup_backends[model]
         return model
@@ -69,7 +75,9 @@ class LLM:
         self._initialize_backend()
 
     def _initialize_backend(self):
-        '''Initialize the backend using the effective model'''
+        '''Initialize the backend using the effective model.
+        Note: This method assumes the caller holds _runtime_lock
+        '''
         effective_model = self._get_effective_model(self.model)
         self.backend = LLMBackend.get_backend(effective_model)
 
@@ -90,15 +98,20 @@ class LLM:
                             )
             return self.backend.call(req)
         except Exception as e:
-            # If this model hasn't failed before and has a backup
-            if self.model not in self._failed_models and self.model in self._backup_backends:
-                # Mark this model as failed
-                self._failed_models.add(self.model)
-                # Reinitialize with backup backend
-                self._initialize_backend()
-                # Retry the call with the backup backend
+            # Check if we can switch to backup
+            should_retry = False
+            with self._runtime_lock:  # Minimize lock holding time
+                if self.model not in self._failed_models and self.model in self._backup_backends:
+                    # Mark this model as failed and switch backend
+                    self._failed_models.add(self.model)
+                    self._initialize_backend()
+                    should_retry = True
+
+            # Retry with new backend if we switched
+            if should_retry:
                 return self.call(sys_msg, msgs, max_tokens, tools)
-            raise  # Re-raise the exception if no backup available or already using backup
+            
+            raise  # Re-raise if no backup available or already using backup
 
 def get_random_error_message():
     '''Get a random error message'''
