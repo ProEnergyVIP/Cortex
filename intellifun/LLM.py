@@ -53,10 +53,11 @@ class LLM:
         cls._backup_backends[model] = backup_model
 
     @classmethod
-    def clear_backup_backends(cls) -> None:
-        '''Clear all backup backend configurations and reset failed models'''
-        with cls._runtime_lock:  # Need lock here as it affects runtime state
-            cls._backup_backends.clear()
+    def reset_failed_models(cls) -> None:
+        '''Reset the failed models state, allowing previously failed models to be tried again.
+        This can be useful in scenarios where a model service might have recovered.
+        '''
+        with cls._runtime_lock:
             cls._failed_models.clear()
 
     @classmethod
