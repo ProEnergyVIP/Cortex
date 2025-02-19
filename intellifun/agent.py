@@ -80,8 +80,18 @@ class Agent:
             return self.context.send_response
         return None
     
-    def ask(self, message, user_name=None):
-        '''Ask a question to the agent'''
+    def ask(self, message, user_name=None, usage=None):
+        '''Ask a question to the agent, and get a response
+
+        Args:
+            message (str or Message): The message to ask
+            user_name (str, optional): The name of the user. Defaults to None.
+            usage (MessageUsage, optional): The usage of the message. Defaults to None.
+                You can pass a MessageUsage object to accumulate the token usage.
+
+        Returns:
+            str: The response from the agent
+        '''
         def err_func(msg):
             send_resp = self.get_response_sender()
             if send_resp:
@@ -128,16 +138,20 @@ class Agent:
                 try:
                     reply = json.loads(ai_msg.content) if self.json_reply else ai_msg.content
                 except json.JSONDecodeError as e:
-                    err_msg = f'Error processing JSON message: {e}. Make sure your response is a valid JSON string, without the `json` tag.'
+                    err_msg = f'Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag.'
                     conversation.append(UserMessage(content=err_msg))
                     continue
 
                 self.memory.add_messages(conversation)
                 print(total_usage.format())
+                if usage:
+                    usage.accumulate(total_usage)
                 return reply
 
         self.memory.add_messages(conversation)
         print(total_usage.format())
+        if usage:
+            usage.accumulate(total_usage)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
 
