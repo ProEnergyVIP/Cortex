@@ -38,6 +38,7 @@ class MessageUsage:
     '''Token usage information for a message'''
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    cached_tokens: int = 0
     total_tokens: int = 0
 
     def accumulate(self, other: 'MessageUsage') -> None:
@@ -45,6 +46,7 @@ class MessageUsage:
         if other:
             self.prompt_tokens += other.prompt_tokens
             self.completion_tokens += other.completion_tokens
+            self.cached_tokens += other.cached_tokens
             self.total_tokens += other.total_tokens
 
     def format(self) -> str:
@@ -52,6 +54,7 @@ class MessageUsage:
         return (f"Token Usage Summary:\n"
                 f"  Prompt tokens: {self.prompt_tokens:,}\n"
                 f"  Completion tokens: {self.completion_tokens:,}\n"
+                f"  Cached tokens: {self.cached_tokens:,}\n"
                 f"  Total tokens: {self.total_tokens:,}\n")
 
 @dataclass

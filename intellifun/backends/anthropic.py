@@ -90,6 +90,7 @@ class AnthropicBackend(LLMBackend):
         usage = MessageUsage(
             prompt_tokens=resp.usage.input_tokens,
             completion_tokens=resp.usage.output_tokens,
+            cached_tokens=resp.usage.cache_read_input_tokens if resp.usage.cache_read_input_tokens else 0,
             total_tokens=resp.usage.input_tokens + resp.usage.output_tokens
         )
 

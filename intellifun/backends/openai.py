@@ -66,6 +66,7 @@ class OpenAIBackend(LLMBackend):
         usage = MessageUsage(
             prompt_tokens=chat.usage.prompt_tokens,
             completion_tokens=chat.usage.completion_tokens,
+            cached_tokens=chat.usage.prompt_tokens_details.cached_tokens,
             total_tokens=chat.usage.total_tokens
         )
 
