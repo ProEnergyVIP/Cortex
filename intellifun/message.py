@@ -53,8 +53,8 @@ class MessageUsage:
         '''Return a formatted string of the usage information'''
         return (f"Token Usage Summary:\n"
                 f"  Prompt tokens: {self.prompt_tokens:,}\n"
-                f"  Completion tokens: {self.completion_tokens:,}\n"
                 f"  Cached tokens: {self.cached_tokens:,}\n"
+                f"  Completion tokens: {self.completion_tokens:,}\n"
                 f"  Total tokens: {self.total_tokens:,}\n")
 
 @dataclass
@@ -82,7 +82,7 @@ class AgentUsage:
             
         result = "Agent Usage Summary:\n"
         for model_name, usage in self.model_usages.items():
-            result += f"\nModel: {model_name}\n{usage.format()}"
+            result += f"Model: {model_name}\n{usage.format()}"
         return result
 
 @dataclass
