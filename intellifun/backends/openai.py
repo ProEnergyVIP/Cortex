@@ -136,5 +136,5 @@ class OpenAIBackend(LLMBackend):
                     }
                 }
 
-for model in GPTModels:
-    LLMBackend.register_backend(model, OpenAIBackend(model))
+for m in GPTModels:
+    LLMBackend.register_backend(m, OpenAIBackend(m))

@@ -15,7 +15,7 @@ def get_anthropic_client():
 
 
 class AnthropicModels(str, Enum):
-    CLAUDE_3_5_SONNET = 'claude-3.5-sonnet-20240620'
+    CLAUDE_3_5_SONNET = 'claude-3.5-sonnet-20241022'
 
 
 class AnthropicBackend(LLMBackend):
@@ -47,16 +47,19 @@ class AnthropicBackend(LLMBackend):
         '''encode a message as a dictionary for the Anthropic API'''
         if isinstance(msg, UserVisionMessage):
             raise ValueError('Vision messages are not supported by the Anthropic API')
-        elif isinstance(msg, UserMessage):
+        
+        if isinstance(msg, UserMessage):
             return {'role': 'user', 'content': msg.build_content() }
-        elif isinstance(msg, AIMessage):
+        
+        if isinstance(msg, AIMessage):
             txt = {'type': 'text', 'text': msg.content}
             msgs = [txt]
             if msg.tool_calls:
                 for c in msg.tool_calls:
                     msgs.append(self.encode_toolcalling(c))
             return {'role': 'assistant', 'content': msgs}
-        elif isinstance(msg, ToolMessageGroup):
+        
+        if isinstance(msg, ToolMessageGroup):
             msgs = []
             for tm in msg.tool_messages:
                 msgs.append({
@@ -67,9 +70,8 @@ class AnthropicBackend(LLMBackend):
             
             return {'role': 'user',
                     'content': msgs }
-        else:
-            return {'role': 'user', 'content': msg.content}
-    
+        
+        return {'role': 'user', 'content': msg.content}
 
     def decode_result(self, resp):
         '''decode the result from the Anthropic API'''
@@ -117,5 +119,5 @@ class AnthropicBackend(LLMBackend):
             'input_schema': tool.parameters,
         }
 
-for model in AnthropicModels:
-    LLMBackend.register_backend(model, AnthropicBackend(model))
+for m in AnthropicModels:
+    LLMBackend.register_backend(m, AnthropicBackend(m))
