@@ -49,10 +49,10 @@ class MessageUsage:
 
     def format(self) -> str:
         '''Return a formatted string of the usage information'''
-        return (f"\nToken Usage Summary:\n"
+        return (f"Token Usage Summary:\n"
                 f"  Prompt tokens: {self.prompt_tokens:,}\n"
                 f"  Completion tokens: {self.completion_tokens:,}\n"
-                f"  Total tokens: {self.total_tokens:,}")
+                f"  Total tokens: {self.total_tokens:,}\n")
 
 @dataclass
 class AIMessage(Message):

@@ -69,7 +69,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
     
     llm_args = llm_args or {}
 
-    def func(msg, image_urls=None):
+    def func(msg, image_urls=None, usage=None):
         if isinstance(msg, UserMessage):
             user_msg = msg
         elif image_urls:
@@ -93,6 +93,10 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
 
             if is_debug:
                 print_message(ai_msg)
+                print(ai_msg.usage.format())
+            
+            if usage:
+                usage.accumulate(ai_msg.usage)
             
             result = check_result(ai_msg, result_shape, check_func)
 
