@@ -2,7 +2,7 @@ from enum import Enum
 from openai import OpenAI
 
 from intellifun.backend import LLMBackend
-from intellifun.message import AIMessage, Function, SystemMessage, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
+from intellifun.message import AIMessage, Function, MessageUsage, SystemMessage, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
 
 client = OpenAI()
 
@@ -61,9 +61,17 @@ class OpenAIBackend(LLMBackend):
             tool_calls = [self.decode_toolcalling(t) for t in resp_msg.tool_calls]
         else:
             tool_calls = None
-        
+
+        # Create usage information if available
+        usage = MessageUsage(
+            prompt_tokens=chat.usage.prompt_tokens,
+            completion_tokens=chat.usage.completion_tokens,
+            total_tokens=chat.usage.total_tokens
+        )
+
         return AIMessage(content=resp_msg.content,
-                         tool_calls=tool_calls)
+                        tool_calls=tool_calls,
+                        usage=usage)
 
     def encode_msg(self, msg):
         '''encode a message as a dictionary for the OpenAI API'''

@@ -185,7 +185,7 @@ class Agent:
                     return ToolFuncResult(content=f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.')
                 
                 try:
-                    tool_input = json.loads(func.arguments)
+                    tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
                     
                     sig = inspect.signature(tool.func)
                     num_params = len(sig.parameters)

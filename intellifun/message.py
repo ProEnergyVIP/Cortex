@@ -25,7 +25,7 @@ class UserVisionMessage(UserMessage):
 @dataclass
 class Function:
     name: str
-    arguments: str
+    arguments: str | object
 
 @dataclass
 class ToolCalling:
@@ -34,8 +34,16 @@ class ToolCalling:
     function: Function
 
 @dataclass
+class MessageUsage:
+    '''Token usage information for a message'''
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+@dataclass
 class AIMessage(Message):
     tool_calls: List[ToolCalling] = None
+    usage: Optional[MessageUsage] = None
 
 @dataclass
 class ToolMessage(Message):

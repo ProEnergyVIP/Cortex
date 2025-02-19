@@ -1,7 +1,7 @@
 from enum import Enum
 
 from intellifun.backend import LLMBackend, LLMRequest
-from intellifun.message import AIMessage, Function, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
+from intellifun.message import AIMessage, Function, ToolCalling, ToolMessageGroup, UserMessage, UserVisionMessage, MessageUsage
 
 
 __anthropic_client = None
@@ -72,15 +72,28 @@ class AnthropicBackend(LLMBackend):
     
 
     def decode_result(self, resp):
+        '''decode the result from the Anthropic API'''
+        resp_message = None
         tool_calls = []
-        for msg in resp['content']:
-            if msg['type'] == 'text':
-                resp_message = msg['text']
-            elif msg['type'] == 'tool_use':
+        for msg in resp.content:
+            if msg.type == 'text':
+                resp_message = msg.text
+                break
+            
+            if msg.type == 'tool_use':
                 tool_calls.append(self.decode_toolcalling(msg))
+                break
+
+        # Extract usage information from response
+        usage = MessageUsage(
+            prompt_tokens=resp.usage.input_tokens,
+            completion_tokens=resp.usage.output_tokens,
+            total_tokens=resp.usage.input_tokens + resp.usage.output_tokens
+        )
 
         return AIMessage(content=resp_message,
-                         tool_calls=tool_calls)
+                         tool_calls=tool_calls,
+                         usage=usage)
 
     def encode_toolcalling(self, tool_call):
         '''encode a tool call as a dictionary for the Anthropic API'''
@@ -93,9 +106,9 @@ class AnthropicBackend(LLMBackend):
 
     def decode_toolcalling(self, m):
         '''decode a tool call from the Anthropic API response'''
-        fc = Function(name=m['name'], arguments=m['input'])
-        return ToolCalling(id=m['id'], type=m['type'], function=fc)
-    
+        fc = Function(name=m.name, arguments=m.input)
+        return ToolCalling(id=m.id, type=m.type, function=fc)
+
     def encode_tool(self, tool):
         '''encode a tool as a dictionary for the Anthropic API'''
         return {
