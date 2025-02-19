@@ -95,7 +95,8 @@ class AnthropicBackend(LLMBackend):
 
         return AIMessage(content=resp_message,
                          tool_calls=tool_calls,
-                         usage=usage)
+                         usage=usage,
+                         model=resp.model)
 
     def encode_toolcalling(self, tool_call):
         '''encode a tool call as a dictionary for the Anthropic API'''

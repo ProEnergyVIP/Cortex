@@ -6,8 +6,8 @@ from pydantic import BaseModel
 
 from intellifun.LLM import get_random_error_message
 from intellifun.debug import is_debug
-from intellifun.message import (Function, MessageUsage, SystemMessage, 
-                                ToolMessage, ToolMessageGroup, UserMessage)
+from intellifun.message import (Function, SystemMessage,
+                                ToolMessage, ToolMessageGroup, UserMessage, AgentUsage)
 
 from intellifun.message import print_message
 
@@ -86,8 +86,8 @@ class Agent:
         Args:
             message (str or Message): The message to ask
             user_name (str, optional): The name of the user. Defaults to None.
-            usage (MessageUsage, optional): The usage of the message. Defaults to None.
-                You can pass a MessageUsage object to accumulate the token usage.
+            usage (AgentUsage, optional): Object to accumulate token usage across models.
+                You can pass an AgentUsage object to track usage across multiple calls.
 
         Returns:
             str: The response from the agent
@@ -99,7 +99,7 @@ class Agent:
                 send_resp(reply)
 
         reply = None
-        total_usage = MessageUsage()  # Track total usage across all calls
+        agent_usage = AgentUsage()  # Track total usage across all calls
         
         # Get history messages from memory
         history_msgs = self.memory.load_memory() if self.memory else []
@@ -110,7 +110,7 @@ class Agent:
         
         conversation = [message]
         # Main conversation loop
-        for i in range(10):  # Limit to 10 iterations to prevent infinite loops
+        for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
             print_message(self.sys_msg)
 
             msgs = [*history_msgs, *conversation]
@@ -120,8 +120,9 @@ class Agent:
             # call the model
             try:
                 ai_msg = self.llm.call(self.sys_msg, msgs, tools=self.tools)
-                # Accumulate usage if available
-                total_usage.accumulate(ai_msg.usage)
+                # Add usage to AgentUsage if available
+                if ai_msg.usage and ai_msg.model:
+                    agent_usage.add_usage(ai_msg.model, ai_msg.usage)
             except Exception as e:
                 err_msg = get_random_error_message()
                 err_func(err_msg)
@@ -143,15 +144,15 @@ class Agent:
                     continue
 
                 self.memory.add_messages(conversation)
-                print(total_usage.format())
+                print(agent_usage.format())
                 if usage:
-                    usage.accumulate(total_usage)
+                    usage.merge(agent_usage)
                 return reply
 
         self.memory.add_messages(conversation)
-        print(total_usage.format())
+        print(agent_usage.format())
         if usage:
-            usage.accumulate(total_usage)
+            usage.merge(agent_usage)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
 

@@ -71,7 +71,8 @@ class OpenAIBackend(LLMBackend):
 
         return AIMessage(content=resp_msg.content,
                         tool_calls=tool_calls,
-                        usage=usage)
+                        usage=usage,
+                        model=chat.model)
 
     def encode_msg(self, msg):
         '''encode a message as a dictionary for the OpenAI API'''

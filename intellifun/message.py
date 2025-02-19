@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 @dataclass
 class Message:
@@ -55,9 +55,39 @@ class MessageUsage:
                 f"  Total tokens: {self.total_tokens:,}\n")
 
 @dataclass
+class AgentUsage:
+    '''Tracks usage across multiple models in an agent session'''
+    model_usages: Dict[str, MessageUsage] = field(default_factory=dict)
+    
+    def add_usage(self, model_name: str, message_usage: MessageUsage) -> None:
+        '''Add or update usage for a specific model'''
+        if model_name in self.model_usages:
+            self.model_usages[model_name].accumulate(message_usage)
+        else:
+            self.model_usages[model_name] = message_usage
+
+    def merge(self, other: 'AgentUsage') -> None:
+        '''Merge another AgentUsage object into this one'''
+        if other:
+            for model_name, usage in other.model_usages.items():
+                self.add_usage(model_name, usage)
+
+    def format(self) -> str:
+        '''Return a formatted string of all model usages'''
+        if not self.model_usages:
+            return "No usage data available\n"
+            
+        result = "Agent Usage Summary:\n"
+        for model_name, usage in self.model_usages.items():
+            result += f"\nModel: {model_name}\n{usage.format()}"
+        return result
+
+@dataclass
 class AIMessage(Message):
+    '''Message from an AI model'''
     tool_calls: List[ToolCalling] = None
     usage: Optional[MessageUsage] = None
+    model: Optional[str] = None  # Name of the model that generated this message
 
 @dataclass
 class ToolMessage(Message):
