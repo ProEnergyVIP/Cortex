@@ -40,6 +40,20 @@ class MessageUsage:
     completion_tokens: int = 0
     total_tokens: int = 0
 
+    def accumulate(self, other: 'MessageUsage') -> None:
+        '''Add another MessageUsage's numbers to this one'''
+        if other:
+            self.prompt_tokens += other.prompt_tokens
+            self.completion_tokens += other.completion_tokens
+            self.total_tokens += other.total_tokens
+
+    def format(self) -> str:
+        '''Return a formatted string of the usage information'''
+        return (f"\nToken Usage Summary:\n"
+                f"  Prompt tokens: {self.prompt_tokens:,}\n"
+                f"  Completion tokens: {self.completion_tokens:,}\n"
+                f"  Total tokens: {self.total_tokens:,}")
+
 @dataclass
 class AIMessage(Message):
     tool_calls: List[ToolCalling] = None

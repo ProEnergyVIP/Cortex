@@ -6,7 +6,10 @@ from pydantic import BaseModel
 
 from intellifun.LLM import get_random_error_message
 from intellifun.debug import is_debug
-from intellifun.message import Function, SystemMessage, ToolMessage, ToolMessageGroup, UserMessage, print_message
+from intellifun.message import (Function, MessageUsage, SystemMessage, 
+                                ToolMessage, ToolMessageGroup, UserMessage)
+
+from intellifun.message import print_message
 
 
 class Context(BaseModel):
@@ -85,28 +88,30 @@ class Agent:
                 reply = {'message': msg} if self.json_reply else msg
                 send_resp(reply)
 
-        history_msgs = self.memory.load_memory()
-
+        reply = None
+        total_usage = MessageUsage()  # Track total usage across all calls
+        
+        # Get history messages from memory
+        history_msgs = self.memory.load_memory() if self.memory else []
+        
+        # Add the user's message to the conversation
         if isinstance(message, str):
             message = UserMessage(content=message, user_name=user_name)
         
         conversation = [message]
-
-        i = 0
-        reply = None
-
-        while i < 10:
-            i += 1
+        # Main conversation loop
+        for i in range(10):  # Limit to 10 iterations to prevent infinite loops
+            print_message(self.sys_msg)
 
             msgs = [*history_msgs, *conversation]
-
-            print_message(self.sys_msg)
             for m in msgs:
                 print_message(m)
             
             # call the model
             try:
                 ai_msg = self.llm.call(self.sys_msg, msgs, tools=self.tools)
+                # Accumulate usage if available
+                total_usage.accumulate(ai_msg.usage)
             except Exception as e:
                 err_msg = get_random_error_message()
                 err_func(err_msg)
@@ -128,10 +133,11 @@ class Agent:
                     continue
 
                 self.memory.add_messages(conversation)
+                print(total_usage.format())
                 return reply
 
         self.memory.add_messages(conversation)
-
+        print(total_usage.format())
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
 
