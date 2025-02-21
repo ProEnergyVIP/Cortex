@@ -137,7 +137,7 @@ class Agent:
                 continue
 
             func_res = self.run_tool_func(fc.function)
-            tool_res_msg = ToolMessage(content=func_res.content, tool_call_id=fc.id)
+            tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.id)
             msgs.append(tool_res_msg)
 
             # Track this tool call
