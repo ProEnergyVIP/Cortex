@@ -1,8 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import inspect
 import json
-from typing import Callable, List, Optional
-from pydantic import BaseModel
 
 from intellifun.LLM import get_random_error_message
 from intellifun.debug import is_debug
@@ -10,12 +8,6 @@ from intellifun.message import (Function, SystemMessage,
                                 ToolMessage, ToolMessageGroup, UserMessage, AgentUsage)
 
 from intellifun.message import print_message
-
-
-class Context(BaseModel):
-    '''Base class for context used in the agent'''
-    send_response: Optional[Callable] = None
-
 
 @dataclass
 class Tool:
@@ -36,14 +28,6 @@ class Tool:
     def increment_call_count(self):
         '''Increment the call count of the tool'''
         self.__called_times += 1
-
-
-@dataclass
-class ToolFuncResult:
-    '''Result of running a tool function'''
-    content: str
-    frontend_content: str = None
-    tools: List[Tool] = field(default_factory=list)
 
 
 MAX_RECENT_CALLS = 5  # Only track the last 5 calls
@@ -72,14 +56,6 @@ class Agent:
         # Keep only the most recent calls
         self._recent_tool_calls = self._recent_tool_calls[-MAX_RECENT_CALLS:]
 
-    def get_response_sender(self):
-        '''Get the response sender function'''
-        if self.context is not None:
-            if not isinstance(self.context, Context):
-                raise ValueError('context must be an instance of Context')
-            return self.context.send_response
-        return None
-    
     def ask(self, message, user_name=None, usage=None):
         '''Ask a question to the agent, and get a response
 
@@ -92,12 +68,6 @@ class Agent:
         Returns:
             str: The response from the agent
         '''
-        def err_func(msg):
-            send_resp = self.get_response_sender()
-            if send_resp:
-                reply = {'message': msg} if self.json_reply else msg
-                send_resp(reply)
-
         reply = None
         agent_usage = AgentUsage()  # Track total usage across all calls
         
@@ -125,8 +95,8 @@ class Agent:
                     agent_usage.add_usage(ai_msg.model, ai_msg.usage)
             except Exception as e:
                 err_msg = get_random_error_message()
-                err_func(err_msg)
-                raise e
+                reply = {'message': err_msg} if self.json_reply else err_msg
+                break
             
             print_message(ai_msg)
             
@@ -158,9 +128,6 @@ class Agent:
 
     def process_func_call(self, ai_msg):
         '''Process the function call in the LLM result'''
-        actions = []
-        tools = []
-        
         msgs = []
         for fc in ai_msg.tool_calls:
             # Check if this is a repeated tool call
@@ -172,26 +139,11 @@ class Agent:
             func_res = self.run_tool_func(fc.function)
             tool_res_msg = ToolMessage(content=func_res.content, tool_call_id=fc.id)
             msgs.append(tool_res_msg)
-            
-            if func_res.frontend_content is not None:
-                actions.append(func_res.frontend_content)
-            
-            if func_res.tools:
-                tools.extend(func_res.tools)
 
             # Track this tool call
             self._add_tool_call(fc.function)
         
         msg_group = ToolMessageGroup(tool_messages=msgs)
-
-        # accumulate actions and send them to the frontend
-        send_resp = self.get_response_sender()
-        if actions and send_resp:
-            send_resp({'actions': actions})
-        
-        # accumulate tools and add them to the agent
-        if tools:
-            self.tools.extend(tools)
         
         return msg_group
 
@@ -203,7 +155,7 @@ class Agent:
             if tool.name == tool_name:
                 if not tool.check_call_limit():
                     self.tools.remove(tool)
-                    return ToolFuncResult(content=f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.')
+                    return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
                 
                 try:
                     tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
@@ -220,32 +172,25 @@ class Agent:
                     elif num_params == 3:
                         res = tool.func(tool_input, self.context, self)
                     else:
-                        return ToolFuncResult(content=f'Invalid number of parameters for tool function {tool_name}: {num_params}')
+                        return f'Invalid number of parameters for tool function {tool_name}: {num_params}'
                     
                     tool.increment_call_count()
 
                     # check result data type and wrap it into a ToolFuncResult
                     if isinstance(res, dict):
                         msg = res['message'] if 'message' in res else f'tool function {tool_name} finished'
-                        func_res = ToolFuncResult(content=msg)
-                        if 'tools' in res:
-                            func_res.tools=res['tools']
-                            del res['tools']
-                        if 'action' in res:
-                            func_res.frontend_content = res
-                        return func_res
-                    
+                        return msg
                     if isinstance(res, str):
-                        return ToolFuncResult(content=res)
+                        return res
 
-                    return ToolFuncResult(content=f'tool function {tool_name} finished')
+                    return f'tool function {tool_name} finished'
                 except json.JSONDecodeError as e:
-                    return ToolFuncResult(content=f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.')
+                    return f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.'
                 except Exception as e:
                     if is_debug:
                         import traceback
                         traceback.print_exc()
 
-                    return ToolFuncResult(content=f'Error running tool "{tool_name}": {e}')
+                    return f'Error running tool "{tool_name}": {e}'
         
-        return ToolFuncResult(content=f'No tool named "{tool_name}" found. Do not call it again.')
+        return f'No tool named "{tool_name}" found. Do not call it again.'
