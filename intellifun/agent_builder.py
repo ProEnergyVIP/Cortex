@@ -1,5 +1,5 @@
 from intellifun import LLM, GPTModels
-from intellifun.agent import Agent, Context, Tool
+from intellifun.agent import Agent, Tool
 from intellifun.agent_memory import AgentMemoryBank
 
 
@@ -292,7 +292,7 @@ to help user understand the code.
 Good luck building agents!
 '''
 
-def agent_builder_agent(send_resp):
+def agent_builder_agent():
     '''A special agent that can be used to build other agents.'''
     llm = LLM(model=GPTModels.GPT_4O, temperature=0.4)
 
@@ -303,9 +303,7 @@ def agent_builder_agent(send_resp):
 
     memory = AgentMemoryBank.bank_for('agent_builder').get_agent_memory('agent_builder', k=20)
 
-    context = Context(send_response=send_resp)
-
-    return Agent(llm, tools=tools, sys_prompt=AGENT_BUILDER_PROMPT, memory=memory, context=context)
+    return Agent(llm, tools=tools, sys_prompt=AGENT_BUILDER_PROMPT, memory=memory)
 
 
 def save_to_python_file_tool():
@@ -369,10 +367,7 @@ def read_python_file_tool():
 
 def talk_to_agent_builder():
     '''Talk to the agent builder agent.'''
-    def send_resp(resp):
-        print(f'Agent: {resp}')
-
-    agent = agent_builder_agent(send_resp)
+    agent = agent_builder_agent()
 
     while True:
         user_input = input('You: ')
