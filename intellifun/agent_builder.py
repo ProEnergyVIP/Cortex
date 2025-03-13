@@ -83,10 +83,8 @@ Here's the basic building components of intellifun:
         - 3rd argument: The agent object that is calling the tool.
     - parameters: A json schema of the parameters that the function takes
 
-- Context: A context object that can be shared across the agent and tools. You can
-    subclass the Context and add more fields you need. The base Context class is a
-    pydantic BaseModel, it has a send_response field that should be a callable that
-    can send a response to the user.
+- Context: A context object that can be shared across the agent and tools. It can
+    be any object the user want to share or use in agents and tools.
 
 - Agent: An agent is an intelligent assistant that can behave like a human, it can
     generate text, ask questions, and perform tasks using tools. You can create an
@@ -124,14 +122,13 @@ DON'T MAKE ANYTHING UP. Only use the themes available above.
 If user want to change to a theme not listed above, reject politely.
 """
 
-def customizer_agent(context, llm=None, verbose=False):
+def customizer_agent(context):
     """create an agent that help select themes"""
-    llm = llm or LLM(model=GPTModels.GPT_35_TURBO, temperature=0.2)
+    llm = LLM(model=GPTModels.GPT_35_TURBO, temperature=0.2)
 
-    user = context.user
     user_dict = context.user_dict
 
-    tools = [check_theme_tool(user),
+    tools = [check_theme_tool(),
              change_theme_tool(user),
             ]
 
@@ -143,17 +140,15 @@ def customizer_agent(context, llm=None, verbose=False):
     return Agent(llm=llm, tools=tools, sys_prompt=sys_msg, memory=memory, context=context)
 
 
-def check_theme_tool(user):
+def check_theme_tool():
     """check theme tool"""
-    def func():
-        try:
-            with SessionLocal() as db:
-                company = db.query(Company).filter(Company.id == user.company.id).first()
-                if company:
-                    return company.theme
-                return 'company not found'
-        except Exception as e:
-            return str(e)
+    def func(args, context):
+        db = context.db
+        user = context.user
+        company = db.query(Company).filter(Company.id == user.company.id).first()
+        if company:
+            return company.theme
+        return 'company not found'
 
     return Tool(
         name='check_theme',
@@ -163,27 +158,26 @@ def check_theme_tool(user):
     )
 
 
-def change_theme_tool(user):
+def change_theme_tool():
     """change theme tool"""
     def func(args):
-        try:
-            if not user.is_admin():
-                return f'Sorry, only company Owner or Admin users can customize the app, this user is not allowed to use this tool.'
-
-            theme = args['theme']
+        user = context.user
         
-            with SessionLocal() as db:
-                company = db.query(Company).filter(Company.id == user.company.id).first()
-                company.theme = theme
-                db.commit()
-            
-            return {
-                'action': 'change_theme',
-                'theme': theme,
-                'message': f'now theme is changed to "{{theme}}"',
-            }
-        except Exception as e:
-            return str(e)
+        if not user.is_admin():
+            return f'Sorry, only company Owner or Admin users can customize the app, this user is not allowed to use this tool.'
+
+        theme = args['theme']
+    
+        with SessionLocal() as db:
+            company = db.query(Company).filter(Company.id == user.company.id).first()
+            company.theme = theme
+            db.commit()
+        
+        return {
+            'action': 'change_theme',
+            'theme': theme,
+            'message': f'now theme is changed to "{{theme}}"',
+        }
 
     return Tool(
         name='change_theme',
