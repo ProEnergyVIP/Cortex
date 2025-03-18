@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import inspect
 import json
+import rich
 
 from intellifun.LLM import get_random_error_message
 from intellifun.debug import is_debug
@@ -97,6 +98,9 @@ class Agent:
 
         if show_msgs:
             print(START_DELIM)
+
+            if not show_history:    # show the user message once here if no history
+                print_message(message)
         
         # Main conversation loop
         for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
@@ -161,8 +165,7 @@ class Agent:
     def print_name(self):
         '''Print the agent name if available'''        
         if self.name:
-            from rich import print
-            print(f"[bold cyan]Agent: {self.name}[/bold cyan]")
+            rich.print(f"[bold cyan]Agent: {self.name}[/bold cyan]")
 
     def process_func_call(self, ai_msg, show_msgs):
         '''Process the function call in the LLM result'''
@@ -170,7 +173,7 @@ class Agent:
         for fc in ai_msg.tool_calls:
             # Check if this is a repeated tool call
             if show_msgs:
-                print(f'[bold purple]Tool: {fc.function.name}[/bold purple]')
+                rich.print(f'[bold purple]Tool: {fc.function.name}[/bold purple]')
             
             if self._is_repeated_tool_call(fc.function):
                 msg = f'Tool "{fc.function.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
