@@ -5,9 +5,10 @@ import json
 from intellifun.LLM import get_random_error_message
 from intellifun.debug import is_debug
 from intellifun.message import (Function, SystemMessage,
-                                ToolMessage, ToolMessageGroup, UserMessage, AgentUsage)
+                                ToolMessage, ToolMessageGroup, UserMessage, AgentUsage, AIMessage)
 
 from intellifun.message import print_message
+from intellifun.logging_config import get_default_logging_config
 
 @dataclass
 class Tool:
@@ -33,7 +34,8 @@ class Tool:
 MAX_RECENT_CALLS = 5  # Only track the last 5 calls
 
 class Agent:
-    def __init__(self, llm, tools=None, sys_prompt='', memory=None, context=None, json_reply=False):
+    def __init__(self, llm, tools=None, sys_prompt='', memory=None, context=None, json_reply=False, 
+                 name=None, logging_config=None):
         self.llm = llm
         self.tools = tools or []
         self.sys_msg = sys_prompt if isinstance(sys_prompt, SystemMessage) else SystemMessage(content=sys_prompt)
@@ -42,6 +44,10 @@ class Agent:
         self.json_reply = json_reply
         # Track recent tool calls to detect repetition
         self._recent_tool_calls = []
+        # Agent name and logging configuration
+        self.name = name
+        # If no logging config is provided, use the global default
+        self.logging_config = logging_config or get_default_logging_config()
 
     def _is_repeated_tool_call(self, func: Function) -> bool:
         '''Check if this exact tool call was made recently'''
@@ -79,13 +85,23 @@ class Agent:
             message = UserMessage(content=message, user_name=user_name)
         
         conversation = [message]
+        
+        # Print agent name if available
+        self.print_name()
+        
         # Main conversation loop
         for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
-            print_message(self.sys_msg)
+            # Print system prompt if enabled
+            if self.logging_config.print_system_prompt:
+                print_message(self.sys_msg)
 
             msgs = [*history_msgs, *conversation]
-            for m in msgs:
-                print_message(m)
+            
+            # Print conversation messages based on logging config
+            if self.logging_config.print_messages:
+                for m in msgs:
+                    if isinstance(m, (UserMessage, AIMessage, ToolMessage, ToolMessageGroup)):
+                        print_message(m)
             
             # call the model
             try:
@@ -98,7 +114,9 @@ class Agent:
                 reply = {'message': err_msg} if self.json_reply else err_msg
                 break
             
-            print_message(ai_msg)
+            # Print AI message if enabled
+            if self.logging_config.print_messages:
+                print_message(ai_msg)
             
             conversation.append(ai_msg)
             # check if we need to run a tool
@@ -114,17 +132,24 @@ class Agent:
                     continue
 
                 self.memory.add_messages(conversation)
-                print(agent_usage.format())
+                if self.logging_config.print_usage_report:
+                    print(agent_usage.format())
                 if usage:
                     usage.merge(agent_usage)
                 return reply
 
         self.memory.add_messages(conversation)
-        print(agent_usage.format())
+        if self.logging_config.print_usage_report:
+            print(agent_usage.format())
         if usage:
             usage.merge(agent_usage)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
+    def print_name(self):
+        '''Print the agent name if available'''        
+        if self.name:
+            from rich import print
+            print(f"[bold cyan]Agent: {self.name}[/bold cyan]")
 
     def process_func_call(self, ai_msg):
         '''Process the function call in the LLM result'''
