@@ -5,9 +5,8 @@ import json
 from intellifun.LLM import get_random_error_message
 from intellifun.debug import is_debug
 from intellifun.message import (Function, SystemMessage,
-                                ToolMessage, ToolMessageGroup, UserMessage, AgentUsage, AIMessage)
+                                ToolMessage, ToolMessageGroup, UserMessage, AgentUsage, print_message)
 
-from intellifun.message import print_message
 from intellifun.logging_config import get_default_logging_config
 
 @dataclass
@@ -88,20 +87,27 @@ class Agent:
         
         # Print agent name if available
         self.print_name()
+
+        show_sys_prompt = self.logging_config.print_system_prompt
+        show_msgs = self.logging_config.print_messages
+        show_history = show_sys_prompt and show_msgs
         
         # Main conversation loop
         for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
             # Print system prompt if enabled
-            if self.logging_config.print_system_prompt:
+            if show_sys_prompt:
                 print_message(self.sys_msg)
 
             msgs = [*history_msgs, *conversation]
             
             # Print conversation messages based on logging config
-            if self.logging_config.print_messages:
-                for m in msgs:
-                    if isinstance(m, (UserMessage, AIMessage, ToolMessage, ToolMessageGroup)):
+            if show_msgs:
+                print('-' * 80)
+                if show_history:
+                    for m in msgs:
                         print_message(m)
+                else:
+                    print_message(msgs[-1])
             
             # call the model
             try:
@@ -115,7 +121,7 @@ class Agent:
                 break
             
             # Print AI message if enabled
-            if self.logging_config.print_messages:
+            if show_msgs:
                 print_message(ai_msg)
             
             conversation.append(ai_msg)
@@ -136,6 +142,9 @@ class Agent:
                     print(agent_usage.format())
                 if usage:
                     usage.merge(agent_usage)
+                
+                if show_msgs:
+                    print('=' * 80)
                 return reply
 
         self.memory.add_messages(conversation)
@@ -143,6 +152,10 @@ class Agent:
             print(agent_usage.format())
         if usage:
             usage.merge(agent_usage)
+        
+        if show_msgs:
+            print('=' * 80)
+        
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
     def print_name(self):
