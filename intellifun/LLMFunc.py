@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 import json
 from typing import Any
+from intellifun.logging_config import get_default_logging_config
 from intellifun.message import SystemMessage, UserMessage, UserVisionMessage, print_message
-from intellifun.debug import is_debug
 
 @dataclass
 class CheckResult:
@@ -33,7 +33,7 @@ DO NOT include the JSON schema itself in the output, only the JSON object confor
 DO NOT include the `json` tag in your answer.
 '''
 
-def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm_args=None):
+def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm_args=None, logging_config=None):
     '''Create a new LLMFunc, which is a LLM based intelligent function
     
     This function is used to create a new LLMFunc, which is a function that uses an LLM to
@@ -55,6 +55,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
     result_shape (dict): The expected shape of the result, as a JSON parameter object
     check_func (function): A function to check the result, should return a CheckResult
     max_attempts (int): The maximum number of attempts to make, default is 3
+    logging_config (LoggingConfig): Configuration for message logging
 
     Returns:
     function: The LLMFunc function
@@ -64,7 +65,9 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
 
     sys_msg = SystemMessage(content=prompt)
 
-    if is_debug:
+    logging_config = logging_config or get_default_logging_config()
+
+    if logging_config.print_system_prompt:
         print_message(sys_msg)
     
     llm_args = llm_args or {}
@@ -85,14 +88,16 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
             if check_func:
                 msgs.extend(history)
 
-            if is_debug:
+            if logging_config.print_messages:
                 for msg in msgs:
                     print_message(msg)
 
             ai_msg = llm.call(sys_msg, msgs, **llm_args)
 
-            if is_debug:
+            if logging_config.print_messages:
                 print_message(ai_msg)
+            
+            if logging_config.print_usage_report:
                 print(ai_msg.usage.format())
             
             if usage and ai_msg.model and ai_msg.usage:
