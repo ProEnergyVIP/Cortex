@@ -94,6 +94,9 @@ class Agent:
         show_sys_prompt = self.logging_config.print_system_prompt
         show_msgs = self.logging_config.print_messages
         show_history = show_sys_prompt and show_msgs
+
+        if show_msgs:
+            print(START_DELIM)
         
         # Main conversation loop
         for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
@@ -104,13 +107,9 @@ class Agent:
             msgs = [*history_msgs, *conversation]
             
             # Print conversation messages based on logging config
-            if show_msgs:
-                print(START_DELIM)
-                if show_history:
-                    for m in msgs:
-                        print_message(m)
-                else:
-                    print_message(msgs[-1])
+            if show_history:
+                for m in msgs:
+                    print_message(m)
             
             # call the model
             try:
@@ -122,17 +121,15 @@ class Agent:
                 err_msg = get_random_error_message()
                 reply = {'message': err_msg} if self.json_reply else err_msg
                 break
-            
-            # Print AI message if enabled
-            if show_msgs:
-                print_message(ai_msg)
-            
+
             conversation.append(ai_msg)
             # check if we need to run a tool
             if ai_msg.tool_calls is not None:
-                tool_msgs = self.process_func_call(ai_msg)
+                tool_msgs = self.process_func_call(ai_msg, show_msgs)
                 conversation.append(tool_msgs)
             elif ai_msg.content:
+                if show_msgs:
+                    print_message(ai_msg)
                 try:
                     reply = json.loads(ai_msg.content) if self.json_reply else ai_msg.content
                 except json.JSONDecodeError as e:
@@ -167,11 +164,14 @@ class Agent:
             from rich import print
             print(f"[bold cyan]Agent: {self.name}[/bold cyan]")
 
-    def process_func_call(self, ai_msg):
+    def process_func_call(self, ai_msg, show_msgs):
         '''Process the function call in the LLM result'''
         msgs = []
         for fc in ai_msg.tool_calls:
             # Check if this is a repeated tool call
+            if show_msgs:
+                print(f'[bold purple]Tool: {fc.function.name}[/bold purple]')
+            
             if self._is_repeated_tool_call(fc.function):
                 msg = f'Tool "{fc.function.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
                 msgs.append(ToolMessage(content=msg, tool_call_id=fc.id))
@@ -180,6 +180,9 @@ class Agent:
             func_res = self.run_tool_func(fc.function)
             tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.id)
             msgs.append(tool_res_msg)
+
+            if show_msgs:
+                print_message(tool_res_msg)
 
             # Track this tool call
             self._add_tool_call(fc.function)
