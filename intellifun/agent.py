@@ -32,6 +32,9 @@ class Tool:
 
 MAX_RECENT_CALLS = 5  # Only track the last 5 calls
 
+START_DELIM = '\\/' * 40
+END_DELIM = '^' * 80
+
 class Agent:
     def __init__(self, llm, tools=None, sys_prompt='', memory=None, context=None, json_reply=False, 
                  name=None, logging_config=None):
@@ -102,7 +105,7 @@ class Agent:
             
             # Print conversation messages based on logging config
             if show_msgs:
-                print('-' * 80)
+                print(START_DELIM)
                 if show_history:
                     for m in msgs:
                         print_message(m)
@@ -144,7 +147,7 @@ class Agent:
                     usage.merge(agent_usage)
                 
                 if show_msgs:
-                    print('=' * 80)
+                    print(END_DELIM)
                 return reply
 
         self.memory.add_messages(conversation)
@@ -154,7 +157,7 @@ class Agent:
             usage.merge(agent_usage)
         
         if show_msgs:
-            print('=' * 80)
+            print(END_DELIM)
         
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
