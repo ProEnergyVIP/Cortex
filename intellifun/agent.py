@@ -32,7 +32,7 @@ class Tool:
 
 MAX_RECENT_CALLS = 5  # Only track the last 5 calls
 
-START_DELIM = '\\/' * 40
+START_DELIM = '-' * 80
 END_DELIM = '^' * 80
 
 class Agent:
