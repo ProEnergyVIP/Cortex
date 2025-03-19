@@ -94,26 +94,24 @@ class Agent:
 
         show_sys_prompt = self.logging_config.print_system_prompt
         show_msgs = self.logging_config.print_messages
-        show_history = show_sys_prompt and show_msgs
+
+        # Print system prompt if enabled
+        if show_sys_prompt:
+            print_message(self.sys_msg)
 
         if show_msgs:
             print(START_DELIM)
 
-            if not show_history:    # show the user message once here if no history
-                print_message(message)
+            # log history when showing system prompt
+            if show_sys_prompt:
+                for m in history_msgs:
+                    print_message(m)
+
+            print_message(message)
         
         # Main conversation loop
         for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
-            # Print system prompt if enabled
-            if show_sys_prompt:
-                print_message(self.sys_msg)
-
             msgs = [*history_msgs, *conversation]
-            
-            # Print conversation messages based on logging config
-            if show_history:
-                for m in msgs:
-                    print_message(m)
             
             # call the model
             try:
