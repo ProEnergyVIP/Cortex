@@ -65,24 +65,8 @@ class Agent:
         # Keep only the most recent calls
         self._recent_tool_calls = self._recent_tool_calls[-MAX_RECENT_CALLS:]
 
-    def ask(self, message, user_name=None, usage=None):
-        '''Ask a question to the agent, and get a response
-
-        Args:
-            message (str or Message): The message to ask
-            user_name (str, optional): The name of the user. Defaults to None.
-            usage (AgentUsage, optional): Object to accumulate token usage across models.
-                You can pass an AgentUsage object to track usage across multiple calls.
-
-        Returns:
-            str: The response from the agent
-        '''
-        reply = None
-        agent_usage = AgentUsage()  # Track total usage across all calls
-        
-        # Get history messages from memory
-        history_msgs = self.memory.load_memory() if self.memory else []
-        
+    def _prepare_conversation(self, message, user_name, history_msgs):
+        '''Prepare the conversation with the user message'''
         # Add the user's message to the conversation
         if isinstance(message, str):
             message = UserMessage(content=message, user_name=user_name)
@@ -108,6 +92,60 @@ class Agent:
                     print_message(m)
 
             print_message(message)
+            
+        return message, conversation, show_msgs
+    
+    def _handle_response(self, conversation, agent_usage, usage, show_msgs):
+        '''Handle the response after the conversation is complete'''
+        self.memory.add_messages(conversation)
+        if self.logging_config.print_usage_report:
+            print(agent_usage.format())
+        if usage:
+            usage.merge(agent_usage)
+        
+        if show_msgs:
+            print(END_DELIM)
+    
+    def _process_ai_message(self, ai_msg, conversation, show_msgs):
+        '''Process the AI message and determine next steps'''
+        conversation.append(ai_msg)
+        
+        # check if we need to run a tool
+        if ai_msg.tool_calls is not None:
+            tool_msgs = self.process_func_call(ai_msg, show_msgs)
+            conversation.append(tool_msgs)
+            return None  # Continue the conversation
+        elif ai_msg.content:
+            if show_msgs:
+                print_message(ai_msg)
+            try:
+                return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
+            except json.JSONDecodeError as e:
+                err_msg = f'Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag.'
+                conversation.append(UserMessage(content=err_msg))
+                return None  # Continue the conversation with error message
+        
+        return None  # Continue the conversation
+
+    def ask(self, message, user_name=None, usage=None):
+        '''Ask a question to the agent, and get a response
+
+        Args:
+            message (str or Message): The message to ask
+            user_name (str, optional): The name of the user. Defaults to None.
+            usage (AgentUsage, optional): Object to accumulate token usage across models.
+                You can pass an AgentUsage object to track usage across multiple calls.
+
+        Returns:
+            str: The response from the agent
+        '''
+        reply = None
+        agent_usage = AgentUsage()  # Track total usage across all calls
+        
+        # Get history messages from memory
+        history_msgs = self.memory.load_memory() if self.memory else []
+        
+        message, conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
         
         # Main conversation loop
         for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
@@ -124,40 +162,12 @@ class Agent:
                 reply = {'message': err_msg} if self.json_reply else err_msg
                 break
 
-            conversation.append(ai_msg)
-            # check if we need to run a tool
-            if ai_msg.tool_calls is not None:
-                tool_msgs = self.process_func_call(ai_msg, show_msgs)
-                conversation.append(tool_msgs)
-            elif ai_msg.content:
-                if show_msgs:
-                    print_message(ai_msg)
-                try:
-                    reply = json.loads(ai_msg.content) if self.json_reply else ai_msg.content
-                except json.JSONDecodeError as e:
-                    err_msg = f'Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag.'
-                    conversation.append(UserMessage(content=err_msg))
-                    continue
-
-                self.memory.add_messages(conversation)
-                if self.logging_config.print_usage_report:
-                    print(agent_usage.format())
-                if usage:
-                    usage.merge(agent_usage)
-                
-                if show_msgs:
-                    print(END_DELIM)
+            reply = self._process_ai_message(ai_msg, conversation, show_msgs)
+            if reply is not None:
+                self._handle_response(conversation, agent_usage, usage, show_msgs)
                 return reply
 
-        self.memory.add_messages(conversation)
-        if self.logging_config.print_usage_report:
-            print(agent_usage.format())
-        if usage:
-            usage.merge(agent_usage)
-        
-        if show_msgs:
-            print(END_DELIM)
-        
+        self._handle_response(conversation, agent_usage, usage, show_msgs)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
     async def async_ask(self, message, user_name=None, usage=None):
@@ -178,31 +188,7 @@ class Agent:
         # Get history messages from memory
         history_msgs = self.memory.load_memory() if self.memory else []
         
-        # Add the user's message to the conversation
-        if isinstance(message, str):
-            message = UserMessage(content=message, user_name=user_name)
-        
-        conversation = [message]
-        
-        # Print agent name if available
-        self.print_name()
-
-        show_sys_prompt = self.logging_config.print_system_prompt
-        show_msgs = self.logging_config.print_messages
-
-        # Print system prompt if enabled
-        if show_sys_prompt:
-            print_message(self.sys_msg)
-
-        if show_msgs:
-            print(START_DELIM)
-
-            # log history when showing system prompt
-            if show_sys_prompt:
-                for m in history_msgs:
-                    print_message(m)
-
-            print_message(message)
+        message, conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
         
         # Main conversation loop
         for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
@@ -219,40 +205,12 @@ class Agent:
                 reply = {'message': err_msg} if self.json_reply else err_msg
                 break
 
-            conversation.append(ai_msg)
-            # check if we need to run a tool
-            if ai_msg.tool_calls is not None:
-                tool_msgs = self.process_func_call(ai_msg, show_msgs)
-                conversation.append(tool_msgs)
-            elif ai_msg.content:
-                if show_msgs:
-                    print_message(ai_msg)
-                try:
-                    reply = json.loads(ai_msg.content) if self.json_reply else ai_msg.content
-                except json.JSONDecodeError as e:
-                    err_msg = f'Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag.'
-                    conversation.append(UserMessage(content=err_msg))
-                    continue
-
-                self.memory.add_messages(conversation)
-                if self.logging_config.print_usage_report:
-                    print(agent_usage.format())
-                if usage:
-                    usage.merge(agent_usage)
-                
-                if show_msgs:
-                    print(END_DELIM)
+            reply = self._process_ai_message(ai_msg, conversation, show_msgs)
+            if reply is not None:
+                self._handle_response(conversation, agent_usage, usage, show_msgs)
                 return reply
 
-        self.memory.add_messages(conversation)
-        if self.logging_config.print_usage_report:
-            print(agent_usage.format())
-        if usage:
-            usage.merge(agent_usage)
-        
-        if show_msgs:
-            print(END_DELIM)
-        
+        self._handle_response(conversation, agent_usage, usage, show_msgs)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
     def print_name(self):
