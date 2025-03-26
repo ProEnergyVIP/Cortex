@@ -113,6 +113,38 @@ class LLM:
                 return self.call(sys_msg, msgs, max_tokens, tools)
             
             raise  # Re-raise if no backup available or already using backup
+    
+    async def async_call(self, sys_msg, msgs, max_tokens=None, tools=None):
+        '''Async call to the model with the given messages and return the response message
+
+        Args:
+            msgs (list): list of messages to pass to the model
+
+        Returns: message like above
+        '''
+        try:
+            req = LLMRequest(system_message=sys_msg,
+                            messages=msgs,
+                            temperature=self.temperature,
+                            max_tokens=max_tokens,
+                            tools=tools or [],
+                            )
+            return await self.backend.async_call(req)
+        except Exception as e:
+            # Check if we can switch to backup
+            should_retry = False
+            with self._runtime_lock:  # Minimize lock holding time
+                if self.model not in self._failed_models and self.model in self._backup_backends:
+                    # Mark this model as failed and switch backend
+                    self._failed_models.add(self.model)
+                    self._initialize_backend()
+                    should_retry = True
+
+            # Retry with new backend if we switched
+            if should_retry:
+                return await self.async_call(sys_msg, msgs, max_tokens, tools)
+            
+            raise  # Re-raise if no backup available or already using backup
 
 def get_random_error_message():
     '''Get a random error message'''
