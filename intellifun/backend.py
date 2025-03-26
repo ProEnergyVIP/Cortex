@@ -16,6 +16,10 @@ class LLMBackend:
 
     def call(self, req: LLMRequest) -> AIMessage | None:
         return None
+    
+    async def async_call(self, req: LLMRequest) -> AIMessage | None:
+        """Async version of call method. By default falls back to synchronous call."""
+        return None
 
     @classmethod
     def get_backend(cls, model):

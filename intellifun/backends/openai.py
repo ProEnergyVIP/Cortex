@@ -1,10 +1,24 @@
 from enum import Enum
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 
 from intellifun.backend import LLMBackend
 from intellifun.message import AIMessage, Function, MessageUsage, SystemMessage, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
 
-client = OpenAI()
+
+__openai_client = None
+__async_openai_client = None
+
+def get_openai_client():
+    global __openai_client
+    if __openai_client is None:
+        __openai_client = OpenAI()
+    return __openai_client
+
+def get_async_openai_client():
+    global __async_openai_client
+    if __async_openai_client is None:
+        __async_openai_client = AsyncOpenAI()
+    return __async_openai_client
 
 
 class GPTModels(str, Enum):
@@ -27,8 +41,8 @@ class OpenAIBackend(LLMBackend):
     def __init__(self, model):
         self.model = model
     
-    def call(self, req):
-        '''Call the OpenAI model with the request and return the response as an AIMessage'''
+    def _prepare_request_params(self, req):
+        '''Prepare the request parameters for the OpenAI API'''
         msgs = []
         # flatten the messages
         for m in req.messages:
@@ -52,11 +66,14 @@ class OpenAIBackend(LLMBackend):
         if req.tools:
             tools = [self.encode_tool(t) for t in req.tools]
             params['tools'] = tools
-        
-        chat = client.chat.completions.create(**params)
+            
+        return params
+    
+    def _process_response(self, chat):
+        '''Process the response from the OpenAI API'''
         resp = chat.choices[0]
-
         resp_msg = resp.message
+        
         if resp_msg.tool_calls:
             tool_calls = [self.decode_toolcalling(t) for t in resp_msg.tool_calls]
         else:
@@ -74,6 +91,20 @@ class OpenAIBackend(LLMBackend):
                         tool_calls=tool_calls,
                         usage=usage,
                         model=chat.model)
+    
+    def call(self, req):
+        '''Call the OpenAI model with the request and return the response as an AIMessage'''
+        params = self._prepare_request_params(req)
+        client = get_openai_client()
+        chat = client.chat.completions.create(**params)
+        return self._process_response(chat)
+    
+    async def async_call(self, req):
+        '''Async call to the OpenAI model with the request and return the response as an AIMessage'''
+        params = self._prepare_request_params(req)
+        client = get_async_openai_client()
+        chat = await client.chat.completions.create(**params)
+        return self._process_response(chat)
 
     def encode_msg(self, msg):
         '''encode a message as a dictionary for the OpenAI API'''

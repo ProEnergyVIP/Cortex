@@ -5,6 +5,7 @@ from intellifun.message import AIMessage, Function, ToolCalling, ToolMessageGrou
 
 
 __anthropic_client = None
+__async_anthropic_client = None
 
 def get_anthropic_client():
     global __anthropic_client
@@ -12,6 +13,13 @@ def get_anthropic_client():
         from anthropic import Anthropic
         __anthropic_client = Anthropic()
     return __anthropic_client
+
+def get_async_anthropic_client():
+    global __async_anthropic_client
+    if __async_anthropic_client is None:
+        from anthropic import AsyncAnthropic
+        __async_anthropic_client = AsyncAnthropic()
+    return __async_anthropic_client
 
 
 class AnthropicModels(str, Enum):
@@ -22,8 +30,8 @@ class AnthropicBackend(LLMBackend):
     def __init__(self, model):
         self.model = model
     
-    def call(self, req: LLMRequest) -> AIMessage | None:
-        '''Call the Anthropic model with the request and return the response as an AIMessage'''
+    def _prepare_request_params(self, req: LLMRequest):
+        '''Prepare the request parameters for the Anthropic API'''
         msgs = [self.encode_msg(m) for m in req.messages]
 
         params = {
@@ -37,10 +45,21 @@ class AnthropicBackend(LLMBackend):
         if req.tools:
             tools = [self.encode_tool(t) for t in req.tools]
             params['tools'] = tools
-        
+            
+        return params
+    
+    def call(self, req: LLMRequest) -> AIMessage | None:
+        '''Call the Anthropic model with the request and return the response as an AIMessage'''
+        params = self._prepare_request_params(req)
         client = get_anthropic_client()
         resp = client.messages.create(**params)
-
+        return self.decode_result(resp)
+    
+    async def async_call(self, req: LLMRequest) -> AIMessage | None:
+        '''Async call to the Anthropic model with the request and return the response as an AIMessage'''
+        params = self._prepare_request_params(req)
+        client = get_async_anthropic_client()
+        resp = await client.messages.create(**params)
         return self.decode_result(resp)
 
     def encode_msg(self, msg):
