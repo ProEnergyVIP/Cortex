@@ -98,7 +98,7 @@ class LLM:
                             tools=tools or [],
                             )
             return self.backend.call(req)
-        except Exception as e:
+        except Exception as _:
             # Check if we can switch to backup
             should_retry = False
             with self._runtime_lock:  # Minimize lock holding time
@@ -130,7 +130,7 @@ class LLM:
                             tools=tools or [],
                             )
             return await self.backend.async_call(req)
-        except Exception as e:
+        except Exception as _:
             # Check if we can switch to backup
             should_retry = False
             with self._runtime_lock:  # Minimize lock holding time

@@ -119,7 +119,102 @@ class Agent:
                 # Add usage to AgentUsage if available
                 if ai_msg.usage and ai_msg.model:
                     agent_usage.add_usage(ai_msg.model, ai_msg.usage)
-            except Exception as e:
+            except Exception as _:
+                err_msg = get_random_error_message()
+                reply = {'message': err_msg} if self.json_reply else err_msg
+                break
+
+            conversation.append(ai_msg)
+            # check if we need to run a tool
+            if ai_msg.tool_calls is not None:
+                tool_msgs = self.process_func_call(ai_msg, show_msgs)
+                conversation.append(tool_msgs)
+            elif ai_msg.content:
+                if show_msgs:
+                    print_message(ai_msg)
+                try:
+                    reply = json.loads(ai_msg.content) if self.json_reply else ai_msg.content
+                except json.JSONDecodeError as e:
+                    err_msg = f'Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag.'
+                    conversation.append(UserMessage(content=err_msg))
+                    continue
+
+                self.memory.add_messages(conversation)
+                if self.logging_config.print_usage_report:
+                    print(agent_usage.format())
+                if usage:
+                    usage.merge(agent_usage)
+                
+                if show_msgs:
+                    print(END_DELIM)
+                return reply
+
+        self.memory.add_messages(conversation)
+        if self.logging_config.print_usage_report:
+            print(agent_usage.format())
+        if usage:
+            usage.merge(agent_usage)
+        
+        if show_msgs:
+            print(END_DELIM)
+        
+        return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
+
+    async def async_ask(self, message, user_name=None, usage=None):
+        '''Ask a question to the agent asynchronously, and get a response
+
+        Args:
+            message (str or Message): The message to ask
+            user_name (str, optional): The name of the user. Defaults to None.
+            usage (AgentUsage, optional): Object to accumulate token usage across models.
+                You can pass an AgentUsage object to track usage across multiple calls.
+
+        Returns:
+            str: The response from the agent
+        '''
+        reply = None
+        agent_usage = AgentUsage()  # Track total usage across all calls
+        
+        # Get history messages from memory
+        history_msgs = self.memory.load_memory() if self.memory else []
+        
+        # Add the user's message to the conversation
+        if isinstance(message, str):
+            message = UserMessage(content=message, user_name=user_name)
+        
+        conversation = [message]
+        
+        # Print agent name if available
+        self.print_name()
+
+        show_sys_prompt = self.logging_config.print_system_prompt
+        show_msgs = self.logging_config.print_messages
+
+        # Print system prompt if enabled
+        if show_sys_prompt:
+            print_message(self.sys_msg)
+
+        if show_msgs:
+            print(START_DELIM)
+
+            # log history when showing system prompt
+            if show_sys_prompt:
+                for m in history_msgs:
+                    print_message(m)
+
+            print_message(message)
+        
+        # Main conversation loop
+        for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
+            msgs = [*history_msgs, *conversation]
+            
+            # call the model asynchronously
+            try:
+                ai_msg = await self.llm.async_call(self.sys_msg, msgs, tools=self.tools)
+                # Add usage to AgentUsage if available
+                if ai_msg.usage and ai_msg.model:
+                    agent_usage.add_usage(ai_msg.model, ai_msg.usage)
+            except Exception as _:
                 err_msg = get_random_error_message()
                 reply = {'message': err_msg} if self.json_reply else err_msg
                 break
