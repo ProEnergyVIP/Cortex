@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import cached_property
 import inspect
 import json
 import rich
@@ -30,13 +31,15 @@ class Tool:
         '''Increment the call count of the tool'''
         self.__called_times += 1
 
+    @cached_property
     def is_async(self):
         '''Check if the tool is async'''
         return inspect.iscoroutinefunction(self.func)
 
+    @cached_property
     def is_sync(self):
         '''Check if the tool is sync'''
-        return not self.is_async()
+        return not self.is_async
 
     async def async_run(self, tool_input, context, agent):
         '''Run the tool function asynchronously
@@ -65,7 +68,7 @@ class Tool:
         else:
             raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
 
-        if self.is_async():
+        if self.is_async:
             # If the function is already async, just await it
             return await self.func(*args)
         else:
@@ -100,7 +103,7 @@ class Tool:
         else:
             raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
         
-        if self.is_sync():
+        if self.is_sync:
             # If the function is sync, just call it
             return self.func(*args)
         else:
