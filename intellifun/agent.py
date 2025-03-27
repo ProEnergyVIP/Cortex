@@ -30,6 +30,102 @@ class Tool:
         '''Increment the call count of the tool'''
         self.__called_times += 1
 
+    def is_async(self):
+        '''Check if the tool is async'''
+        return inspect.iscoroutinefunction(self.func)
+
+    def is_sync(self):
+        '''Check if the tool is sync'''
+        return not self.is_async()
+
+    async def async_run(self, tool_input, context, agent):
+        '''Run the tool function asynchronously
+        
+        This method will handle both async and sync functions correctly:
+        - If the function is async, it will be awaited
+        - If the function is sync, it will be run in a thread pool
+        
+        Returns:
+            The result of the function call
+        '''
+        self.increment_call_count()
+        
+        # Check the number of parameters the function expects
+        sig = inspect.signature(self.func)
+        num_params = len(sig.parameters)
+
+        if num_params == 0:
+            args = []
+        elif num_params == 1:
+            args = [tool_input]
+        elif num_params == 2:
+            args = [tool_input, context]
+        elif num_params == 3:
+            args = [tool_input, context, agent]
+        else:
+            raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
+
+        if self.is_async():
+            # If the function is already async, just await it
+            return await self.func(*args)
+        else:
+            # If the function is sync, run it in a thread pool
+            import asyncio
+            return await asyncio.to_thread(self.func, *args)
+    
+    def run(self, tool_input, context, agent):
+        '''Run the tool function synchronously
+        
+        This method will handle both async and sync functions correctly:
+        - If the function is sync, it will be called directly
+        - If the function is async, it will be run in an event loop
+        
+        Returns:
+            The result of the function call
+        '''
+        self.increment_call_count()
+        
+        # Check the number of parameters the function expects
+        sig = inspect.signature(self.func)
+        num_params = len(sig.parameters)
+
+        if num_params == 0:
+            args = []
+        elif num_params == 1:
+            args = [tool_input]
+        elif num_params == 2:
+            args = [tool_input, context]
+        elif num_params == 3:
+            args = [tool_input, context, agent]
+        else:
+            raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
+        
+        if self.is_sync():
+            # If the function is sync, just call it
+            return self.func(*args)
+        else:
+            # If the function is async, run it in an event loop
+            import asyncio
+            
+            # Get or create an event loop
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                # If there's no event loop in this thread, create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Run the async function in the event loop
+            if loop.is_running():
+                # If the loop is already running, we need to create a new one
+                # This is a bit of a hack, but it's the best we can do
+                return asyncio.run_coroutine_threadsafe(
+                    self.func(*args), loop
+                ).result()
+            else:
+                # If the loop is not running, we can just run the coroutine
+                return loop.run_until_complete(self.func(*args))
+
 
 MAX_RECENT_CALLS = 5  # Only track the last 5 calls
 
@@ -105,27 +201,6 @@ class Agent:
         
         if show_msgs:
             print(END_DELIM)
-    
-    def _process_ai_message(self, ai_msg, conversation, show_msgs):
-        '''Process the AI message and determine next steps'''
-        conversation.append(ai_msg)
-        
-        # check if we need to run a tool
-        if ai_msg.tool_calls is not None:
-            tool_msgs = self.process_func_call(ai_msg, show_msgs)
-            conversation.append(tool_msgs)
-            return None  # Continue the conversation
-        elif ai_msg.content:
-            if show_msgs:
-                print_message(ai_msg)
-            try:
-                return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
-            except json.JSONDecodeError as e:
-                err_msg = f'Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag.'
-                conversation.append(UserMessage(content=err_msg))
-                return None  # Continue the conversation with error message
-        
-        return None  # Continue the conversation
 
     def ask(self, message, user_name=None, usage=None):
         '''Ask a question to the agent, and get a response
@@ -205,7 +280,8 @@ class Agent:
                 reply = {'message': err_msg} if self.json_reply else err_msg
                 break
 
-            reply = self._process_ai_message(ai_msg, conversation, show_msgs)
+            # Process the AI message
+            reply = await self._async_process_ai_message(ai_msg, conversation, show_msgs)
             if reply is not None:
                 self._handle_response(conversation, agent_usage, usage, show_msgs)
                 return reply
@@ -217,6 +293,48 @@ class Agent:
         '''Print the agent name if available'''        
         if self.name:
             rich.print(f"[bold cyan]Agent: {self.name}[/bold cyan]")
+
+    def _process_ai_message(self, ai_msg, conversation, show_msgs):
+        """Process the AI message and determine next steps"""
+        conversation.append(ai_msg)
+
+        # check if we need to run a tool
+        if ai_msg.tool_calls is not None:
+            tool_msgs = self.process_func_call(ai_msg, show_msgs)
+            conversation.append(tool_msgs)
+            return None  # Continue the conversation
+        elif ai_msg.content:
+            if show_msgs:
+                print_message(ai_msg)
+            try:
+                return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
+            except json.JSONDecodeError as e:
+                err_msg = f"Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag."
+                conversation.append(UserMessage(content=err_msg))
+                return None  # Continue the conversation with error message
+
+        return None  # Continue the conversation
+
+    async def _async_process_ai_message(self, ai_msg, conversation, show_msgs):
+        """Process the AI message asynchronously and determine next steps"""
+        conversation.append(ai_msg)
+
+        # check if we need to run a tool
+        if ai_msg.tool_calls is not None:
+            tool_msgs = await self.async_process_func_call(ai_msg, show_msgs)
+            conversation.append(tool_msgs)
+            return None  # Continue the conversation
+        elif ai_msg.content:
+            if show_msgs:
+                print_message(ai_msg)
+            try:
+                return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
+            except json.JSONDecodeError as e:
+                err_msg = f"Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag."
+                conversation.append(UserMessage(content=err_msg))
+                return None  # Continue the conversation with error message
+
+        return None  # Continue the conversation
 
     def process_func_call(self, ai_msg, show_msgs):
         '''Process the function call in the LLM result'''
@@ -245,6 +363,33 @@ class Agent:
         
         return msg_group
 
+    async def async_process_func_call(self, ai_msg, show_msgs):
+        '''Process the function call in the LLM result asynchronously'''
+        msgs = []
+        for fc in ai_msg.tool_calls:
+            # Check if this is a repeated tool call
+            if show_msgs:
+                rich.print(f'[bold purple]Tool: {fc.function.name}[/bold purple]')
+            
+            if self._is_repeated_tool_call(fc.function):
+                msg = f'Tool "{fc.function.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
+                msgs.append(ToolMessage(content=msg, tool_call_id=fc.id))
+                continue
+
+            func_res = await self.async_run_tool_func(fc.function)
+            tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.id)
+            msgs.append(tool_res_msg)
+
+            if show_msgs:
+                print_message(tool_res_msg)
+
+            # Track this tool call
+            self._add_tool_call(fc.function)
+        
+        msg_group = ToolMessageGroup(tool_messages=msgs)
+        
+        return msg_group
+
     def run_tool_func(self, func: Function):
         '''Run the given tool function and return the result'''
         tool_name = func.name
@@ -258,22 +403,42 @@ class Agent:
                 try:
                     tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
                     
-                    sig = inspect.signature(tool.func)
-                    num_params = len(sig.parameters)
-  
-                    if num_params == 0:
-                        res = tool.func()
-                    elif num_params == 1:
-                        res = tool.func(tool_input)
-                    elif num_params == 2:
-                        res = tool.func(tool_input, self.context)
-                    elif num_params == 3:
-                        res = tool.func(tool_input, self.context, self)
-                    else:
-                        return f'Invalid number of parameters for tool function {tool_name}: {num_params}'
+                    res = tool.run(tool_input, self.context, self)
                     
-                    tool.increment_call_count()
+                    # check result data type and wrap it into a ToolFuncResult
+                    if isinstance(res, dict):
+                        msg = res['message'] if 'message' in res else f'tool function {tool_name} finished'
+                        return msg
+                    if isinstance(res, str):
+                        return res
 
+                    return f'tool function {tool_name} finished'
+                except json.JSONDecodeError as e:
+                    return f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.'
+                except Exception as e:
+                    if is_debug:
+                        import traceback
+                        traceback.print_exc()
+
+                    return f'Error running tool "{tool_name}": {e}'
+        
+        return f'No tool named "{tool_name}" found. Do not call it again.'
+
+    async def async_run_tool_func(self, func: Function):
+        '''Run the given tool function asynchronously and return the result'''
+        tool_name = func.name
+        
+        for tool in self.tools:
+            if tool.name == tool_name:
+                if not tool.check_call_limit():
+                    self.tools.remove(tool)
+                    return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
+                
+                try:
+                    tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
+                    
+                    res = await tool.async_run(tool_input, self.context, self)
+                    
                     # check result data type and wrap it into a ToolFuncResult
                     if isinstance(res, dict):
                         msg = res['message'] if 'message' in res else f'tool function {tool_name} finished'
