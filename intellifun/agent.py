@@ -251,7 +251,7 @@ class Agent:
         self._handle_response(conversation, agent_usage, usage, show_msgs)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
-    async def async_ask(self, message, user_name=None, usage=None):
+    async def async_ask(self, message, user_name=None, usage=None, loop_limit=10):
         '''Ask a question to the agent asynchronously, and get a response
 
         Args:
@@ -259,7 +259,9 @@ class Agent:
             user_name (str, optional): The name of the user. Defaults to None.
             usage (AgentUsage, optional): Object to accumulate token usage across models.
                 You can pass an AgentUsage object to track usage across multiple calls.
-
+            loop_limit (int, optional): The maximum number of times to call the model.
+                Defaults to 10.
+        
         Returns:
             str: The response from the agent
         '''
@@ -272,7 +274,7 @@ class Agent:
         message, conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
         
         # Main conversation loop
-        for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
+        for _ in range(loop_limit):
             msgs = [*history_msgs, *conversation]
             
             # call the model asynchronously
