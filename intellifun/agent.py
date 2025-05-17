@@ -137,7 +137,7 @@ END_DELIM = '^' * 80
 
 class Agent:
     def __init__(self, llm, tools=None, sys_prompt='', memory=None, context=None, json_reply=False, 
-                 name=None, logging_config=None):
+                 name=None, logging_config=None, tool_call_limit=10):
         self.llm = llm
         self.tools = tools or []
         self.sys_msg = sys_prompt if isinstance(sys_prompt, SystemMessage) else SystemMessage(content=sys_prompt)
@@ -150,6 +150,7 @@ class Agent:
         self.name = name
         # If no logging config is provided, use the global default
         self.logging_config = logging_config or get_default_logging_config()
+        self.tool_call_limit = tool_call_limit
 
     def _is_repeated_tool_call(self, func: Function) -> bool:
         '''Check if this exact tool call was made recently'''
@@ -205,7 +206,7 @@ class Agent:
         if show_msgs:
             print(END_DELIM)
 
-    def ask(self, message, user_name=None, usage=None):
+    def ask(self, message, user_name=None, usage=None, loop_limit=10):
         '''Ask a question to the agent, and get a response
 
         Args:
@@ -213,6 +214,8 @@ class Agent:
             user_name (str, optional): The name of the user. Defaults to None.
             usage (AgentUsage, optional): Object to accumulate token usage across models.
                 You can pass an AgentUsage object to track usage across multiple calls.
+            loop_limit (int, optional): The maximum number of times to call the model.
+                Defaults to 10.
 
         Returns:
             str: The response from the agent
@@ -226,7 +229,7 @@ class Agent:
         message, conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
         
         # Main conversation loop
-        for _ in range(10):  # Limit to 10 iterations to prevent infinite loops
+        for _ in range(loop_limit):
             msgs = [*history_msgs, *conversation]
             
             # call the model
@@ -399,7 +402,7 @@ class Agent:
         
         for tool in self.tools:
             if tool.name == tool_name:
-                if not tool.check_call_limit():
+                if not tool.check_call_limit(self.tool_call_limit):
                     self.tools.remove(tool)
                     return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
                 
@@ -433,7 +436,7 @@ class Agent:
         
         for tool in self.tools:
             if tool.name == tool_name:
-                if not tool.check_call_limit():
+                if not tool.check_call_limit(self.tool_call_limit):
                     self.tools.remove(tool)
                     return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
                 
