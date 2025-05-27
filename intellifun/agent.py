@@ -197,7 +197,22 @@ class Agent:
     
     def _handle_response(self, conversation, agent_usage, usage, show_msgs):
         '''Handle the response after the conversation is complete'''
-        self.memory.add_messages(conversation)
+        if self.memory:
+            self.memory.add_messages(conversation)
+        
+        if self.logging_config.print_usage_report:
+            print(agent_usage.format())
+        if usage:
+            usage.merge(agent_usage)
+        
+        if show_msgs:
+            print(END_DELIM)
+            
+    async def _async_handle_response(self, conversation, agent_usage, usage, show_msgs):
+        '''Handle the response after the conversation is complete (async version)'''
+        if self.memory:
+            await self.memory.add_messages(conversation)
+        
         if self.logging_config.print_usage_report:
             print(agent_usage.format())
         if usage:
@@ -268,8 +283,8 @@ class Agent:
         reply = None
         agent_usage = AgentUsage()  # Track total usage across all calls
         
-        # Get history messages from memory
-        history_msgs = self.memory.load_memory() if self.memory else []
+        # Get history messages from memory asynchronously
+        history_msgs = await self.memory.load_memory() if self.memory else []
         
         message, conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
         
@@ -291,10 +306,10 @@ class Agent:
             # Process the AI message
             reply = await self._async_process_ai_message(ai_msg, conversation, show_msgs)
             if reply is not None:
-                self._handle_response(conversation, agent_usage, usage, show_msgs)
+                await self._async_handle_response(conversation, agent_usage, usage, show_msgs)
                 return reply
 
-        self._handle_response(conversation, agent_usage, usage, show_msgs)
+        await self._async_handle_response(conversation, agent_usage, usage, show_msgs)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
     def print_name(self):
