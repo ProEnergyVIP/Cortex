@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "intellifun"
-version = "0.3.1"
+version = "0.3.2"
 description = "A flexible library for building AI agents with multiple LLM backends"
 authors = ["Eric Wong <eric.wong@proenergy.vip>"]
 license = "MIT"
