@@ -1,6 +1,8 @@
 from collections import deque
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, ClassVar, Dict as DictType
+from typing import List, Dict, ClassVar
+
+from intellifun.message import Message
 
 @dataclass
 class AgentMemory:
@@ -8,14 +10,14 @@ class AgentMemory:
     k: int
     chat_memory: deque = field(default_factory=deque)
 
-    def add_messages(self, msgs: List[Dict[str, Any]]) -> None:
+    def add_messages(self, msgs: List[Message]) -> None:
         """Add messages to the memory."""
         self.chat_memory.append(msgs)
 
         if len(self.chat_memory) > self.k:
             self.chat_memory.popleft()
 
-    def load_memory(self) -> List[Dict[str, Any]]:
+    def load_memory(self) -> List[Message]:
         """Load all messages from memory."""
         return [m for chat in self.chat_memory for m in chat]
     
@@ -30,14 +32,14 @@ class AsyncAgentMemory:
     k: int
     chat_memory: deque = field(default_factory=deque)
     
-    async def add_messages(self, msgs: List[Dict[str, Any]]) -> None:
+    async def add_messages(self, msgs: List[Message]) -> None:
         """Add messages to the memory asynchronously."""
         self.chat_memory.append(msgs)
 
         if len(self.chat_memory) > self.k:
             self.chat_memory.popleft()
             
-    async def load_memory(self) -> List[Dict[str, Any]]:
+    async def load_memory(self) -> List[Message]:
         """Load all messages from memory asynchronously."""
         return [m for chat in self.chat_memory for m in chat]
     
@@ -48,7 +50,7 @@ class AsyncAgentMemory:
 class AgentMemoryBank:
     """Memory bank for all agents for a user. Default implementation uses in-memory storage."""
     # Static mapping of user IDs to memory banks
-    user_memories: ClassVar[DictType[str, 'AgentMemoryBank']] = {}
+    user_memories: ClassVar[Dict[str, 'AgentMemoryBank']] = {}
     
     def __init__(self):
         """Initialize an agent memory bank."""
@@ -88,7 +90,7 @@ class AgentMemoryBank:
 class AsyncAgentMemoryBank:
     """Asynchronous memory bank for all agents for a user. Default implementation uses in-memory storage."""
     # Static mapping of user IDs to memory banks
-    user_memories: ClassVar[DictType[str, 'AsyncAgentMemoryBank']] = {}
+    user_memories: ClassVar[Dict[str, 'AsyncAgentMemoryBank']] = {}
     
     def __init__(self):
         """Initialize an async agent memory bank."""

@@ -8,6 +8,14 @@ from intellifun.logging_config import LoggingConfig, set_default_logging_config,
 # Base and in-memory implementations
 from intellifun.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
 
+# Redis implementations
+from intellifun.redis_agent_memory import (
+    RedisAgentMemory,
+    AsyncRedisAgentMemory,
+    RedisAgentMemoryBank,
+    AsyncRedisAgentMemoryBank
+)
+
 __all__ = [
     # Core components
     'LLM', 'Tool', 'Agent', 
@@ -15,6 +23,10 @@ __all__ = [
     # Memory classes
     'AgentMemory', 'AsyncAgentMemory',
     'AgentMemoryBank', 'AsyncAgentMemoryBank',
+    
+    # Redis implementations
+    'RedisAgentMemory', 'AsyncRedisAgentMemory',
+    'RedisAgentMemoryBank', 'AsyncRedisAgentMemoryBank',
 
     # Other components
     'llmfunc', 'CheckResult', 'GPTModels', 'AnthropicModels',
