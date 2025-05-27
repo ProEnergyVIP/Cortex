@@ -157,6 +157,8 @@ class RedisAgentMemoryBank(AgentMemoryBank):
     Synchronous Redis-based implementation of agent memory bank.
     Stores agent memories in Redis.
     """
+    # Static mapping of Redis clients
+    _redis_clients = {}
     
     def __init__(self, redis_client, key_prefix: str = "agent_memory"):
         """
@@ -170,6 +172,17 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         self.key_prefix = key_prefix
         # Local cache of agent memories for performance
         self.agent_memories = {}
+    
+    @classmethod
+    def register_client(cls, client_name: str, redis_client):
+        """
+        Register a Redis client for later use.
+        
+        Args:
+            client_name: Name to identify this client
+            redis_client: Redis client instance
+        """
+        cls._redis_clients[client_name] = redis_client
     
     def _get_agents_key(self) -> str:
         """Get the Redis key for the list of agents"""
@@ -215,17 +228,25 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         Args:
             user_id: User ID
             **kwargs: Additional arguments for creating a new bank
+                client_name: Name of a registered Redis client to use
+                redis_client: A Redis client instance (alternative to client_name)
             
         Returns:
             Memory bank for the specified user
             
         Raises:
-            ValueError: If redis_client is not provided for a new bank
+            ValueError: If no Redis client is available
         """
+        # Try to get client from kwargs
         redis_client = kwargs.get('redis_client')
+        client_name = kwargs.get('client_name', 'default')
+        
+        # If no direct client provided, try to get from registered clients
+        if redis_client is None:
+            redis_client = cls._redis_clients.get(client_name)
         
         if redis_client is None:
-            raise ValueError("redis_client must be provided when creating a new memory bank")
+            raise ValueError("No Redis client available. Either provide 'redis_client' or register a client with 'client_name'")
         
         # Create a new memory bank
         memory_bank = RedisAgentMemoryBank(
@@ -243,14 +264,22 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         Args:
             user_id: User ID
             **kwargs: Additional arguments for accessing the memory bank
+                client_name: Name of a registered Redis client to use
+                redis_client: A Redis client instance (alternative to client_name)
             
         Raises:
-            ValueError: If redis_client is not provided
+            ValueError: If no Redis client is available
         """
+        # Try to get client from kwargs
         redis_client = kwargs.get('redis_client')
+        client_name = kwargs.get('client_name', 'default')
+        
+        # If no direct client provided, try to get from registered clients
+        if redis_client is None:
+            redis_client = cls._redis_clients.get(client_name)
         
         if redis_client is None:
-            raise ValueError("redis_client must be provided to clear the memory bank")
+            raise ValueError("No Redis client available. Either provide 'redis_client' or register a client with 'client_name'")
         
         # Create a pattern to match all keys for this user
         key_pattern = f"user:{user_id}:*"
@@ -276,17 +305,25 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         Args:
             user_id: User ID
             **kwargs: Additional arguments for accessing the memory bank
+                client_name: Name of a registered Redis client to use
+                redis_client: A Redis client instance (alternative to client_name)
             
         Returns:
             True if user has memory bank, False otherwise
             
         Raises:
-            ValueError: If redis_client is not provided
+            ValueError: If no Redis client is available
         """
+        # Try to get client from kwargs
         redis_client = kwargs.get('redis_client')
+        client_name = kwargs.get('client_name', 'default')
+        
+        # If no direct client provided, try to get from registered clients
+        if redis_client is None:
+            redis_client = cls._redis_clients.get(client_name)
         
         if redis_client is None:
-            raise ValueError("redis_client must be provided to check if memory bank is active")
+            raise ValueError("No Redis client available. Either provide 'redis_client' or register a client with 'client_name'")
         
         # Create a temporary memory bank to access the keys
         memory_bank = RedisAgentMemoryBank(
@@ -304,6 +341,8 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
     Asynchronous Redis-based implementation of agent memory bank.
     Stores agent memories in Redis.
     """
+    # Static mapping of async Redis clients
+    _async_redis_clients = {}
     
     def __init__(self, async_redis_client, key_prefix: str = "agent_memory"):
         """
@@ -318,11 +357,20 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         # Local cache of agent memories for performance
         self.agent_memories = {}
     
+    @classmethod
+    def register_client(cls, client_name: str, async_redis_client):
+        """
+        Register an async Redis client for later use.
+        
+        Args:
+            client_name: Name to identify this client
+            async_redis_client: Async Redis client instance
+        """
+        cls._async_redis_clients[client_name] = async_redis_client
+    
     def _get_agents_key(self) -> str:
         """Get the Redis key for the list of agents"""
         return f"{self.key_prefix}:agents"
-    
-
     
     async def get_agent_memory(self, agent_name: str, k: int = 5) -> AsyncRedisAgentMemory:
         """
@@ -364,17 +412,25 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         Args:
             user_id: User ID
             **kwargs: Additional arguments for creating a new bank
+                client_name: Name of a registered async Redis client to use
+                async_redis_client: An async Redis client instance (alternative to client_name)
             
         Returns:
             Memory bank for the specified user
             
         Raises:
-            ValueError: If async_redis_client is not provided for a new bank
+            ValueError: If no async Redis client is available
         """
+        # Try to get client from kwargs
         async_redis_client = kwargs.get('async_redis_client')
+        client_name = kwargs.get('client_name', 'default')
+        
+        # If no direct client provided, try to get from registered clients
+        if async_redis_client is None:
+            async_redis_client = cls._async_redis_clients.get(client_name)
         
         if async_redis_client is None:
-            raise ValueError("async_redis_client must be provided when creating a new memory bank")
+            raise ValueError("No async Redis client available. Either provide 'async_redis_client' or register a client with 'client_name'")
         
         # Create a new memory bank
         memory_bank = AsyncRedisAgentMemoryBank(
@@ -392,14 +448,22 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         Args:
             user_id: User ID
             **kwargs: Additional arguments for accessing the memory bank
+                client_name: Name of a registered async Redis client to use
+                async_redis_client: An async Redis client instance (alternative to client_name)
             
         Raises:
-            ValueError: If async_redis_client is not provided
+            ValueError: If no async Redis client is available
         """
+        # Try to get client from kwargs
         async_redis_client = kwargs.get('async_redis_client')
+        client_name = kwargs.get('client_name', 'default')
+        
+        # If no direct client provided, try to get from registered clients
+        if async_redis_client is None:
+            async_redis_client = cls._async_redis_clients.get(client_name)
         
         if async_redis_client is None:
-            raise ValueError("async_redis_client must be provided to clear the memory bank")
+            raise ValueError("No async Redis client available. Either provide 'async_redis_client' or register a client with 'client_name'")
         
         # Create a pattern to match all keys for this user
         key_pattern = f"user:{user_id}:*"
@@ -425,17 +489,25 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         Args:
             user_id: User ID
             **kwargs: Additional arguments for accessing the memory bank
+                client_name: Name of a registered async Redis client to use
+                async_redis_client: An async Redis client instance (alternative to client_name)
             
         Returns:
             True if user has memory bank, False otherwise
             
         Raises:
-            ValueError: If async_redis_client is not provided
+            ValueError: If no async Redis client is available
         """
+        # Try to get client from kwargs
         async_redis_client = kwargs.get('async_redis_client')
+        client_name = kwargs.get('client_name', 'default')
+        
+        # If no direct client provided, try to get from registered clients
+        if async_redis_client is None:
+            async_redis_client = cls._async_redis_clients.get(client_name)
         
         if async_redis_client is None:
-            raise ValueError("async_redis_client must be provided to check if memory bank is active")
+            raise ValueError("No async Redis client available. Either provide 'async_redis_client' or register a client with 'client_name'")
         
         # Create a temporary memory bank to access the keys
         memory_bank = AsyncRedisAgentMemoryBank(
