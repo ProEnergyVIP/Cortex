@@ -16,22 +16,18 @@ class RedisAgentMemory(AgentMemory):
     Stores messages in Redis using native data structures.
     """
     
-    def __init__(self, k: int, redis_client, key_prefix: str):
+    def __init__(self, k: int, redis_client, key: str):
         """
         Initialize a Redis-based agent memory.
         
         Args:
             k: Maximum number of message groups to store
             redis_client: A Redis client instance
-            key_prefix: Prefix for Redis keys to avoid collisions
+            key: Redis key for this memory
         """
         self.k = k
         self.redis_client = redis_client
-        self.key_prefix = key_prefix
-    
-    def _get_memory_key(self) -> str:
-        """Get the Redis key for this memory"""
-        return f"{self.key_prefix}:memory"
+        self.key = key
     
     def add_messages(self, msgs: List[Message]) -> None:
         """
@@ -40,17 +36,16 @@ class RedisAgentMemory(AgentMemory):
         Args:
             msgs: Messages to add
         """
-        key = self._get_memory_key()
         
         # Serialize the message list using pickle for better preservation of objects
         serialized_msgs = pickle.dumps(msgs)
         
         # Add new messages to the right of the list
-        self.redis_client.rpush(key, serialized_msgs)
+        self.redis_client.rpush(self.key, serialized_msgs)
         
         # Trim if necessary to keep only the last k elements
-        if self.redis_client.llen(key) > self.k:
-            self.redis_client.ltrim(key, -self.k, -1)
+        if self.redis_client.llen(self.key) > self.k:
+            self.redis_client.ltrim(self.key, -self.k, -1)
     
     def load_memory(self) -> List[Message]:
         """
@@ -59,10 +54,9 @@ class RedisAgentMemory(AgentMemory):
         Returns:
             List of messages
         """
-        key = self._get_memory_key()
         
         # Get all elements from the list
-        message_groups = self.redis_client.lrange(key, 0, -1)
+        message_groups = self.redis_client.lrange(self.key, 0, -1)
         if not message_groups:
             return []
         
@@ -81,10 +75,9 @@ class RedisAgentMemory(AgentMemory):
         Returns:
             True if memory is empty, False otherwise
         """
-        key = self._get_memory_key()
         
         # Check if the list exists and has elements
-        length = self.redis_client.llen(key)
+        length = self.redis_client.llen(self.key)
         return length == 0
 
 
@@ -94,25 +87,18 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
     Stores messages in Redis using native data structures.
     """
     
-    def __init__(self, k: int, async_redis_client, key_prefix: str):
+    def __init__(self, k: int, async_redis_client, key: str):
         """
         Initialize an async Redis-based agent memory.
         
         Args:
             k: Maximum number of message groups to store
             async_redis_client: An async Redis client instance
-            key_prefix: Prefix for Redis keys to avoid collisions
+            key: Redis key for this memory
         """
         self.k = k
         self.async_redis_client = async_redis_client
-        self.key_prefix = key_prefix
-        # We'll initialize the memory in the first operation
-    
-    def _get_memory_key(self) -> str:
-        """Get the Redis key for this memory"""
-        return f"{self.key_prefix}:memory"
-    
-
+        self.key = key
     
     async def add_messages(self, msgs: List[Message]) -> None:
         """
@@ -121,17 +107,16 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
         Args:
             msgs: Messages to add
         """
-        key = self._get_memory_key()
         
         # Serialize the message list using pickle for better preservation of objects
         serialized_msgs = pickle.dumps(msgs)
         
         # Add new messages to the right of the list
-        await self.async_redis_client.rpush(key, serialized_msgs)
+        await self.async_redis_client.rpush(self.key, serialized_msgs)
         
         # Trim if necessary to keep only the last k elements
-        if await self.async_redis_client.llen(key) > self.k:
-            await self.async_redis_client.ltrim(key, -self.k, -1)
+        if await self.async_redis_client.llen(self.key) > self.k:
+            await self.async_redis_client.ltrim(self.key, -self.k, -1)
     
     async def load_memory(self) -> List[Message]:
         """
@@ -140,10 +125,9 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
         Returns:
             List of messages
         """
-        key = self._get_memory_key()
         
         # Get all elements from the list
-        message_groups = await self.async_redis_client.lrange(key, 0, -1)
+        message_groups = await self.async_redis_client.lrange(self.key, 0, -1)
         if not message_groups:
             return []
         
@@ -162,10 +146,9 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
         Returns:
             True if memory is empty, False otherwise
         """
-        key = self._get_memory_key()
         
         # Check if the list exists and has elements
-        length = await self.async_redis_client.llen(key)
+        length = await self.async_redis_client.llen(self.key)
         return length == 0
 
 
@@ -208,11 +191,11 @@ class RedisAgentMemoryBank(AgentMemoryBank):
             return self.agent_memories[agent_name]
         
         # Create a new memory
-        memory_key_prefix = f"{self.key_prefix}:{agent_name}"
+        memory_key = f"{self.key_prefix}:{agent_name}"
         mem = RedisAgentMemory(
             k=k, 
             redis_client=self.redis_client, 
-            key_prefix=memory_key_prefix
+            key=memory_key
         )
         
         # Add to local cache for performance
@@ -249,10 +232,6 @@ class RedisAgentMemoryBank(AgentMemoryBank):
             redis_client=redis_client,
             key_prefix=f"user:{user_id}"
         )
-        
-        # We don't need to store the memory bank itself in Redis
-        # as we can recreate it with the same parameters
-        # The actual data is already stored in Redis
         
         return memory_bank
     
@@ -361,11 +340,11 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
             return self.agent_memories[agent_name]
         
         # Create a new memory
-        memory_key_prefix = f"{self.key_prefix}:{agent_name}"
+        memory_key = f"{self.key_prefix}:{agent_name}"
         mem = AsyncRedisAgentMemory(
             k=k, 
             async_redis_client=self.async_redis_client, 
-            key_prefix=memory_key_prefix
+            key=memory_key
         )
         
         # Add to local cache for performance
