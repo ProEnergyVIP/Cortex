@@ -9,9 +9,7 @@ from .memory import InMemoryVectorStore
 class VectorStoreType(str, Enum):
     """Supported vector store types."""
     MEMORY = "memory"  # In-memory store (for testing/development)
-    REDIS = "redis"    # Redis with RediSearch
     PINECONE = "pinecone"  # Pinecone vector database
-    PGVECTOR = "pgvector"  # PostgreSQL with pgvector
     CHROMA = "chroma"     # Chroma vector database
     MILVUS = "milvus"     # Milvus vector database
     WEAVIATE = "weaviate"  # Weaviate vector database
@@ -46,12 +44,8 @@ def get_vector_store(
         return InMemoryVectorStore(**kwargs)
     
     # Add other store types as they are implemented
-    elif store_type == VectorStoreType.REDIS:
-        raise NotImplementedError("Redis vector store is not yet implemented")
     elif store_type == VectorStoreType.PINECONE:
         raise NotImplementedError("Pinecone vector store is not yet implemented")
-    elif store_type == VectorStoreType.PGVECTOR:
-        raise NotImplementedError("PGVector store is not yet implemented")
     elif store_type == VectorStoreType.CHROMA:
         raise NotImplementedError("Chroma vector store is not yet implemented")
     elif store_type == VectorStoreType.MILVUS:
