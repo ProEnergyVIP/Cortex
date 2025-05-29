@@ -1,17 +1,36 @@
 """ChromaDB implementation of the vector store.
 
 This module provides a ChromaDB implementation of the VectorStore interface.
-It uses the ChromaDB client for vector storage and retrieval with async/await support.
+Chromadb is an optional dependency and will only be imported if used.
 """
 import asyncio
-import uuid
-from typing import Dict, List, Optional, Any
 import logging
+import uuid
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
+
 import numpy as np
-import chromadb
-from chromadb.config import Settings
 
 from .base import VectorStore, VectorSearchResult
+
+# Only import chromadb when actually used
+try:
+    import chromadb
+    from chromadb.config import Settings
+    CHROMA_AVAILABLE = True
+except ImportError:
+    CHROMA_AVAILABLE = False
+
+if TYPE_CHECKING:
+    import chromadb
+    from chromadb.config import Settings
+
+class ChromaNotAvailableError(ImportError):
+    """Raised when ChromaDB is not installed."""
+    def __init__(self):
+        super().__init__(
+            "ChromaDB is not installed. Please install it with: "
+            "pip install chromadb"
+        )
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +60,9 @@ class ChromaVectorStore(VectorStore):
                               If None, data will be stored in memory only.
             **kwargs: Additional arguments to pass to the ChromaDB client
         """
+        if not CHROMA_AVAILABLE:
+            raise ChromaNotAvailableError()
+            
         self.collection_name = collection_name
         self.persist_directory = persist_directory
         

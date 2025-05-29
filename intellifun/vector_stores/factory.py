@@ -5,7 +5,13 @@ from typing import Any, Union
 
 from .base import VectorStore
 from .memory import InMemoryVectorStore
-from .chroma_store import ChromaVectorStore
+
+try:
+    from .chroma_store import ChromaVectorStore
+    CHROMA_AVAILABLE = True
+except ImportError:
+    CHROMA_AVAILABLE = False
+    ChromaVectorStore = None
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +53,10 @@ def get_vector_store(
     if store_type == VectorStoreType.MEMORY:
         return InMemoryVectorStore(**kwargs)
     elif store_type == VectorStoreType.CHROMA:
+        if not CHROMA_AVAILABLE:
+            raise ImportError(
+                "ChromaDB is not installed. Please install it with: pip install chromadb"
+            )
         # ChromaDB specific parameter validation
         if "persist_directory" not in kwargs:
             logger.warning(

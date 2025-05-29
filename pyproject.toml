@@ -17,6 +17,11 @@ boto3 = "*"
 pydantic = "*"
 rich = "*"
 numpy = "^2.0"  # For efficient numerical operations in embeddings
+
+[tool.poetry.group.chroma]
+optional = true
+
+[tool.poetry.group.chroma.dependencies]
 chromadb = "^1.0.11"
 
 [tool.poetry.scripts]
