@@ -5,6 +5,10 @@ from intellifun.backends.openai import GPTModels
 from intellifun.backends.anthropic import AnthropicModels
 from intellifun.logging_config import LoggingConfig, set_default_logging_config, get_default_logging_config
 
+# Embedding components
+from intellifun.embeddings import Embedding
+from intellifun.backends import OpenAIEmbeddingModels
+
 # Base and in-memory implementations
 from intellifun.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
 
@@ -30,5 +34,8 @@ __all__ = [
 
     # Other components
     'llmfunc', 'CheckResult', 'GPTModels', 'AnthropicModels',
-    'LoggingConfig', 'set_default_logging_config', 'get_default_logging_config'
+    'LoggingConfig', 'set_default_logging_config', 'get_default_logging_config',
+    
+    # Embedding components
+    'Embedding', 'OpenAIEmbeddingModels'
 ]

@@ -1,10 +1,24 @@
 """OpenAI embedding backend for the Embedding class."""
+from enum import Enum
 from typing import List, Union
 import numpy as np
 import openai
 
-from intellifun.embeddings import EmbeddingBackend, EmbeddingRequest
+from intellifun.embeddings import Embedding, EmbeddingBackend, EmbeddingRequest
 from intellifun.backends.openai import get_openai_client, get_async_openai_client
+
+
+class OpenAIEmbeddingModels(str, Enum):
+    """OpenAI embedding models.
+    
+    Attributes:
+        TEXT_EMBED_3_SMALL: Most recent model with strong performance, 1536 dimensions
+        TEXT_EMBED_3_LARGE: Larger model with better performance, 3072 dimensions
+        TEXT_EMBED_ADA_002: Older model, 1536 dimensions (legacy)
+    """
+    TEXT_EMBED_3_SMALL = "text-embedding-3-small"
+    TEXT_EMBED_3_LARGE = "text-embedding-3-large"
+    TEXT_EMBED_ADA_002 = "text-embedding-ada-002"
 
 class OpenAIEmbeddingBackend(EmbeddingBackend):
     """OpenAI embedding backend implementation"""
@@ -98,16 +112,6 @@ class OpenAIEmbeddingBackend(EmbeddingBackend):
         except Exception as e:
             raise RuntimeError(f"Failed to generate async embeddings: {str(e)}") from e
 
-# Register the OpenAI embedding models
-DEFAULT_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
-
-# Import here to avoid circular imports
-from intellifun.embeddings import Embedding  # noqa: E402
-
-# Register the backend with common OpenAI embedding models
-for model in [
-    "text-embedding-3-small",
-    "text-embedding-3-large",
-    "text-embedding-ada-002"
-]:
-    Embedding.register_backend(model, OpenAIEmbeddingBackend)
+# Register the backend with all OpenAI embedding models
+for model in OpenAIEmbeddingModels:
+    Embedding.register_backend(model.value, OpenAIEmbeddingBackend)
