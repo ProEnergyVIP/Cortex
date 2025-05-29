@@ -10,12 +10,13 @@ repository = "https://github.com/ProEnergyVIP/intellifun"
 keywords = ["AI", "agents", "LLM"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
 openai = ">=1.56.0"
 anthropic = ">=0.40.0"
 boto3 = "*"
 pydantic = "*"
 rich = "*"
+numpy = "^2.0"  # For efficient numerical operations in embeddings
 
 [tool.poetry.scripts]
 intellifun = "intellifun.cli:main"
