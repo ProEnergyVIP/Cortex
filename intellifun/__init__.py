@@ -9,6 +9,9 @@ from intellifun.logging_config import LoggingConfig, set_default_logging_config,
 from intellifun.embeddings import Embedding
 from intellifun.backends import OpenAIEmbeddingModels
 
+# Vector store components
+from intellifun.vector_stores import VectorStore, VectorStoreType, get_vector_store, InMemoryVectorStore
+
 # Base and in-memory implementations
 from intellifun.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
 
@@ -37,5 +40,8 @@ __all__ = [
     'LoggingConfig', 'set_default_logging_config', 'get_default_logging_config',
     
     # Embedding components
-    'Embedding', 'OpenAIEmbeddingModels'
+    'Embedding', 'OpenAIEmbeddingModels',
+    
+    # Vector store components
+    'VectorStore', 'VectorStoreType', 'get_vector_store', 'InMemoryVectorStore'
 ]
