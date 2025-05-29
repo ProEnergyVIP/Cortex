@@ -1,9 +1,13 @@
 """Factory for creating vector store instances."""
+import logging
 from enum import Enum
 from typing import Any, Union
 
 from .base import VectorStore
 from .memory import InMemoryVectorStore
+from .chroma_store import ChromaVectorStore
+
+logger = logging.getLogger(__name__)
 
 
 class VectorStoreType(str, Enum):
@@ -42,12 +46,18 @@ def get_vector_store(
     
     if store_type == VectorStoreType.MEMORY:
         return InMemoryVectorStore(**kwargs)
+    elif store_type == VectorStoreType.CHROMA:
+        # ChromaDB specific parameter validation
+        if "persist_directory" not in kwargs:
+            logger.warning(
+                "No persist_directory provided for ChromaDB. "
+                "Data will be stored in memory only and will not persist between sessions."
+            )
+        return ChromaVectorStore(**kwargs)
     
     # Add other store types as they are implemented
     elif store_type == VectorStoreType.PINECONE:
         raise NotImplementedError("Pinecone vector store is not yet implemented")
-    elif store_type == VectorStoreType.CHROMA:
-        raise NotImplementedError("Chroma vector store is not yet implemented")
     elif store_type == VectorStoreType.MILVUS:
         raise NotImplementedError("Milvus vector store is not yet implemented")
     elif store_type == VectorStoreType.WEAVIATE:

@@ -17,6 +17,7 @@ boto3 = "*"
 pydantic = "*"
 rich = "*"
 numpy = "^2.0"  # For efficient numerical operations in embeddings
+chromadb = "^1.0.11"
 
 [tool.poetry.scripts]
 intellifun = "intellifun.cli:main"
