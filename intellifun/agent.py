@@ -417,64 +417,64 @@ class Agent:
         '''Run the given tool function and return the result'''
         tool_name = func.name
         
-        for tool in self.tools:
-            if tool.name == tool_name:
-                if not tool.check_call_limit(self.tool_call_limit):
-                    self.tools.remove(tool)
-                    return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
-                
-                try:
-                    tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
-                    
-                    res = tool.run(tool_input, self.context, self)
-                    
-                    # check result data type and wrap it into a ToolFuncResult
-                    if isinstance(res, str):
-                        return res
-                    elif isinstance(res, dict):
-                        return json.dumps(res)
-
-                    return f'tool function {tool_name} finished'
-                except json.JSONDecodeError as e:
-                    return f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.'
-                except Exception as e:
-                    if is_debug:
-                        import traceback
-                        traceback.print_exc()
-
-                    return f'Error running tool "{tool_name}": {e}'
+        tool = self._find_tool(tool_name)
+        if tool is None:
+            return f'No tool named "{tool_name}" found. Do not call it again.'
         
-        return f'No tool named "{tool_name}" found. Do not call it again.'
+        if not tool.check_call_limit(self.tool_call_limit):
+            self.tools.remove(tool)
+            return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
+        
+        try:
+            tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
+            
+            res = tool.run(tool_input, self.context, self)
+            
+            if isinstance(res, str):
+                return res
+
+            return json.dumps(res)
+        except json.JSONDecodeError as e:
+            return f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.'
+        except Exception as e:
+            if is_debug:
+                import traceback
+                traceback.print_exc()
+
+            return f'Error running tool "{tool_name}": {e}'
 
     async def async_run_tool_func(self, func: Function):
         '''Run the given tool function asynchronously and return the result'''
         tool_name = func.name
         
+        tool = self._find_tool(tool_name)
+        if tool is None:
+            return f'No tool named "{tool_name}" found. Do not call it again.'
+        
+        if not tool.check_call_limit(self.tool_call_limit):
+            self.tools.remove(tool)
+            return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
+        
+        try:
+            tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
+            
+            res = await tool.async_run(tool_input, self.context, self)
+            
+            if isinstance(res, str):
+                return res
+            
+            return json.dumps(res)
+        except json.JSONDecodeError as e:
+            return f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.'
+        except Exception as e:
+            if is_debug:
+                import traceback
+                traceback.print_exc()
+
+            return f'Error running tool "{tool_name}": {e}'
+
+    def _find_tool(self, tool_name: str) -> Tool | None:
         for tool in self.tools:
             if tool.name == tool_name:
-                if not tool.check_call_limit(self.tool_call_limit):
-                    self.tools.remove(tool)
-                    return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
-                
-                try:
-                    tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
-                    
-                    res = await tool.async_run(tool_input, self.context, self)
-                    
-                    # check result data type and wrap it into a ToolFuncResult
-                    if isinstance(res, str):
-                        return res
-                    elif isinstance(res, dict):
-                        return json.dumps(res)
-                    
-                    return f'tool function {tool_name} finished'
-                except json.JSONDecodeError as e:
-                    return f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.'
-                except Exception as e:
-                    if is_debug:
-                        import traceback
-                        traceback.print_exc()
-
-                    return f'Error running tool "{tool_name}": {e}'
-        
-        return f'No tool named "{tool_name}" found. Do not call it again.'
+                return tool
+        return None
