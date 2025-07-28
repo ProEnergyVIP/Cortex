@@ -429,11 +429,10 @@ class Agent:
                     res = tool.run(tool_input, self.context, self)
                     
                     # check result data type and wrap it into a ToolFuncResult
-                    if isinstance(res, dict):
-                        msg = res['message'] if 'message' in res else f'tool function {tool_name} finished'
-                        return msg
                     if isinstance(res, str):
                         return res
+                    elif isinstance(res, dict):
+                        return json.dumps(res)
 
                     return f'tool function {tool_name} finished'
                 except json.JSONDecodeError as e:
@@ -463,12 +462,11 @@ class Agent:
                     res = await tool.async_run(tool_input, self.context, self)
                     
                     # check result data type and wrap it into a ToolFuncResult
-                    if isinstance(res, dict):
-                        msg = res['message'] if 'message' in res else f'tool function {tool_name} finished'
-                        return msg
                     if isinstance(res, str):
                         return res
-
+                    elif isinstance(res, dict):
+                        return json.dumps(res)
+                    
                     return f'tool function {tool_name} finished'
                 except json.JSONDecodeError as e:
                     return f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.'
