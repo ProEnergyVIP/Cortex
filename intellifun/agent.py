@@ -140,6 +140,13 @@ class Agent:
                  name=None, logging_config=None, tool_call_limit=10):
         self.llm = llm
         self.tools = tools or []
+
+        # If there are more than 5 tools, use a dictionary for faster lookup
+        if len(self.tools) > 5:
+            self.tools_dict = {tool.name: tool for tool in self.tools}
+        else:
+            self.tools_dict = None
+        
         self.sys_msg = sys_prompt if isinstance(sys_prompt, SystemMessage) else SystemMessage(content=sys_prompt)
         self.memory = memory
         self.context = context
@@ -474,6 +481,9 @@ class Agent:
             return f'Error running tool "{tool_name}": {e}'
 
     def _find_tool(self, tool_name: str) -> Tool | None:
+        if self.tools_dict:
+            return self.tools_dict.get(tool_name)
+
         for tool in self.tools:
             if tool.name == tool_name:
                 return tool
