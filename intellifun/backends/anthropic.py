@@ -28,11 +28,21 @@ class AnthropicModels(str, Enum):
 
 class AnthropicBackend(LLMBackend):
     def __init__(self, model):
+        super().__init__()
         self.model = model
+        self._register_message_encoders()
+
+    def _register_message_encoders(self):
+        self.register_message_encoder(UserVisionMessage, enc_anthropic_user_vision)
+        self.register_message_encoder(UserMessage, enc_anthropic_user)
+        self.register_message_encoder(AIMessage, enc_anthropic_ai)
+        self.register_message_encoder(ToolMessageGroup, enc_anthropic_tool_group)
     
     def _prepare_request_params(self, req: LLMRequest):
         '''Prepare the request parameters for the Anthropic API'''
-        msgs = [self.encode_msg(m) for m in req.messages]
+        msgs = []
+        for m in req.messages:
+            msgs.extend(self.encode_message(m))
 
         params = {
             'model': self.model,
@@ -61,36 +71,6 @@ class AnthropicBackend(LLMBackend):
         client = get_async_anthropic_client()
         resp = await client.messages.create(**params)
         return self.decode_result(resp)
-
-    def encode_msg(self, msg):
-        '''encode a message as a dictionary for the Anthropic API'''
-        if isinstance(msg, UserVisionMessage):
-            raise ValueError('Vision messages are not supported by the Anthropic API')
-        
-        if isinstance(msg, UserMessage):
-            return {'role': 'user', 'content': msg.build_content() }
-        
-        if isinstance(msg, AIMessage):
-            txt = {'type': 'text', 'text': msg.content}
-            msgs = [txt]
-            if msg.tool_calls:
-                for c in msg.tool_calls:
-                    msgs.append(self.encode_toolcalling(c))
-            return {'role': 'assistant', 'content': msgs}
-        
-        if isinstance(msg, ToolMessageGroup):
-            msgs = []
-            for tm in msg.tool_messages:
-                msgs.append({
-                    'type': 'tool_result',
-                    'content': tm.content,
-                    'tool_call_id': tm.tool_call_id
-                })
-            
-            return {'role': 'user',
-                    'content': msgs }
-        
-        return {'role': 'user', 'content': msg.content}
 
     def decode_result(self, resp):
         '''decode the result from the Anthropic API'''
@@ -142,3 +122,36 @@ class AnthropicBackend(LLMBackend):
 
 for m in AnthropicModels:
     LLMBackend.register_backend(m, AnthropicBackend(m))
+
+# --- Pure encoder functions for Anthropic ---
+def enc_anthropic_user_vision(msg: UserVisionMessage):
+    raise ValueError('Vision messages are not supported by the Anthropic API')
+
+def enc_anthropic_user(msg: UserMessage):
+    return {'role': 'user', 'content': msg.build_content()}
+
+def enc_anthropic_ai(msg: AIMessage):
+    txt = {'type': 'text', 'text': msg.content}
+    msgs = [txt]
+    if msg.tool_calls:
+        for c in msg.tool_calls:
+            msgs.append(encode_toolcalling_anthropic(c))
+    return {'role': 'assistant', 'content': msgs}
+
+def enc_anthropic_tool_group(msg: ToolMessageGroup):
+    msgs = []
+    for tm in msg.tool_messages:
+        msgs.append({
+            'type': 'tool_result',
+            'content': tm.content,
+            'tool_call_id': tm.tool_call_id
+        })
+    return {'role': 'user', 'content': msgs}
+
+def encode_toolcalling_anthropic(tool_call):
+    return {
+        'id': tool_call.id,
+        'type': tool_call.type,
+        'name': tool_call.function.name,
+        'input': tool_call.function.arguments,
+    }

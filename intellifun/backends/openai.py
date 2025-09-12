@@ -45,21 +45,27 @@ class GPTModels(str, Enum):
 class OpenAIBackend(LLMBackend):
     '''OpenAI backend for the LLM'''
     def __init__(self, model):
+        super().__init__()
         self.model = model
+        self._register_message_encoders()
+
+    def _register_message_encoders(self):
+        # Register pure functions
+        self.register_message_encoder(SystemMessage, enc_openai_system)
+        self.register_message_encoder(UserMessage, enc_openai_user)
+        self.register_message_encoder(UserVisionMessage, enc_openai_uservision)
+        self.register_message_encoder(AIMessage, enc_openai_ai)
+        self.register_message_encoder(ToolMessage, enc_openai_tool)
+        self.register_message_encoder(ToolMessageGroup, enc_openai_tool_group)
     
     def _prepare_request_params(self, req):
         '''Prepare the request parameters for the OpenAI API'''
         msgs = []
-        # flatten the messages
+        # system message first
+        msgs.extend(self.encode_message(req.system_message))
+        # then conversation messages
         for m in req.messages:
-            if isinstance(m, ToolMessageGroup):
-                for tm in m.tool_messages:
-                    msgs.append(tm)
-            else:
-                msgs.append(m)
-    
-        msgs.insert(0, req.system_message)
-        msgs = [self.encode_msg(m) for m in msgs]
+            msgs.extend(self.encode_message(m))
 
         params = {
             'model': self.model,
@@ -112,45 +118,6 @@ class OpenAIBackend(LLMBackend):
         chat = await client.chat.completions.create(**params)
         return self._process_response(chat)
 
-    def encode_msg(self, msg):
-        '''encode a message as a dictionary for the OpenAI API'''
-        if isinstance(msg, SystemMessage):
-            return {'role': 'system', 'content': msg.content}
-        
-        if isinstance(msg, UserVisionMessage):
-            message = msg.build_content()
-
-            if not msg.image_urls:
-                return {'role': 'user', 'content': message}
-
-            msgs = [{'type': 'text', 'text': message}]
-            for url in msg.image_urls:
-                msgs.append({'type': 'image_url',
-                                'image_url': {'url': url,
-                                            'detail': 'low'
-                                            }
-                            })
-            return {'role': 'user', 'content': msgs }
-        
-        if isinstance(msg, UserMessage):
-            return {'role': 'user', 'content': msg.build_content() }
-        
-        if isinstance(msg, AIMessage):
-            m = {'role': 'assistant', 'content': msg.content}
-
-            if msg.tool_calls:
-                m['tool_calls'] = [self.encode_toolcalling(t) for t in msg.tool_calls]
-            
-            return m
-        
-        if isinstance(msg, ToolMessage):
-            return {'role': 'tool',
-                    'content': msg.content,
-                    'tool_call_id': msg.tool_call_id
-                   }
-        
-        return {'role': 'user', 'content': msg.content}
-
     def encode_toolcalling(self, tool_call):
         '''encode a ToolCalling object as a dictionary for the OpenAI API'''
         f = tool_call.function
@@ -177,3 +144,45 @@ class OpenAIBackend(LLMBackend):
 
 for m in GPTModels:
     LLMBackend.register_backend(m, OpenAIBackend(m))
+
+# --- Pure encoder functions for OpenAI ---
+def enc_openai_system(msg: SystemMessage):
+    return {'role': 'system', 'content': msg.content}
+
+def enc_openai_user(msg: UserMessage):
+    return {'role': 'user', 'content': msg.build_content()}
+
+def enc_openai_uservision(msg: UserVisionMessage):
+    message = msg.build_content()
+    if not msg.image_urls:
+        return {'role': 'user', 'content': message}
+    msgs = [{'type': 'text', 'text': message}]
+    for url in msg.image_urls:
+        msgs.append({'type': 'image_url',
+                     'image_url': {'url': url,
+                                   'detail': 'low'
+                                   }
+                     })
+    return {'role': 'user', 'content': msgs}
+
+def enc_openai_ai(msg: AIMessage):
+    m = {'role': 'assistant', 'content': msg.content}
+    if msg.tool_calls:
+        m['tool_calls'] = [encode_toolcalling_openai(t) for t in msg.tool_calls]
+    return m
+
+def enc_openai_tool(msg: ToolMessage):
+    return {'role': 'tool',
+            'content': msg.content,
+            'tool_call_id': msg.tool_call_id}
+
+def enc_openai_tool_group(msg: ToolMessageGroup):
+    # Expand into multiple tool messages
+    return [enc_openai_tool(tm) for tm in msg.tool_messages]
+
+def encode_toolcalling_openai(tool_call):
+    f = tool_call.function
+    return {'id': tool_call.id,
+            'type': tool_call.type,
+            'function': {'name': f.name, 'arguments': f.arguments}
+            }
