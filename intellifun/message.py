@@ -14,6 +14,9 @@ class SystemMessage(Message):
 @dataclass
 class UserMessage(Message):
     user_name: str = None
+    # Optional structured inputs for images and files
+    images: Optional[List['InputImage']] = None
+    files: Optional[List['InputFile']] = None
 
     def build_content(self):
         return f'[{self.user_name}] {self.content}' if self.user_name else self.content
@@ -21,6 +24,30 @@ class UserMessage(Message):
 @dataclass
 class UserVisionMessage(UserMessage):
     image_urls: Optional[list[str]] = None   # list of image urls for vision models
+
+
+# Structured input items for Responses-style inputs
+@dataclass
+class InputImage:
+    # The type of the input item. Always 'input_image'.
+    type: str = 'input_image'
+    # The detail level of the image: 'high' | 'low' | 'auto' (default 'auto')
+    detail: str = 'auto'
+    # Either a file_id or an image_url can be supplied
+    file_id: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+@dataclass
+class InputFile:
+    # The type of the input item. Always 'input_file'.
+    type: str = 'input_file'
+    # Provide file content directly, or via file_id or file_url
+    file_data: Optional[str] = None
+    file_id: Optional[str] = None
+    file_url: Optional[str] = None
+    filename: Optional[str] = None
+
 
 @dataclass
 class Function:

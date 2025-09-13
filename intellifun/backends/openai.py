@@ -80,16 +80,15 @@ class OpenAIBackend(LLMBackend):
     def _prepare_request_params(self, req):
         '''Prepare the request parameters for the OpenAI API'''
         msgs = []
-        # system message first
-        msgs.extend(self.encode_message(req.system_message))
-        # then conversation messages
+
         for m in req.messages:
             msgs.extend(self.encode_message(m))
 
         params = {
             'model': self.model,
             'temperature': req.temperature,
-            'messages': msgs,
+            'instructions': req.system_message.content,
+            'input': msgs,
         }
         if req.max_tokens:
             params['max_tokens'] = req.max_tokens
@@ -127,14 +126,14 @@ class OpenAIBackend(LLMBackend):
         '''Call the OpenAI model with the request and return the response as an AIMessage'''
         params = self._prepare_request_params(req)
         client = get_openai_client()
-        chat = client.chat.completions.create(**params)
+        chat = client.responses.create(**params)
         return self._process_response(chat)
     
     async def async_call(self, req):
         '''Async call to the OpenAI model with the request and return the response as an AIMessage'''
         params = self._prepare_request_params(req)
         client = get_async_openai_client()
-        chat = await client.chat.completions.create(**params)
+        chat = await client.responses.create(**params)
         return self._process_response(chat)
 
     def encode_toolcalling(self, tool_call):
@@ -157,21 +156,36 @@ for m in GPTModels:
 
 # --- Pure encoder functions for OpenAI ---
 def enc_openai_system(msg: SystemMessage):
-    return {'role': 'system', 'content': msg.content}
+    return {'role': 'developer', 'content': msg.content}
 
 def enc_openai_user(msg: UserMessage):
-    return {'role': 'user', 'content': msg.build_content()}
+    if msg.images is not None and msg.files is not None:
+        return {'role': 'user', 'content': msg.build_content()}
+    
+    msgs = []
+
+    if msg.content:
+        msgs.append({'type': 'input_text', 'text': msg.content})
+
+    if msg.images:
+        msgs.extend([asdict(img) for img in msg.images])
+    
+    if msg.files:
+        msgs.extend([asdict(file) for file in msg.files])
+    
+    return {'role': 'user', 'content': msgs}
+
 
 def enc_openai_uservision(msg: UserVisionMessage):
     message = msg.build_content()
     if not msg.image_urls:
         return {'role': 'user', 'content': message}
-    msgs = [{'type': 'text', 'text': message}]
+    
+    msgs = [{'type': 'input_text', 'text': message}]
     for url in msg.image_urls:
-        msgs.append({'type': 'image_url',
-                     'image_url': {'url': url,
-                                   'detail': 'low'
-                                   }
+        msgs.append({'type': 'input_image',
+                     'image_url': url,
+                     'detail': 'low',
                      })
     return {'role': 'user', 'content': msgs}
 

@@ -18,6 +18,7 @@ from intellifun.tool import (
     FileSearchTool,
     FileSearchRankingOptions,
 )
+from intellifun.message import InputImage, InputFile
 
 # Embedding components
 from intellifun.embeddings import Embedding
@@ -47,6 +48,7 @@ __all__ = [
     'CodeInterpreterTool', 'CodeInterpreterContainerAuto',
     'MCPTool', 'MCPToolsFilter', 'MCPApprovalFilter',
     'FileSearchTool', 'FileSearchRankingOptions',
+    'InputImage', 'InputFile',
     
     # Memory classes
     'AgentMemory', 'AsyncAgentMemory',
