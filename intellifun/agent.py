@@ -1,6 +1,5 @@
-from dataclasses import dataclass
-from functools import cached_property
-import inspect
+# Tool classes now live in intellifun.tool
+from intellifun.tool import BaseTool, FunctionTool, Tool
 import json
 import rich
 
@@ -11,123 +10,8 @@ from intellifun.message import (Function, SystemMessage,
 
 from intellifun.logging_config import get_default_logging_config
 
-@dataclass
-class Tool:
-    name: str
-    func: callable
-    description: str
-    parameters: dict
-    prompt: str = None
-
-    __called_times = 0
-
-    def check_call_limit(self, limit=10):
-        '''Check if the tool has been called too many times'''
-        if self.__called_times >= limit:
-            return False
-        return True
-    
-    def increment_call_count(self):
-        '''Increment the call count of the tool'''
-        self.__called_times += 1
-
-    @cached_property
-    def is_async(self):
-        '''Check if the tool is async'''
-        return inspect.iscoroutinefunction(self.func)
-
-    @cached_property
-    def is_sync(self):
-        '''Check if the tool is sync'''
-        return not self.is_async
-
-    async def async_run(self, tool_input, context, agent):
-        '''Run the tool function asynchronously
-        
-        This method will handle both async and sync functions correctly:
-        - If the function is async, it will be awaited
-        - If the function is sync, it will be run in a thread pool
-        
-        Returns:
-            The result of the function call
-        '''
-        self.increment_call_count()
-        
-        # Check the number of parameters the function expects
-        sig = inspect.signature(self.func)
-        num_params = len(sig.parameters)
-
-        if num_params == 0:
-            args = []
-        elif num_params == 1:
-            args = [tool_input]
-        elif num_params == 2:
-            args = [tool_input, context]
-        elif num_params == 3:
-            args = [tool_input, context, agent]
-        else:
-            raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
-
-        if self.is_async:
-            # If the function is already async, just await it
-            return await self.func(*args)
-        else:
-            # If the function is sync, run it in a thread pool
-            import asyncio
-            return await asyncio.to_thread(self.func, *args)
-    
-    def run(self, tool_input, context, agent):
-        '''Run the tool function synchronously
-        
-        This method will handle both async and sync functions correctly:
-        - If the function is sync, it will be called directly
-        - If the function is async, it will be run in an event loop
-        
-        Returns:
-            The result of the function call
-        '''
-        self.increment_call_count()
-        
-        # Check the number of parameters the function expects
-        sig = inspect.signature(self.func)
-        num_params = len(sig.parameters)
-
-        if num_params == 0:
-            args = []
-        elif num_params == 1:
-            args = [tool_input]
-        elif num_params == 2:
-            args = [tool_input, context]
-        elif num_params == 3:
-            args = [tool_input, context, agent]
-        else:
-            raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
-        
-        if self.is_sync:
-            # If the function is sync, just call it
-            return self.func(*args)
-        else:
-            # If the function is async, run it in an event loop
-            import asyncio
-            
-            # Get or create an event loop
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                # If there's no event loop in this thread, create one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            
-            # Run the async function in the event loop
-            if loop.is_running():
-                # If the loop is already running, we need to create a new one
-                # This is a bit of a hack, but it's the best we can do
-                return asyncio.run_coroutine_threadsafe(
-                    self.func(*args), loop
-                ).result()
-            else:
-                # If the loop is not running, we can just run the coroutine
-                return loop.run_until_complete(self.func(*args))
+# Re-export Tool for backward compatibility (old imports from agent)
+__all__ = ['Agent', 'Tool']
 
 
 MAX_RECENT_CALLS = 5  # Only track the last 5 calls
@@ -143,7 +27,12 @@ class Agent:
 
         # If there are more than 5 tools, use a dictionary for faster lookup
         if len(self.tools) > 5:
-            self.tools_dict = {tool.name: tool for tool in self.tools}
+            tmp = {}
+            for tool in self.tools:
+                name = getattr(tool, 'name', None)
+                if name:
+                    tmp[name] = tool
+            self.tools_dict = tmp if tmp else None
         else:
             self.tools_dict = None
         
@@ -158,6 +47,15 @@ class Agent:
         # If no logging config is provided, use the global default
         self.logging_config = logging_config or get_default_logging_config()
         self.tool_call_limit = tool_call_limit
+    
+    def _find_tool(self, tool_name: str) -> BaseTool | None:
+        if self.tools_dict:
+            return self.tools_dict.get(tool_name)
+
+        for tool in self.tools:
+            if getattr(tool, 'name', None) == tool_name:
+                return tool
+        return None
 
     def _is_repeated_tool_call(self, func: Function) -> bool:
         '''Check if this exact tool call was made recently'''
@@ -427,6 +325,9 @@ class Agent:
         tool = self._find_tool(tool_name)
         if tool is None:
             return f'No tool named "{tool_name}" found. Do not call it again.'
+        # Only FunctionTool can run locally
+        if not isinstance(tool, FunctionTool):
+            return f'Tool "{tool_name}" is not a function tool and cannot be executed locally. Do not call it directly.'
         
         if not tool.check_call_limit(self.tool_call_limit):
             self.tools.remove(tool)
@@ -457,6 +358,9 @@ class Agent:
         tool = self._find_tool(tool_name)
         if tool is None:
             return f'No tool named "{tool_name}" found. Do not call it again.'
+        # Only FunctionTool can run locally
+        if not isinstance(tool, FunctionTool):
+            return f'Tool "{tool_name}" is not a function tool and cannot be executed locally. Do not call it directly.'
         
         if not tool.check_call_limit(self.tool_call_limit):
             self.tools.remove(tool)
@@ -479,12 +383,3 @@ class Agent:
                 traceback.print_exc()
 
             return f'Error running tool "{tool_name}": {e}'
-
-    def _find_tool(self, tool_name: str) -> Tool | None:
-        if self.tools_dict:
-            return self.tools_dict.get(tool_name)
-
-        for tool in self.tools:
-            if tool.name == tool_name:
-                return tool
-        return None

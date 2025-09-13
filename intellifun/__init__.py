@@ -4,6 +4,20 @@ from intellifun.LLMFunc import llmfunc, CheckResult
 from intellifun.backends.openai import GPTModels
 from intellifun.backends.anthropic import AnthropicModels
 from intellifun.logging_config import LoggingConfig, set_default_logging_config, get_default_logging_config
+from intellifun.tool import (
+    BaseTool,
+    FunctionTool,
+    WebSearchTool,
+    WebSearchFilters,
+    WebSearchUserLocation,
+    CodeInterpreterTool,
+    CodeInterpreterContainerAuto,
+    MCPTool,
+    MCPToolsFilter,
+    MCPApprovalFilter,
+    FileSearchTool,
+    FileSearchRankingOptions,
+)
 
 # Embedding components
 from intellifun.embeddings import Embedding
@@ -26,6 +40,13 @@ from intellifun.redis_agent_memory import (
 __all__ = [
     # Core components
     'LLM', 'Tool', 'Agent', 
+    
+    # Tools
+    'BaseTool', 'FunctionTool',
+    'WebSearchTool', 'WebSearchFilters', 'WebSearchUserLocation',
+    'CodeInterpreterTool', 'CodeInterpreterContainerAuto',
+    'MCPTool', 'MCPToolsFilter', 'MCPApprovalFilter',
+    'FileSearchTool', 'FileSearchRankingOptions',
     
     # Memory classes
     'AgentMemory', 'AsyncAgentMemory',
