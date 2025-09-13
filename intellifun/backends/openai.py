@@ -99,10 +99,9 @@ class OpenAIBackend(LLMBackend):
             
         return params
     
-    def _process_response(self, chat):
+    def _process_response(self, response):
         '''Process the response from the OpenAI API'''
-        resp = chat.choices[0]
-        resp_msg = resp.message
+        resp_msg = response.output
         
         if resp_msg.tool_calls:
             tool_calls = [self.decode_toolcalling(t) for t in resp_msg.tool_calls]
@@ -110,31 +109,32 @@ class OpenAIBackend(LLMBackend):
             tool_calls = None
 
         # Create usage information if available
+        usg_obj = response.usage
         usage = MessageUsage(
-            prompt_tokens=chat.usage.prompt_tokens,
-            completion_tokens=chat.usage.completion_tokens,
-            cached_tokens=chat.usage.prompt_tokens_details.cached_tokens,
-            total_tokens=chat.usage.total_tokens
+            prompt_tokens=usg_obj.input_tokens,
+            cached_tokens=usg_obj.input_tokens_details.cached_tokens,
+            completion_tokens=usg_obj.output_tokens,
+            total_tokens=usg_obj.total_tokens,
         )
 
         return AIMessage(content=resp_msg.content,
                         tool_calls=tool_calls,
                         usage=usage,
-                        model=chat.model)
+                        model=response.model)
     
     def call(self, req):
         '''Call the OpenAI model with the request and return the response as an AIMessage'''
         params = self._prepare_request_params(req)
         client = get_openai_client()
-        chat = client.responses.create(**params)
-        return self._process_response(chat)
+        response = client.responses.create(**params)
+        return self._process_response(response)
     
     async def async_call(self, req):
         '''Async call to the OpenAI model with the request and return the response as an AIMessage'''
         params = self._prepare_request_params(req)
         client = get_async_openai_client()
-        chat = await client.responses.create(**params)
-        return self._process_response(chat)
+        response = await client.responses.create(**params)
+        return self._process_response(response)
 
     def encode_toolcalling(self, tool_call):
         '''encode a ToolCalling object as a dictionary for the OpenAI API'''
