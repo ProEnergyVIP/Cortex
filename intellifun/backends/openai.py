@@ -1,7 +1,15 @@
 from enum import Enum
+from dataclasses import is_dataclass, asdict
 from openai import OpenAI, AsyncOpenAI
 
 from intellifun.backend import LLMBackend
+from intellifun.tool import (
+    FunctionTool,
+    WebSearchTool,
+    CodeInterpreterTool,
+    FileSearchTool,
+    MCPTool,
+)
 from intellifun.message import AIMessage, Function, MessageUsage, SystemMessage, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
 
 
@@ -48,6 +56,7 @@ class OpenAIBackend(LLMBackend):
         super().__init__()
         self.model = model
         self._register_message_encoders()
+        self._register_tool_encoders()
 
     def _register_message_encoders(self):
         # Register pure functions
@@ -57,6 +66,16 @@ class OpenAIBackend(LLMBackend):
         self.register_message_encoder(AIMessage, enc_openai_ai)
         self.register_message_encoder(ToolMessage, enc_openai_tool)
         self.register_message_encoder(ToolMessageGroup, enc_openai_tool_group)
+    
+    def _register_tool_encoders(self):
+        # Function tools (locally executed; provider receives function schema)
+        self.register_tool_encoder(FunctionTool, enc_openai_function_tool)
+        # Hosted tools intended for the Responses API. These encoders will produce
+        # native tool payloads. Note: chat.completions may not accept these types.
+        self.register_tool_encoder(WebSearchTool, enc_openai_web_search_tool)
+        self.register_tool_encoder(CodeInterpreterTool, enc_openai_code_interpreter_tool)
+        self.register_tool_encoder(FileSearchTool, enc_openai_file_search_tool)
+        self.register_tool_encoder(MCPTool, enc_openai_mcp_tool)
     
     def _prepare_request_params(self, req):
         '''Prepare the request parameters for the OpenAI API'''
@@ -131,16 +150,7 @@ class OpenAIBackend(LLMBackend):
         func = m.function
         fc = Function(name=func.name, arguments=func.arguments)
         return ToolCalling(id=m.id, type=m.type, function=fc)
-    
-    def encode_tool(self, tool):
-        '''encode an Agent's tool as a dictionary for the OpenAI API'''
-        return {'type': 'function', 
-                'function': {
-                    'name': tool.name,
-                    'description': tool.description,
-                    'parameters': tool.parameters,
-                    }
-                }
+
 
 for m in GPTModels:
     LLMBackend.register_backend(m, OpenAIBackend(m))
@@ -186,3 +196,51 @@ def encode_toolcalling_openai(tool_call):
             'type': tool_call.type,
             'function': {'name': f.name, 'arguments': f.arguments}
             }
+
+# --- Tool encoder pure functions for OpenAI ---
+
+def _strip_none(obj):
+    """Recursively remove keys with None values from dicts and process lists.
+
+    Dataclasses are converted to dicts via asdict, then cleaned.
+    """
+    if is_dataclass(obj):
+        obj = asdict(obj)
+    if isinstance(obj, dict):
+        return {k: _strip_none(v) for k, v in obj.items() if v is not None}
+    if isinstance(obj, list):
+        return [_strip_none(v) for v in obj]
+    return obj
+
+def enc_openai_function_tool(tool: FunctionTool):
+    return {
+        'type': 'function',
+        'strict': tool.strict,
+        'name': tool.name,
+        'description': tool.description,
+        'parameters': tool.parameters,
+    }
+
+
+def enc_openai_web_search_tool(tool: WebSearchTool):
+    payload = _strip_none(tool)
+    payload['type'] = 'web_search'
+    return payload
+
+
+def enc_openai_code_interpreter_tool(tool: CodeInterpreterTool):
+    payload = _strip_none(tool)
+    payload['type'] = 'code_interpreter'
+    return payload
+
+
+def enc_openai_file_search_tool(tool: FileSearchTool):
+    payload = _strip_none(tool)
+    payload['type'] = 'file_search'
+    return payload
+
+
+def enc_openai_mcp_tool(tool: MCPTool):
+    payload = _strip_none(tool)
+    payload['type'] = 'mcp'
+    return payload

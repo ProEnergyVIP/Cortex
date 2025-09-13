@@ -19,6 +19,9 @@ class LLMBackend:
         # Map of Message subclass -> encoder function
         # Encoder returns either a single backend-native payload (dict) or a list of them
         self._message_encoders: Dict[Type, Callable[[object], Any]] = {}
+        # Map of Tool subclass -> encoder function
+        # Encoder returns a single backend-native tool payload (dict)
+        self._tool_encoders: Dict[Type, Callable[[object], Any]] = {}
 
     # --- Message encoding registry API ---
     def register_message_encoder(self, message_type: Type, encoder: Callable[[object], Any]) -> None:
@@ -59,6 +62,53 @@ class LLMBackend:
         if isinstance(payload, list):
             return payload  # type: ignore[return-value]
         return [payload]  # type: ignore[list-item]
+
+    # --- Tool encoding registry API ---
+    def register_tool_encoder(self, tool_type: Type, encoder: Callable[[object], Dict[str, Any]]) -> None:
+        """Register an encoder for a specific Tool subclass.
+
+        The encoder should accept a Tool instance and return a single backend-native tool payload (dict).
+        """
+        self._tool_encoders[tool_type] = encoder
+
+    def _find_tool_encoder_for(self, tool: object) -> Callable[[object], Dict[str, Any]] | None:
+        """Find the most specific registered encoder for the given tool instance.
+        Walk the class MRO to allow subclass matching.
+        """
+        for cls in type(tool).mro():
+            enc = self._tool_encoders.get(cls)
+            if enc is not None:
+                return enc
+        return None
+
+    def default_tool_encoder(self, tool: object) -> Dict[str, Any]:
+        """Fallback encoder if no specific tool encoder is registered.
+        Assumes a function-style tool with name/description/parameters.
+        """
+        name = getattr(tool, 'name', None)
+        description = getattr(tool, 'description', None)
+        parameters = getattr(tool, 'parameters', None)
+        if name and description is not None and parameters is not None:
+            return {
+                'type': 'function',
+                'strict': tool.strict,
+                'name': name,
+                'description': description,
+                'parameters': parameters,
+            }
+        # As a last resort, return an empty function tool with a generic name
+        return {
+            'type': 'function',
+            'strict': tool.strict,
+            'name': name or 'unknown_tool',
+            'description': description or 'No description provided.',
+            'parameters': parameters or {'type': 'object', 'properties': {}, 'additionalProperties': True},
+        }
+
+    def encode_tool(self, tool: object) -> Dict[str, Any]:
+        """Encode a Tool instance using the registered tool encoder or fallback."""
+        encoder = self._find_tool_encoder_for(tool)
+        return encoder(tool) if encoder else self.default_tool_encoder(tool)
 
     def call(self, req: LLMRequest) -> AIMessage | None:
         return None

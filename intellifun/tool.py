@@ -25,6 +25,7 @@ class FunctionTool(BaseTool):
     description: str
     parameters: dict
     prompt: str = None
+    strict: bool = True
 
     __called_times = 0
 
