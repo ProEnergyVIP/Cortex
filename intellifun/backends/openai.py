@@ -136,14 +136,6 @@ class OpenAIBackend(LLMBackend):
         response = await client.responses.create(**params)
         return self._process_response(response)
 
-    def encode_toolcalling(self, tool_call):
-        '''encode a ToolCalling object as a dictionary for the OpenAI API'''
-        f = tool_call.function
-        return {'id': tool_call.id,
-                'type': tool_call.type,
-                'function': {'name': f.name, 'arguments': f.arguments}
-                }
-    
     def decode_toolcalling(self, m):
         '''decode a tool call message from openAI to a ToolCalling object'''
         func = m.function
