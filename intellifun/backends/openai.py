@@ -151,7 +151,7 @@ class OpenAIBackend(LLMBackend):
 
 
 for m in GPTModels:
-    LLMBackend.register_backend(m, OpenAIBackend(m))
+    LLMBackend.register_backend(m, OpenAIBackend)
 
 # --- Pure encoder functions for OpenAI ---
 def enc_openai_system(msg: SystemMessage):

@@ -117,7 +117,7 @@ class AnthropicBackend(LLMBackend):
         }
 
 for m in AnthropicModels:
-    LLMBackend.register_backend(m, AnthropicBackend(m))
+    LLMBackend.register_backend(m, AnthropicBackend)
 
 # --- Pure encoder functions for Anthropic ---
 def enc_anthropic_user_vision(msg: UserVisionMessage):

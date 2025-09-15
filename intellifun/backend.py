@@ -14,6 +14,7 @@ class LLMRequest:
 
 class LLMBackend:
     backend_registry = {}
+    backend_instance_cache = {}
 
     def __init__(self) -> None:
         # Map of Message subclass -> encoder function
@@ -119,8 +120,30 @@ class LLMBackend:
 
     @classmethod
     def get_backend(cls, model):
-        return cls.backend_registry.get(model, None)
+        """Get a backend instance for the given model.
+        The backend instance will be cached for future use.
+
+        Args:
+            model: The model identifier this backend handles
+        """
+        if model in cls.backend_instance_cache:
+            return cls.backend_instance_cache[model]
+        
+        backend_cls = cls.backend_registry.get(model, None)
+        if backend_cls is None:
+            return None
+        
+        backend = backend_cls(model)
+        cls.backend_instance_cache[model] = backend
+
+        return backend
     
     @classmethod
-    def register_backend(cls, model, backend):
-        cls.backend_registry[model] = backend
+    def register_backend(cls, model, backend_cls):
+        """Register a backend class for a model.
+        
+        Args:
+            model: The model identifier this backend handles
+            backend_cls: The backend class to instantiate
+        """
+        cls.backend_registry[model] = backend_cls
