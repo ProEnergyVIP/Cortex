@@ -1,7 +1,7 @@
 from enum import Enum
 
 from intellifun.backend import LLMBackend, LLMRequest
-from intellifun.message import AIMessage, Function, ToolCalling, ToolMessageGroup, UserMessage, UserVisionMessage, MessageUsage
+from intellifun.message import AIMessage, FunctionCall, ToolMessageGroup, UserMessage, UserVisionMessage, MessageUsage
 
 
 __anthropic_client = None
@@ -82,7 +82,7 @@ class AnthropicBackend(LLMBackend):
                 break
             
             if msg.type == 'tool_use':
-                tool_calls.append(self.decode_toolcalling(msg))
+                tool_calls.append(self.decode_function_call(msg))
                 break
 
         # Extract usage information from response
@@ -98,19 +98,15 @@ class AnthropicBackend(LLMBackend):
                          usage=usage,
                          model=resp.model)
 
-    def encode_toolcalling(self, tool_call):
-        '''encode a tool call as a dictionary for the Anthropic API'''
-        return {
-            'id': tool_call.id,
-            'type': tool_call.type,
-            'name': tool_call.function.name,
-            'input': tool_call.function.arguments,
-        }
-
-    def decode_toolcalling(self, m):
+    def decode_function_call(self, m):
         '''decode a tool call from the Anthropic API response'''
-        fc = Function(name=m.name, arguments=m.input)
-        return ToolCalling(id=m.id, type=m.type, function=fc)
+        return FunctionCall(
+            id=m.id,
+            type=m.type,
+            name=m.name,
+            arguments=m.input,
+            call_id=m.id
+        )
 
     def encode_tool(self, tool):
         '''encode a tool as a dictionary for the Anthropic API'''
@@ -133,9 +129,9 @@ def enc_anthropic_user(msg: UserMessage):
 def enc_anthropic_ai(msg: AIMessage):
     txt = {'type': 'text', 'text': msg.content}
     msgs = [txt]
-    if msg.tool_calls:
-        for c in msg.tool_calls:
-            msgs.append(encode_toolcalling_anthropic(c))
+    if msg.function_calls:
+        for c in msg.function_calls:
+            msgs.append(encode_function_call_anthropic(c))
     return {'role': 'assistant', 'content': msgs}
 
 def enc_anthropic_tool_group(msg: ToolMessageGroup):
@@ -148,10 +144,10 @@ def enc_anthropic_tool_group(msg: ToolMessageGroup):
         })
     return {'role': 'user', 'content': msgs}
 
-def encode_toolcalling_anthropic(tool_call):
+def encode_function_call_anthropic(tool_call):
     return {
         'id': tool_call.id,
         'type': tool_call.type,
-        'name': tool_call.function.name,
-        'input': tool_call.function.arguments,
+        'name': tool_call.name,
+        'input': tool_call.arguments,
     }

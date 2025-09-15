@@ -50,15 +50,13 @@ class InputFile:
 
 
 @dataclass
-class Function:
-    name: str
-    arguments: str | object
-
-@dataclass
-class ToolCalling:
+class FunctionCall:
     id: str
     type: str
-    function: Function
+    call_id: str
+    name: str
+    arguments: str | object
+    status: Optional[str] = None
 
 @dataclass
 class MessageUsage:
@@ -115,9 +113,11 @@ class AgentUsage:
 @dataclass
 class AIMessage(Message):
     '''Message from an AI model'''
-    tool_calls: List[ToolCalling] = None
-    usage: Optional[MessageUsage] = None
     model: Optional[str] = None  # Name of the model that generated this message
+    function_calls: Optional[List[FunctionCall]] = None
+    original_output: Optional[dict] = None
+    usage: Optional[MessageUsage] = None
+
 
 @dataclass
 class ToolMessage(Message):

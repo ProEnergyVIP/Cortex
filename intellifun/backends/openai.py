@@ -10,7 +10,7 @@ from intellifun.tool import (
     FileSearchTool,
     MCPTool,
 )
-from intellifun.message import AIMessage, Function, MessageUsage, SystemMessage, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
+from intellifun.message import AIMessage, MessageUsage, SystemMessage, FunctionCall, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
 
 
 __openai_client = None
@@ -101,13 +101,10 @@ class OpenAIBackend(LLMBackend):
     
     def _process_response(self, response):
         '''Process the response from the OpenAI API'''
-        resp_msg = response.output
+        content = response.output_text or ''
         
-        if resp_msg.tool_calls:
-            tool_calls = [self.decode_toolcalling(t) for t in resp_msg.tool_calls]
-        else:
-            tool_calls = None
-
+        tool_calls = [FunctionCall(**m) for m in response.output if m.type == 'function_call']
+        
         # Create usage information if available
         usg_obj = response.usage
         usage = MessageUsage(
@@ -117,10 +114,12 @@ class OpenAIBackend(LLMBackend):
             total_tokens=usg_obj.total_tokens,
         )
 
-        return AIMessage(content=resp_msg.content,
-                        tool_calls=tool_calls,
-                        usage=usage,
-                        model=response.model)
+        return AIMessage(model=response.model,
+                         content=content,
+                         original_output=response.output,
+                         tool_calls=tool_calls,
+                         usage=usage,
+                         )
     
     def call(self, req):
         '''Call the OpenAI model with the request and return the response as an AIMessage'''
@@ -136,11 +135,13 @@ class OpenAIBackend(LLMBackend):
         response = await client.responses.create(**params)
         return self._process_response(response)
 
-    def decode_toolcalling(self, m):
-        '''decode a tool call message from openAI to a ToolCalling object'''
-        func = m.function
-        fc = Function(name=func.name, arguments=func.arguments)
-        return ToolCalling(id=m.id, type=m.type, function=fc)
+    def decode_function_call(self, m):
+        '''decode a tool call message from openAI to a FunctionCall object'''
+        return FunctionCall(id=m.id,
+                            type=m.type,
+                            name=m.name,
+                            arguments=m.arguments,
+                            call_id=m.call_id)
 
 
 for m in GPTModels:
@@ -182,26 +183,16 @@ def enc_openai_uservision(msg: UserVisionMessage):
     return {'role': 'user', 'content': msgs}
 
 def enc_openai_ai(msg: AIMessage):
-    m = {'role': 'assistant', 'content': msg.content}
-    if msg.tool_calls:
-        m['tool_calls'] = [encode_toolcalling_openai(t) for t in msg.tool_calls]
-    return m
+    return msg.original_output
 
 def enc_openai_tool(msg: ToolMessage):
-    return {'role': 'tool',
-            'content': msg.content,
-            'tool_call_id': msg.tool_call_id}
+    return {'type': 'function_call_output',
+            'output': msg.content,
+            'call_id': msg.tool_call_id}
 
 def enc_openai_tool_group(msg: ToolMessageGroup):
     # Expand into multiple tool messages
     return [enc_openai_tool(tm) for tm in msg.tool_messages]
-
-def encode_toolcalling_openai(tool_call):
-    f = tool_call.function
-    return {'id': tool_call.id,
-            'type': tool_call.type,
-            'function': {'name': f.name, 'arguments': f.arguments}
-            }
 
 # --- Tool encoder pure functions for OpenAI ---
 

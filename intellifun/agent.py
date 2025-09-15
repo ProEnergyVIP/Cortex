@@ -5,7 +5,7 @@ import rich
 
 from intellifun.LLM import get_random_error_message
 from intellifun.debug import is_debug
-from intellifun.message import (Function, SystemMessage,
+from intellifun.message import (FunctionCall, SystemMessage,
                                 ToolMessage, ToolMessageGroup, UserMessage, AgentUsage, print_message)
 
 from intellifun.logging_config import get_default_logging_config
@@ -57,13 +57,13 @@ class Agent:
                 return tool
         return None
 
-    def _is_repeated_tool_call(self, func: Function) -> bool:
+    def _is_repeated_tool_call(self, func: FunctionCall) -> bool:
         '''Check if this exact tool call was made recently'''
         current_call = (func.name, func.arguments)
         # Look for the same tool name and arguments in recent calls
         return current_call in self._recent_tool_calls
 
-    def _add_tool_call(self, func: Function):
+    def _add_tool_call(self, func: FunctionCall):
         '''Add a tool call to the recent calls list'''
         current_call = (func.name, func.arguments)
         self._recent_tool_calls.append(current_call)
@@ -227,7 +227,7 @@ class Agent:
         conversation.append(ai_msg)
 
         # check if we need to run a tool
-        if ai_msg.tool_calls is not None:
+        if ai_msg.function_calls is not None:
             tool_msgs = self.process_func_call(ai_msg, show_msgs)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
@@ -248,7 +248,7 @@ class Agent:
         conversation.append(ai_msg)
 
         # check if we need to run a tool
-        if ai_msg.tool_calls is not None:
+        if ai_msg.function_calls is not None:
             tool_msgs = await self.async_process_func_call(ai_msg, show_msgs)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
@@ -267,25 +267,25 @@ class Agent:
     def process_func_call(self, ai_msg, show_msgs):
         '''Process the function call in the LLM result'''
         msgs = []
-        for fc in ai_msg.tool_calls:
+        for fc in ai_msg.function_calls:
             # Check if this is a repeated tool call
             if show_msgs:
-                rich.print(f'[bold purple]Tool: {fc.function.name}[/bold purple]')
+                rich.print(f'[bold purple]Tool: {fc.name}[/bold purple]')
             
-            if self._is_repeated_tool_call(fc.function):
-                msg = f'Tool "{fc.function.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
-                msgs.append(ToolMessage(content=msg, tool_call_id=fc.id))
+            if self._is_repeated_tool_call(fc):
+                msg = f'Tool "{fc.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
+                msgs.append(ToolMessage(content=msg, tool_call_id=fc.call_id or fc.id))
                 continue
 
-            func_res = self.run_tool_func(fc.function)
-            tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.id)
+            func_res = self.run_tool_func(fc)
+            tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.call_id or fc.id)
             msgs.append(tool_res_msg)
 
             if show_msgs:
                 print_message(tool_res_msg)
 
             # Track this tool call
-            self._add_tool_call(fc.function)
+            self._add_tool_call(fc)
         
         msg_group = ToolMessageGroup(tool_messages=msgs)
         
@@ -294,31 +294,31 @@ class Agent:
     async def async_process_func_call(self, ai_msg, show_msgs):
         '''Process the function call in the LLM result asynchronously'''
         msgs = []
-        for fc in ai_msg.tool_calls:
+        for fc in ai_msg.function_calls:
             # Check if this is a repeated tool call
             if show_msgs:
-                rich.print(f'[bold purple]Tool: {fc.function.name}[/bold purple]')
+                rich.print(f'[bold purple]Tool: {fc.name}[/bold purple]')
             
-            if self._is_repeated_tool_call(fc.function):
-                msg = f'Tool "{fc.function.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
-                msgs.append(ToolMessage(content=msg, tool_call_id=fc.id))
+            if self._is_repeated_tool_call(fc):
+                msg = f'Tool "{fc.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
+                msgs.append(ToolMessage(content=msg, tool_call_id=fc.call_id or fc.id))
                 continue
 
-            func_res = await self.async_run_tool_func(fc.function)
-            tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.id)
+            func_res = await self.async_run_tool_func(fc)
+            tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.call_id or fc.id)
             msgs.append(tool_res_msg)
 
             if show_msgs:
                 print_message(tool_res_msg)
 
             # Track this tool call
-            self._add_tool_call(fc.function)
+            self._add_tool_call(fc)
         
         msg_group = ToolMessageGroup(tool_messages=msgs)
         
         return msg_group
 
-    def run_tool_func(self, func: Function):
+    def run_tool_func(self, func: FunctionCall):
         '''Run the given tool function and return the result'''
         tool_name = func.name
         
@@ -351,7 +351,7 @@ class Agent:
 
             return f'Error running tool "{tool_name}": {e}'
 
-    async def async_run_tool_func(self, func: Function):
+    async def async_run_tool_func(self, func: FunctionCall):
         '''Run the given tool function asynchronously and return the result'''
         tool_name = func.name
         
