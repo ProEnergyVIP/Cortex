@@ -227,7 +227,7 @@ class Agent:
         conversation.append(ai_msg)
 
         # check if we need to run a tool
-        if ai_msg.function_calls is not None:
+        if ai_msg.function_calls:
             tool_msgs = self.process_func_call(ai_msg, show_msgs)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
@@ -248,7 +248,7 @@ class Agent:
         conversation.append(ai_msg)
 
         # check if we need to run a tool
-        if ai_msg.function_calls is not None:
+        if ai_msg.function_calls:
             tool_msgs = await self.async_process_func_call(ai_msg, show_msgs)
             conversation.append(tool_msgs)
             return None  # Continue the conversation

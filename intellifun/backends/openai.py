@@ -108,8 +108,13 @@ class OpenAIBackend(LLMBackend):
     def _process_response(self, response):
         '''Process the response from the OpenAI API'''
         content = response.output_text or ''
+
+        if isinstance(response.output, list):
+            output = [m.model_dump() for m in response.output]
+        else:
+            output = response.output.model_dump()
         
-        tool_calls = [FunctionCall(**m) for m in response.output if m.type == 'function_call']
+        tool_calls = [FunctionCall(**m) for m in output if m['type'] == "function_call"]
         
         # Create usage information if available
         usg_obj = response.usage
@@ -122,8 +127,8 @@ class OpenAIBackend(LLMBackend):
 
         return AIMessage(model=response.model,
                          content=content,
-                         original_output=response.output,
-                         tool_calls=tool_calls,
+                         original_output=output,
+                         function_calls=tool_calls,
                          usage=usage,
                          )
     
@@ -131,9 +136,11 @@ class OpenAIBackend(LLMBackend):
         '''Call the OpenAI model with the request and return the response as an AIMessage'''
         params = self._prepare_request_params(req)
         client = get_openai_client()
+
         response = client.responses.create(**params)
+
         return self._process_response(response)
-    
+            
     async def async_call(self, req):
         '''Async call to the OpenAI model with the request and return the response as an AIMessage'''
         params = self._prepare_request_params(req)
