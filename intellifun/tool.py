@@ -209,7 +209,7 @@ class MCPTool(BaseTool):
     # Allowed tools can be a list of names or a filter object
     allowed_tools: list[str] | MCPToolsFilter | None = None
     # Require approval can be 'always' | 'never' (string), a filter object, or an approval filter object
-    require_approval: str | MCPToolsFilter | MCPApprovalFilter | None = None
+    require_approval: str | MCPApprovalFilter | None = None
     # Optional server description
     server_description: str | None = None
 

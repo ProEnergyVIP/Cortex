@@ -94,7 +94,7 @@ class AnthropicBackend(LLMBackend):
         )
 
         return AIMessage(content=resp_message,
-                         tool_calls=tool_calls,
+                         function_calls=tool_calls,
                          usage=usage,
                          model=resp.model)
 
