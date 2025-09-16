@@ -92,10 +92,13 @@ class OpenAIBackend(LLMBackend):
 
         params = {
             'model': self.model,
-            'temperature': req.temperature,
             'instructions': req.system_message.content,
             'input': msgs,
         }
+
+        if req.temperature is not None:
+            params['temperature'] = req.temperature
+        
         if req.max_tokens:
             params['max_tokens'] = req.max_tokens
 
@@ -110,9 +113,9 @@ class OpenAIBackend(LLMBackend):
         content = response.output_text or ''
 
         if isinstance(response.output, list):
-            output = [m.model_dump() for m in response.output]
+            output = [m.model_dump(exclude_none=True) for m in response.output]
         else:
-            output = response.output.model_dump()
+            output = response.output.model_dump(exclude_none=True)
         
         tool_calls = [FunctionCall(**m) for m in output if m['type'] == "function_call"]
         

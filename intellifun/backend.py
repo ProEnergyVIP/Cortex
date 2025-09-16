@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from intellifun.message import AIMessage, SystemMessage
 
@@ -8,7 +8,7 @@ from intellifun.message import AIMessage, SystemMessage
 class LLMRequest:
     system_message: SystemMessage
     messages: list
-    temperature: float = 0.5
+    temperature: Optional[float] = None
     max_tokens: int = None
     tools: list = field(default_factory=list)
 

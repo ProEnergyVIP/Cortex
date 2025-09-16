@@ -83,7 +83,7 @@ def multiply_tool():
 # --- Build the agent ---
 
 def build_agent():
-    llm = LLM(model=GPTModels.GPT_4O_MINI, temperature=0.2)
+    llm = LLM(model=GPTModels.GPT_5_MINI)
 
     tools = [
         add_tool(),
@@ -95,6 +95,7 @@ def build_agent():
         "- Prefer using the provided function tools for any calculation rather than mental math.\n"
         "- When tools are used, wait for the tool outputs and then provide a succinct final answer.\n"
         "- Keep responses brief."
+        "- Only use each tool once and don't repeat the same tool."
     )
 
     # Keep the last few message groups to support follow-up questions

@@ -70,7 +70,7 @@ class LLM:
             return cls._backup_backends[model]
         return model
 
-    def __init__(self, model, temperature = 0.5):
+    def __init__(self, model, temperature = None):
         self.model = model
         self.temperature = temperature
         self._initialize_backend()
