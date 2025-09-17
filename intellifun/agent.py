@@ -1,4 +1,5 @@
 # Tool classes now live in intellifun.tool
+import logging
 from intellifun.tool import BaseTool, FunctionTool, Tool
 import json
 import rich
@@ -13,6 +14,7 @@ from intellifun.logging_config import get_default_logging_config
 # Re-export Tool for backward compatibility (old imports from agent)
 __all__ = ['Agent', 'Tool']
 
+logger = logging.getLogger(__name__)
 
 MAX_RECENT_CALLS = 5  # Only track the last 5 calls
 
@@ -145,8 +147,12 @@ class Agent:
         
         # Get history messages from memory
         history_msgs = self.memory.load_memory() if self.memory else []
+
+        logger.debug('history messages: %s', history_msgs)
         
         message, conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
+
+        logger.debug('current conversation: %s', conversation)
         
         # Main conversation loop
         for _ in range(loop_limit):
@@ -158,7 +164,9 @@ class Agent:
                 # Add usage to AgentUsage if available
                 if ai_msg.usage and ai_msg.model:
                     agent_usage.add_usage(ai_msg.model, ai_msg.usage)
-            except Exception as _:
+            except Exception as e:
+                logger.error('error calling LLM model: %s', e)
+
                 err_msg = get_random_error_message()
                 reply = {'message': err_msg} if self.json_reply else err_msg
                 break
@@ -191,7 +199,11 @@ class Agent:
         # Get history messages from memory asynchronously
         history_msgs = await self.memory.load_memory() if self.memory else []
         
+        logger.debug('history messages: %s', history_msgs)
+        
         message, conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
+        
+        logger.debug('current conversation: %s', conversation)
         
         # Main conversation loop
         for _ in range(loop_limit):
@@ -203,7 +215,9 @@ class Agent:
                 # Add usage to AgentUsage if available
                 if ai_msg.usage and ai_msg.model:
                     agent_usage.add_usage(ai_msg.model, ai_msg.usage)
-            except Exception as _:
+            except Exception as e:
+                logger.error('error calling LLM model: %s', e)
+
                 err_msg = get_random_error_message()
                 reply = {'message': err_msg} if self.json_reply else err_msg
                 break
@@ -228,10 +242,14 @@ class Agent:
 
         # check if we need to run a tool
         if ai_msg.function_calls:
+            logger.debug('function calls: %s', ai_msg.function_calls)
+
             tool_msgs = self.process_func_call(ai_msg, show_msgs)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
         elif ai_msg.content:
+            logger.debug('content: %s', ai_msg.content)
+            
             if show_msgs:
                 print_message(ai_msg)
             try:
@@ -249,10 +267,14 @@ class Agent:
 
         # check if we need to run a tool
         if ai_msg.function_calls:
+            logger.debug('function calls: %s', ai_msg.function_calls)
+            
             tool_msgs = await self.async_process_func_call(ai_msg, show_msgs)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
         elif ai_msg.content:
+            logger.debug('content: %s', ai_msg.content)
+            
             if show_msgs:
                 print_message(ai_msg)
             try:

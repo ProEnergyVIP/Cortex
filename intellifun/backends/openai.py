@@ -1,5 +1,6 @@
 from enum import Enum
 from dataclasses import is_dataclass, asdict
+import logging
 from openai import OpenAI, AsyncOpenAI
 
 from intellifun.backend import LLMBackend
@@ -12,6 +13,7 @@ from intellifun.tool import (
 )
 from intellifun.message import AIMessage, MessageUsage, SystemMessage, FunctionCall, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
 
+logger = logging.getLogger(__name__)
 
 __openai_client = None
 __async_openai_client = None
@@ -90,7 +92,6 @@ class OpenAIBackend(LLMBackend):
         for m in req.messages:
             msgs.extend(self.encode_message(m))
 
-        print('input: ', msgs)
         params = {
             'model': self.model,
             'instructions': req.system_message.content,
@@ -106,7 +107,9 @@ class OpenAIBackend(LLMBackend):
         if req.tools:
             tools = [self.encode_tool(t) for t in req.tools]
             params['tools'] = tools
-            
+        
+        logger.debug('OpenAI request params: %s', params)
+        
         return params
     
     def _process_response(self, response):
@@ -118,6 +121,8 @@ class OpenAIBackend(LLMBackend):
         else:
             output = response.output.model_dump(exclude_none=True)
         
+        logger.debug('OpenAI response output: %s', output)
+
         tool_calls = [FunctionCall(**m) for m in output if m['type'] == "function_call"]
         
         # Create usage information if available
@@ -143,7 +148,7 @@ class OpenAIBackend(LLMBackend):
         try:
             response = client.responses.create(**params)
         except Exception as e:
-            print(e)
+            logger.error('OpenAI request failed: %s', e)
             raise e
         return self._process_response(response)
             
@@ -154,7 +159,7 @@ class OpenAIBackend(LLMBackend):
         try:
             response = await client.responses.create(**params)
         except Exception as e:
-            print(e)
+            logger.error('OpenAI request failed: %s', e)
             raise e
         return self._process_response(response)
 

@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from functools import cached_property
 import inspect
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Base marker class for any tool
 @dataclass
@@ -78,10 +81,12 @@ class FunctionTool(BaseTool):
 
         if self.is_async:
             # If the function is already async, just await it
+            logger.debug('run async tool function "%s"', self.name)
             return await self.func(*args)
         else:
             # If the function is sync, run it in a thread pool
             import asyncio
+            logger.debug('run sync tool function "%s" in async mode agent', self.name)
             return await asyncio.to_thread(self.func, *args)
     
     def run(self, tool_input, context, agent):
@@ -113,6 +118,7 @@ class FunctionTool(BaseTool):
         
         if self.is_sync:
             # If the function is sync, just call it
+            logger.debug('run sync tool function "%s"', self.name)
             return self.func(*args)
         else:
             # If the function is async, run it in an event loop
@@ -126,6 +132,7 @@ class FunctionTool(BaseTool):
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
             
+            logger.debug('run async tool function "%s" in sync mode agent', self.name)
             # Run the async function in the event loop
             if loop.is_running():
                 # If the loop is already running, we need to create a new one
