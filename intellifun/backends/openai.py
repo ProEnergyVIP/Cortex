@@ -10,7 +10,7 @@ from intellifun.tool import (
     FileSearchTool,
     MCPTool,
 )
-from intellifun.message import AIMessage, MessageUsage, SystemMessage, FunctionCall, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
+from intellifun.message import AIMessage, MessageUsage, SystemMessage, FunctionCall, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
 
 
 __openai_client = None
@@ -151,15 +151,6 @@ class OpenAIBackend(LLMBackend):
         response = await client.responses.create(**params)
         return self._process_response(response)
 
-    def decode_function_call(self, m):
-        '''decode a tool call message from openAI to a FunctionCall object'''
-        return FunctionCall(id=m.id,
-                            type=m.type,
-                            name=m.name,
-                            arguments=m.arguments,
-                            call_id=m.call_id)
-
-
 for m in GPTModels:
     LLMBackend.register_backend(m, OpenAIBackend)
 
@@ -199,7 +190,18 @@ def enc_openai_uservision(msg: UserVisionMessage):
     return {'role': 'user', 'content': msgs}
 
 def enc_openai_ai(msg: AIMessage):
+    if msg.tool_calls:
+        return [enc_openai_old_toolcall(tc) for tc in msg.tool_calls]
     return msg.original_output
+
+def enc_openai_old_toolcall(tc: ToolCalling):
+    # convert the old ToolCalling format to new FunctionCall format
+    return {'type': 'function_call',
+            'name': tc.function.name,
+            'arguments': tc.function.arguments,
+            'call_id': tc.id,
+            'id': tc.id
+            }
 
 def enc_openai_tool(msg: ToolMessage):
     return {'type': 'function_call_output',

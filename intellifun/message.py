@@ -58,6 +58,19 @@ class FunctionCall:
     arguments: str | object
     status: Optional[str] = None
 
+# deprecated ToolCalling and Function inside.
+# Still used to support old messages encoded in it and stored in memory storage.
+@dataclass
+class Function:
+    name: str
+    arguments: str | object
+
+@dataclass
+class ToolCalling:
+    id: str
+    type: str
+    function: Function
+
 @dataclass
 class MessageUsage:
     '''Token usage information for a message'''
@@ -115,6 +128,7 @@ class AIMessage(Message):
     '''Message from an AI model'''
     model: Optional[str] = None  # Name of the model that generated this message
     function_calls: Optional[List[FunctionCall]] = None
+    tool_calls: Optional[List[ToolCalling]] = None # deprecated, only for backward compatibility
     original_output: Optional[dict] = None
     usage: Optional[MessageUsage] = None
 
