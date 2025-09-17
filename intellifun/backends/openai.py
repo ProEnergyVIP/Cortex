@@ -1,6 +1,7 @@
 from enum import Enum
 from dataclasses import is_dataclass, asdict
 import logging
+import uuid
 from openai import OpenAI, AsyncOpenAI
 
 from intellifun.backend import LLMBackend
@@ -212,7 +213,7 @@ def enc_openai_ai(msg: AIMessage):
     
     # build a custom dict with old custom data
     return {
-        'id': '',
+        'id': uuid.uuid4().hex,
         'type': 'message',
         'role': 'assistant',
         'content': msg.content,
