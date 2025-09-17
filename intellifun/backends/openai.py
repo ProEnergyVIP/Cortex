@@ -139,16 +139,22 @@ class OpenAIBackend(LLMBackend):
         '''Call the OpenAI model with the request and return the response as an AIMessage'''
         params = self._prepare_request_params(req)
         client = get_openai_client()
-
-        response = client.responses.create(**params)
-
+        try:
+            response = client.responses.create(**params)
+        except Exception as e:
+            print(e)
+            raise e
         return self._process_response(response)
             
     async def async_call(self, req):
         '''Async call to the OpenAI model with the request and return the response as an AIMessage'''
         params = self._prepare_request_params(req)
         client = get_async_openai_client()
-        response = await client.responses.create(**params)
+        try:
+            response = await client.responses.create(**params)
+        except Exception as e:
+            print(e)
+            raise e
         return self._process_response(response)
 
 for m in GPTModels:
