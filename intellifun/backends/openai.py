@@ -1,7 +1,6 @@
 from enum import Enum
 from dataclasses import is_dataclass, asdict
 import logging
-import uuid
 from openai import OpenAI, AsyncOpenAI
 
 from intellifun.backend import LLMBackend
@@ -91,7 +90,9 @@ class OpenAIBackend(LLMBackend):
         msgs = []
 
         for m in req.messages:
-            msgs.extend(self.encode_message(m))
+            msg = self.encode_message(m)
+            if msg:
+                msgs.extend(msg)
 
         params = {
             'model': self.model,
@@ -206,19 +207,7 @@ def enc_openai_ai(msg: AIMessage):
     # if there're old tool calls data
     if msg.tool_calls:
         return [enc_openai_old_toolcall(tc) for tc in msg.tool_calls]
-    
-    # if this is the new AI message with original output from the model
-    if msg.original_output:
-        return msg.original_output
-    
-    # build a custom dict with old custom data
-    return {
-        'id': uuid.uuid4().hex,
-        'type': 'message',
-        'role': 'assistant',
-        'content': msg.content,
-        'status': 'completed',
-    }
+    return msg.original_output
 
 def enc_openai_old_toolcall(tc: ToolCalling):
     # convert the old ToolCalling format to new FunctionCall format
