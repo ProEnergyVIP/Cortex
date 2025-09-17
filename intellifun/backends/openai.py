@@ -87,12 +87,10 @@ class OpenAIBackend(LLMBackend):
     
     def _prepare_request_params(self, req):
         '''Prepare the request parameters for the OpenAI API'''
-        msgs = []
-
-        for m in req.messages:
-            msg = self.encode_message(m)
-            if msg:
-                msgs.extend(msg)
+        msgs = [payload
+                for m in req.messages
+                for payload in (self.encode_message(m) or [])
+                if payload is not None]
 
         params = {
             'model': self.model,
