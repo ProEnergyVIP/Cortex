@@ -90,6 +90,7 @@ class OpenAIBackend(LLMBackend):
         for m in req.messages:
             msgs.extend(self.encode_message(m))
 
+        print('input: ', msgs)
         params = {
             'model': self.model,
             'instructions': req.system_message.content,
