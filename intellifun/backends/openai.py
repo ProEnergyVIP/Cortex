@@ -202,9 +202,22 @@ def enc_openai_uservision(msg: UserVisionMessage):
     return {'role': 'user', 'content': msgs}
 
 def enc_openai_ai(msg: AIMessage):
+    # if there're old tool calls data
     if msg.tool_calls:
         return [enc_openai_old_toolcall(tc) for tc in msg.tool_calls]
-    return msg.original_output
+    
+    # if this is the new AI message with original output from the model
+    if msg.original_output:
+        return msg.original_output
+    
+    # build a custom dict with old custom data
+    return {
+        'id': '',
+        'type': 'message',
+        'role': 'assistant',
+        'content': msg.content,
+        'status': 'completed',
+    }
 
 def enc_openai_old_toolcall(tc: ToolCalling):
     # convert the old ToolCalling format to new FunctionCall format
