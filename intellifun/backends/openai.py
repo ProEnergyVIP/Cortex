@@ -241,12 +241,17 @@ def _strip_none(obj):
     return obj
 
 def enc_openai_function_tool(tool: FunctionTool):
+    params = tool.parameters
+
+    if 'additionalProperties' not in params:
+        params['additionalProperties'] = True
+
     return {
         'type': 'function',
         'strict': tool.strict,
         'name': tool.name,
         'description': tool.description,
-        'parameters': tool.parameters,
+        'parameters': params,
     }
 
 
