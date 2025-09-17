@@ -244,7 +244,7 @@ def enc_openai_function_tool(tool: FunctionTool):
     params = tool.parameters
 
     if 'additionalProperties' not in params:
-        params['additionalProperties'] = True
+        params['additionalProperties'] = False
 
     return {
         'type': 'function',
