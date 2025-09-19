@@ -64,6 +64,10 @@ class AgentMemoryBank:
         mem = AgentMemory(k=k)
         self.agent_memories[agent_name] = mem
         return mem
+    
+    def reset_memory(self):
+        '''Reset all agent memories in this bank.'''
+        self.agent_memories = {}
 
     @classmethod
     def bank_for(cls, user_id: str, **kwargs) -> 'AgentMemoryBank':
@@ -104,6 +108,10 @@ class AsyncAgentMemoryBank:
         mem = AsyncAgentMemory(k=k)
         self.agent_memories[agent_name] = mem
         return mem
+    
+    async def reset_memory(self):
+        '''Reset all agent memories in this bank.'''
+        self.agent_memories = {}
 
     @classmethod
     async def bank_for(cls, user_id: str, **kwargs) -> 'AsyncAgentMemoryBank':

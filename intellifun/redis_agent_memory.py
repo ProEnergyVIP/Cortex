@@ -220,6 +220,23 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         
         return mem
     
+    def reset_memory(self):
+        # Lua script to delete all keys matching a pattern
+        # This is more efficient as it runs atomically on the Redis server
+        delete_script = """
+        local keys = redis.call('keys', ARGV[1])
+        if #keys > 0 then
+            return redis.call('del', unpack(keys))
+        end
+        return 0
+        """
+
+        # Execute the Lua script
+        self.redis_client.eval(delete_script, 0, self.key_prefix + ':*')
+        
+        # Clear the local cache
+        self.agent_memories.clear()
+
     @classmethod
     def bank_for(cls, user_id: str, **kwargs) -> 'RedisAgentMemoryBank':
         """
@@ -403,6 +420,23 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         await self.async_redis_client.sadd(agents_key, agent_name)
         
         return mem
+    
+    async def reset_memory(self):
+        # Lua script to delete all keys matching a pattern
+        # This is more efficient as it runs atomically on the Redis server
+        delete_script = """
+        local keys = redis.call('keys', ARGV[1])
+        if #keys > 0 then
+            return redis.call('del', unpack(keys))
+        end
+        return 0
+        """
+
+        # Execute the Lua script
+        await self.async_redis_client.eval(delete_script, 0, self.key_prefix + ':*')
+        
+        # Clear the local cache
+        self.agent_memories.clear()
     
     @classmethod
     async def bank_for(cls, user_id: str, **kwargs) -> 'AsyncRedisAgentMemoryBank':
