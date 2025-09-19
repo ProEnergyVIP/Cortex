@@ -180,10 +180,10 @@ def enc_openai_user(msg: UserMessage):
         msgs.append({'type': 'input_text', 'text': msg.content})
 
     if msg.images:
-        msgs.extend([asdict(img) for img in msg.images])
+        msgs.extend([_strip_none(img) for img in msg.images])
     
     if msg.files:
-        msgs.extend([asdict(file) for file in msg.files])
+        msgs.extend([_strip_none(file) for file in msg.files])
     
     return {'role': 'user', 'content': msgs}
 
