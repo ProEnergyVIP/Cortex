@@ -102,9 +102,9 @@ class Agent:
             
         return message, conversation, show_msgs
     
-    def _handle_response(self, conversation, agent_usage, usage, show_msgs):
+    def _handle_response(self, conversation, agent_usage, usage, show_msgs, is_error=False):
         '''Handle the response after the conversation is complete'''
-        if self.memory:
+        if self.memory and not is_error:
             self.memory.add_messages(conversation)
         
         if self.logging_config.print_usage_report:
@@ -115,9 +115,9 @@ class Agent:
         if show_msgs:
             print(END_DELIM)
             
-    async def _async_handle_response(self, conversation, agent_usage, usage, show_msgs):
+    async def _async_handle_response(self, conversation, agent_usage, usage, show_msgs, is_error=False):
         '''Handle the response after the conversation is complete (async version)'''
-        if self.memory:
+        if self.memory and not is_error:
             await self.memory.add_messages(conversation)
         
         if self.logging_config.print_usage_report:
@@ -154,6 +154,8 @@ class Agent:
 
         logger.debug('current conversation: %s', conversation)
         
+        is_error = False
+
         # Main conversation loop
         for _ in range(loop_limit):
             msgs = [*history_msgs, *conversation]
@@ -169,14 +171,15 @@ class Agent:
 
                 err_msg = get_random_error_message()
                 reply = {'message': err_msg} if self.json_reply else err_msg
+                is_error = True
                 break
 
             reply = self._process_ai_message(ai_msg, conversation, show_msgs)
             if reply is not None:
-                self._handle_response(conversation, agent_usage, usage, show_msgs)
+                self._handle_response(conversation, agent_usage, usage, show_msgs, is_error)
                 return reply
 
-        self._handle_response(conversation, agent_usage, usage, show_msgs)
+        self._handle_response(conversation, agent_usage, usage, show_msgs, is_error)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
     async def async_ask(self, message, user_name=None, usage=None, loop_limit=10):
@@ -205,6 +208,7 @@ class Agent:
         
         logger.debug('current conversation: %s', conversation)
         
+        is_error = False
         # Main conversation loop
         for _ in range(loop_limit):
             msgs = [*history_msgs, *conversation]
@@ -220,15 +224,16 @@ class Agent:
 
                 err_msg = get_random_error_message()
                 reply = {'message': err_msg} if self.json_reply else err_msg
+                is_error = True
                 break
 
             # Process the AI message
             reply = await self._async_process_ai_message(ai_msg, conversation, show_msgs)
             if reply is not None:
-                await self._async_handle_response(conversation, agent_usage, usage, show_msgs)
+                await self._async_handle_response(conversation, agent_usage, usage, show_msgs, is_error)
                 return reply
 
-        await self._async_handle_response(conversation, agent_usage, usage, show_msgs)
+        await self._async_handle_response(conversation, agent_usage, usage, show_msgs, is_error)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
     def print_name(self):
