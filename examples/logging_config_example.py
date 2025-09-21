@@ -6,20 +6,25 @@ to customize message printing behavior.
 
 import sys
 import os
+import logging
 
 # Add the parent directory to the path so we can import intellifun
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from intellifun.message import (
-    SystemMessage, UserMessage, AIMessage, ToolMessage, print_message
+    SystemMessage, UserMessage, AIMessage, ToolMessage
 )
 from intellifun.logging_config import (
     LoggingConfig, set_default_logging_config
 )
 from intellifun.agent import Agent
 
+
+logger = logging.getLogger(__name__)
+
+
 # Example 1: Basic message printing (no logging config involved)
-print("\n=== Example 1: Basic Message Printing ===\n")
+logger.debug("\n=== Example 1: Basic Message Printing ===\n")
 
 # Create some example messages
 system_msg = SystemMessage(content="I am a system message")
@@ -28,10 +33,10 @@ ai_msg = AIMessage(content="I'm an AI response message")
 tool_msg = ToolMessage(content="I'm a tool message", tool_call_id="tool1")
 
 # Print messages directly (no logging config)
-print_message(system_msg)
-print_message(user_msg)
-print_message(ai_msg)
-print_message(tool_msg)
+logger.debug(system_msg.decorate())
+logger.debug(user_msg.decorate())
+logger.debug(ai_msg.decorate())
+logger.debug(tool_msg.decorate())
 
 # Example 2: Agent with default logging configuration
 print("\n=== Example 2: Agent with Default Logging Configuration ===\n")
@@ -136,17 +141,6 @@ def custom_ask(message, user_name=None, usage=None):
         # Set the custom config
         ai_only_agent.logging_config = custom_config
         
-        # Only print AI messages by filtering in the print loop
-        original_print_message = print_message
-        
-        def filtered_print_message(msg):
-            if isinstance(msg, AIMessage):
-                original_print_message(msg)
-        
-        # Monkey patch the print_message function
-        import intellifun.message
-        intellifun.message.print_message = filtered_print_message
-        
         # Call the original ask method
         result = original_ask(message, user_name, usage)
         
@@ -154,7 +148,6 @@ def custom_ask(message, user_name=None, usage=None):
     finally:
         # Restore original config and print_message function
         ai_only_agent.logging_config = original_config
-        intellifun.message.print_message = original_print_message
 
 # Replace the ask method with our custom version
 ai_only_agent.ask = custom_ask.__get__(ai_only_agent)

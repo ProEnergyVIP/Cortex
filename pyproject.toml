@@ -15,7 +15,6 @@ openai = ">=1.107.0"
 anthropic = ">=0.40.0"
 boto3 = "*"
 pydantic = "*"
-rich = "*"
 numpy = "^2.0"  # For efficient numerical operations in embeddings
 
 [tool.poetry.group.chroma]

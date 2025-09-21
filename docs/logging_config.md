@@ -94,37 +94,9 @@ If you need more fine-grained control over which messages are printed, you can c
 
 ```python
 from intellifun.agent import Agent
-from intellifun.message import AIMessage, print_message
 
 # Create an agent
 agent = Agent(llm, name="CustomFilterAgent")
-
-# Save original ask method
-original_ask = agent.ask
-
-# Create a custom ask method that only prints AI messages
-def custom_ask(message, user_name=None, usage=None):
-    # Save original print_message function
-    original_print_message = print_message
-    
-    try:
-        # Create a filtered print function
-        def filtered_print_message(msg):
-            if isinstance(msg, AIMessage):
-                original_print_message(msg)
-        
-        # Replace the print_message function
-        import intellifun.message
-        intellifun.message.print_message = filtered_print_message
-        
-        # Call the original ask method
-        return original_ask(message, user_name, usage)
-    finally:
-        # Restore original print_message function
-        intellifun.message.print_message = original_print_message
-
-# Replace the ask method with our custom version
-agent.ask = custom_ask.__get__(agent)
 
 # Now the agent will only print AI messages
 agent.ask("Hello agent")

@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 import json
+import logging
 from typing import Any
 from intellifun.logging_config import get_default_logging_config
-from intellifun.message import SystemMessage, UserMessage, UserVisionMessage, print_message
+from intellifun.message import SystemMessage, UserMessage, UserVisionMessage
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class CheckResult:
@@ -46,11 +49,11 @@ def _handle_logging(msgs, ai_msg, logging_config, usage):
     '''Handle logging of messages and usage'''
     if logging_config.print_messages:
         for msg in msgs:
-            print_message(msg)
-        print_message(ai_msg)
+            logger.debug(msg.decorate())
+        logger.debug(ai_msg.decorate())
     
     if logging_config.print_usage_report:
-        print(ai_msg.usage.format())
+        logger.debug(ai_msg.usage.format())
     
     if usage and ai_msg.model and ai_msg.usage:
         usage.add_usage(ai_msg.model, ai_msg.usage)
@@ -91,7 +94,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
     logging_config = logging_config or get_default_logging_config()
 
     if logging_config.print_system_prompt:
-        print_message(sys_msg)
+        logger.debug(sys_msg.decorate())
     
     llm_args = llm_args or {}
 
@@ -107,7 +110,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
 
                 if logging_config.print_messages:
                     for msg in msgs:
-                        print_message(msg)
+                        logger.debug(msg.decorate())
 
                 ai_msg = await llm.async_call(sys_msg, msgs, **llm_args)
                 
@@ -137,7 +140,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
 
                 if logging_config.print_messages:
                     for msg in msgs:
-                        print_message(msg)
+                        logger.debug(msg.decorate())
 
                 ai_msg = llm.call(sys_msg, msgs, **llm_args)
                 

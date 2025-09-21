@@ -6,14 +6,20 @@ from typing import List, Optional, Dict
 class Message:
     content: str
     created_at: datetime = field(default_factory=datetime.now)
+    
+    def decorate(self) -> str:
+        """Default decorated representation for a message."""
+        return self.content
 
 @dataclass
 class SystemMessage(Message):
-    pass
+    def decorate(self) -> str:
+        return f'[bold blue]{self.content}[/bold blue]'
 
 @dataclass
 class DeveloperMessage(Message):
-    pass
+    def decorate(self) -> str:
+        return f'[bold red]{self.content}[/bold red]'
 
 @dataclass
 class UserMessage(Message):
@@ -24,6 +30,9 @@ class UserMessage(Message):
 
     def build_content(self):
         return f'[{self.user_name}] {self.content}' if self.user_name else self.content
+    
+    def decorate(self) -> str:
+        return f'[bold green]{self.build_content()}[/bold green]'
 
 @dataclass
 class UserVisionMessage(UserMessage):
@@ -135,33 +144,22 @@ class AIMessage(Message):
     tool_calls: Optional[List[ToolCalling]] = None # deprecated, only for backward compatibility
     original_output: Optional[dict] = None
     usage: Optional[MessageUsage] = None
+    
+    def decorate(self) -> str:
+        return f'[bold yellow]{self.content}[/bold yellow]'
 
 
 @dataclass
 class ToolMessage(Message):
     tool_call_id: str = ''
+    
+    def decorate(self) -> str:
+        return f'[bold purple]{self.content}[/bold purple]'
 
 # message to group several tool calls' result together
 @dataclass
 class ToolMessageGroup:
     tool_messages: list[ToolMessage] = field(default_factory=list)
-
-def print_message(msg):
-    '''print the message to the console, use different colors for different roles.
-    '''
-    from rich import print
     
-    if isinstance(msg, SystemMessage):
-        print(f'[bold blue]{msg.content}[/bold blue]')
-    elif isinstance(msg, UserMessage):
-        content = msg.build_content()
-        print(f'[bold green]{content}[/bold green]')
-    elif isinstance(msg, AIMessage):
-        print(f'[bold yellow]{msg.content}[/bold yellow]')
-    elif isinstance(msg, ToolMessage):
-        print(f'[bold purple]{msg.content}[/bold purple]')
-    elif isinstance(msg, ToolMessageGroup):
-        for tm in msg.tool_messages:
-            print(f'[bold purple]{tm.content}[/bold purple]')
-    else:
-        print(msg.content)
+    def decorate(self) -> str:
+        return '\n'.join([tm.decorate() for tm in self.tool_messages])
