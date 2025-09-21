@@ -79,8 +79,7 @@ class Agent:
         # Add the user's message to the conversation
         if isinstance(message, str):
             message = UserMessage(content=message, user_name=user_name)
-        
-        if isinstance(message, list):
+        elif isinstance(message, list):
             conversation = message
         else:
             conversation = [message]
@@ -103,7 +102,11 @@ class Agent:
                 for m in history_msgs:
                     print_message(m)
 
-            print_message(message)
+            if isinstance(message, list):
+                for m in message:
+                    print_message(m)
+            else:
+                print_message(message)
             
         return conversation, show_msgs
     
