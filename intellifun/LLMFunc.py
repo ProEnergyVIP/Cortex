@@ -49,11 +49,11 @@ def _handle_logging(msgs, ai_msg, logging_config, usage):
     '''Handle logging of messages and usage'''
     if logging_config.print_messages:
         for msg in msgs:
-            logger.debug(msg.decorate())
-        logger.debug(ai_msg.decorate())
+            logger.info(msg.decorate())
+        logger.info(ai_msg.decorate())
     
     if logging_config.print_usage_report:
-        logger.debug(ai_msg.usage.format())
+        logger.info(ai_msg.usage.format())
     
     if usage and ai_msg.model and ai_msg.usage:
         usage.add_usage(ai_msg.model, ai_msg.usage)
@@ -94,7 +94,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
     logging_config = logging_config or get_default_logging_config()
 
     if logging_config.print_system_prompt:
-        logger.debug(sys_msg.decorate())
+        logger.info(sys_msg.decorate())
     
     llm_args = llm_args or {}
 
@@ -110,7 +110,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
 
                 if logging_config.print_messages:
                     for msg in msgs:
-                        logger.debug(msg.decorate())
+                        logger.info(msg.decorate())
 
                 ai_msg = await llm.async_call(sys_msg, msgs, **llm_args)
                 
@@ -140,7 +140,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
 
                 if logging_config.print_messages:
                     for msg in msgs:
-                        logger.debug(msg.decorate())
+                        logger.info(msg.decorate())
 
                 ai_msg = llm.call(sys_msg, msgs, **llm_args)
                 

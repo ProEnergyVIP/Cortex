@@ -91,21 +91,21 @@ class Agent:
 
         # Print system prompt if enabled
         if show_sys_prompt:
-            logger.debug(self.sys_msg.decorate())
+            logger.info(self.sys_msg.decorate())
 
         if show_msgs:
-            logger.debug(START_DELIM)
+            logger.info(START_DELIM)
 
             # log history when showing system prompt
             if show_sys_prompt:
                 for m in history_msgs:
-                    logger.debug(m.decorate())
+                    logger.info(m.decorate())
 
             if isinstance(message, list):
                 for m in message:
-                    logger.debug(m.decorate())
+                    logger.info(m.decorate())
             else:
-                logger.debug(message.decorate())
+                logger.info(message.decorate())
             
         return conversation, show_msgs
     
@@ -115,12 +115,12 @@ class Agent:
             self.memory.add_messages(conversation)
         
         if self.logging_config.print_usage_report:
-            logger.debug(agent_usage.format())
+            logger.info(agent_usage.format())
         if usage:
             usage.merge(agent_usage)
         
         if show_msgs:
-            logger.debug(END_DELIM)
+            logger.info(END_DELIM)
             
     async def _async_handle_response(self, conversation, agent_usage, usage, show_msgs, is_error=False):
         '''Handle the response after the conversation is complete (async version)'''
@@ -128,12 +128,12 @@ class Agent:
             await self.memory.add_messages(conversation)
         
         if self.logging_config.print_usage_report:
-            logger.debug(agent_usage.format())
+            logger.info(agent_usage.format())
         if usage:
             usage.merge(agent_usage)
         
         if show_msgs:
-            logger.debug(END_DELIM)
+            logger.info(END_DELIM)
 
     def ask(self, message: str | Message | List[Message], user_name=None, usage=None, loop_limit=10):
         '''Ask a question to the agent, and get a response
@@ -155,11 +155,11 @@ class Agent:
         # Get history messages from memory
         history_msgs = self.memory.load_memory() if self.memory else []
 
-        logger.debug('history messages: %s', history_msgs)
+        logger.info('history messages: %s', history_msgs)
         
         conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
 
-        logger.debug('current conversation: %s', conversation)
+        logger.info('current conversation: %s', conversation)
         
         is_error = False
 
@@ -209,11 +209,11 @@ class Agent:
         # Get history messages from memory asynchronously
         history_msgs = await self.memory.load_memory() if self.memory else []
         
-        logger.debug('history messages: %s', history_msgs)
+        logger.info('history messages: %s', history_msgs)
         
         conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
         
-        logger.debug('current conversation: %s', conversation)
+        logger.info('current conversation: %s', conversation)
         
         is_error = False
         # Main conversation loop
@@ -246,7 +246,7 @@ class Agent:
     def print_name(self):
         '''Print the agent name if available'''        
         if self.name:
-            logger.debug(f"[bold cyan]Agent: {self.name}[/bold cyan]")
+            logger.info(f"[bold cyan]Agent: {self.name}[/bold cyan]")
 
     def _process_ai_message(self, ai_msg, conversation, show_msgs):
         """Process the AI message and determine next steps"""
@@ -254,16 +254,16 @@ class Agent:
 
         # check if we need to run a tool
         if ai_msg.function_calls:
-            logger.debug('function calls: %s', ai_msg.function_calls)
+            logger.info('function calls: %s', ai_msg.function_calls)
 
             tool_msgs = self.process_func_call(ai_msg, show_msgs)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
         elif ai_msg.content:
-            logger.debug('content: %s', ai_msg.content)
+            logger.info('content: %s', ai_msg.content)
             
             if show_msgs:
-                logger.debug(ai_msg.decorate())
+                logger.info(ai_msg.decorate())
             try:
                 return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
             except json.JSONDecodeError as e:
@@ -279,16 +279,16 @@ class Agent:
 
         # check if we need to run a tool
         if ai_msg.function_calls:
-            logger.debug('function calls: %s', ai_msg.function_calls)
+            logger.info('function calls: %s', ai_msg.function_calls)
             
             tool_msgs = await self.async_process_func_call(ai_msg, show_msgs)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
         elif ai_msg.content:
-            logger.debug('content: %s', ai_msg.content)
+            logger.info('content: %s', ai_msg.content)
             
             if show_msgs:
-                logger.debug(ai_msg.decorate())
+                logger.info(ai_msg.decorate())
             try:
                 return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
             except json.JSONDecodeError as e:
@@ -304,7 +304,7 @@ class Agent:
         for fc in ai_msg.function_calls:
             # Check if this is a repeated tool call
             if show_msgs:
-                logger.debug(f'[bold purple]Tool: {fc.name}[/bold purple]')
+                logger.info(f'[bold purple]Tool: {fc.name}[/bold purple]')
             
             if self._is_repeated_tool_call(fc):
                 msg = f'Tool "{fc.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
@@ -316,7 +316,7 @@ class Agent:
             msgs.append(tool_res_msg)
 
             if show_msgs:
-                logger.debug(tool_res_msg.decorate())
+                logger.info(tool_res_msg.decorate())
 
             # Track this tool call
             self._add_tool_call(fc)
@@ -331,7 +331,7 @@ class Agent:
         for fc in ai_msg.function_calls:
             # Check if this is a repeated tool call
             if show_msgs:
-                logger.debug(f'[bold purple]Tool: {fc.name}[/bold purple]')
+                logger.info(f'[bold purple]Tool: {fc.name}[/bold purple]')
             
             if self._is_repeated_tool_call(fc):
                 msg = f'Tool "{fc.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
@@ -343,7 +343,7 @@ class Agent:
             msgs.append(tool_res_msg)
 
             if show_msgs:
-                logger.debug(tool_res_msg.decorate())
+                logger.info(tool_res_msg.decorate())
 
             # Track this tool call
             self._add_tool_call(fc)
