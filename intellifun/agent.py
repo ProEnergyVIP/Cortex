@@ -75,7 +75,8 @@ class Agent:
         # Add the user's message to the conversation
         if isinstance(message, str):
             message = UserMessage(content=message, user_name=user_name)
-        elif isinstance(message, list):
+        
+        if isinstance(message, list):
             conversation = message
         else:
             conversation = [message]
