@@ -155,11 +155,11 @@ class Agent:
         # Get history messages from memory
         history_msgs = self.memory.load_memory() if self.memory else []
 
-        logger.info('history messages: %s', history_msgs)
+        logger.debug('history messages: %s', history_msgs)
         
         conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
 
-        logger.info('current conversation: %s', conversation)
+        logger.debug('current conversation: %s', conversation)
         
         is_error = False
 
@@ -209,11 +209,11 @@ class Agent:
         # Get history messages from memory asynchronously
         history_msgs = await self.memory.load_memory() if self.memory else []
         
-        logger.info('history messages: %s', history_msgs)
+        logger.debug('history messages: %s', history_msgs)
         
         conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
         
-        logger.info('current conversation: %s', conversation)
+        logger.debug('current conversation: %s', conversation)
         
         is_error = False
         # Main conversation loop
