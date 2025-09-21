@@ -30,9 +30,9 @@ class Agent:
         if len(self.tools) > 5:
             tmp = {}
             for tool in self.tools:
-                name = getattr(tool, 'name', None)
-                if name:
-                    tmp[name] = tool
+                tool_name = getattr(tool, 'name', None)
+                if tool_name:
+                    tmp[tool_name] = tool
             self.tools_dict = tmp if tmp else None
         else:
             self.tools_dict = None
