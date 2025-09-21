@@ -10,8 +10,6 @@ from intellifun.debug import is_debug
 from intellifun.message import (DeveloperMessage, FunctionCall, SystemMessage,
                                 ToolMessage, ToolMessageGroup, UserMessage, AgentUsage)
 
-from intellifun.logging_config import get_default_logging_config
-
 # Re-export Tool for backward compatibility (old imports from agent)
 __all__ = ['Agent', 'Tool']
 
@@ -47,8 +45,7 @@ class Agent:
         self._recent_tool_calls = []
         # Agent name and logging configuration
         self.name = name
-        # If no logging config is provided, use the global default
-        self.logging_config = logging_config or get_default_logging_config()
+        self.logging_config = logging_config
         self.tool_call_limit = tool_call_limit
     
     def _find_tool(self, tool_name: str) -> BaseTool | None:
@@ -84,56 +81,48 @@ class Agent:
             conversation = [message]
         
         # Print agent name if available
-        self.print_name()
+        if self.name:
+            logger.info(f"[bold cyan]Agent: {self.name}[/bold cyan]")
 
-        show_sys_prompt = self.logging_config.print_system_prompt
-        show_msgs = self.logging_config.print_messages
+        logger.debug(self.sys_msg.decorate())
 
-        # Print system prompt if enabled
-        if show_sys_prompt:
-            logger.info(self.sys_msg.decorate())
+        logger.info(START_DELIM)
 
-        if show_msgs:
-            logger.info(START_DELIM)
+        # log history when showing system prompt
+        for m in history_msgs:
+            logger.debug(m.decorate())
 
-            # log history when showing system prompt
-            if show_sys_prompt:
-                for m in history_msgs:
-                    logger.info(m.decorate())
-
-            if isinstance(message, list):
-                for m in message:
-                    logger.info(m.decorate())
-            else:
-                logger.info(message.decorate())
-            
-        return conversation, show_msgs
+        if isinstance(message, list):
+            for m in message:
+                logger.info(m.decorate())
+        else:
+            logger.info(message.decorate())
+        
+        return conversation
     
-    def _handle_response(self, conversation, agent_usage, usage, show_msgs, is_error=False):
+    def _handle_response(self, conversation, agent_usage, usage, is_error=False):
         '''Handle the response after the conversation is complete'''
         if self.memory and not is_error:
             self.memory.add_messages(conversation)
         
-        if self.logging_config.print_usage_report:
-            logger.info(agent_usage.format())
+        logger.info(agent_usage.format())
+        
         if usage:
             usage.merge(agent_usage)
         
-        if show_msgs:
-            logger.info(END_DELIM)
+        logger.info(END_DELIM)
             
-    async def _async_handle_response(self, conversation, agent_usage, usage, show_msgs, is_error=False):
+    async def _async_handle_response(self, conversation, agent_usage, usage, is_error=False):
         '''Handle the response after the conversation is complete (async version)'''
         if self.memory and not is_error:
             await self.memory.add_messages(conversation)
         
-        if self.logging_config.print_usage_report:
-            logger.info(agent_usage.format())
+        logger.info(agent_usage.format())
+        
         if usage:
             usage.merge(agent_usage)
         
-        if show_msgs:
-            logger.info(END_DELIM)
+        logger.info(END_DELIM)
 
     def ask(self, message: str | Message | List[Message], user_name=None, usage=None, loop_limit=10):
         '''Ask a question to the agent, and get a response
@@ -154,13 +143,8 @@ class Agent:
         
         # Get history messages from memory
         history_msgs = self.memory.load_memory() if self.memory else []
+        conversation = self._prepare_conversation(message, user_name, history_msgs)
 
-        logger.debug('history messages: %s', history_msgs)
-        
-        conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
-
-        logger.debug('current conversation: %s', conversation)
-        
         is_error = False
 
         # Main conversation loop
@@ -181,12 +165,12 @@ class Agent:
                 is_error = True
                 break
 
-            reply = self._process_ai_message(ai_msg, conversation, show_msgs)
+            reply = self._process_ai_message(ai_msg, conversation)
             if reply is not None:
-                self._handle_response(conversation, agent_usage, usage, show_msgs, is_error)
+                self._handle_response(conversation, agent_usage, usage, is_error)
                 return reply
 
-        self._handle_response(conversation, agent_usage, usage, show_msgs, is_error)
+        self._handle_response(conversation, agent_usage, usage, is_error)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
     async def async_ask(self, message: str | Message | List[Message], user_name=None, usage=None, loop_limit=10):
@@ -208,12 +192,7 @@ class Agent:
         
         # Get history messages from memory asynchronously
         history_msgs = await self.memory.load_memory() if self.memory else []
-        
-        logger.debug('history messages: %s', history_msgs)
-        
-        conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
-        
-        logger.debug('current conversation: %s', conversation)
+        conversation = self._prepare_conversation(message, user_name, history_msgs)
         
         is_error = False
         # Main conversation loop
@@ -235,20 +214,15 @@ class Agent:
                 break
 
             # Process the AI message
-            reply = await self._async_process_ai_message(ai_msg, conversation, show_msgs)
+            reply = await self._async_process_ai_message(ai_msg, conversation)
             if reply is not None:
-                await self._async_handle_response(conversation, agent_usage, usage, show_msgs, is_error)
+                await self._async_handle_response(conversation, agent_usage, usage, is_error)
                 return reply
 
-        await self._async_handle_response(conversation, agent_usage, usage, show_msgs, is_error)
+        await self._async_handle_response(conversation, agent_usage, usage, is_error)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
-
-    def print_name(self):
-        '''Print the agent name if available'''        
-        if self.name:
-            logger.info(f"[bold cyan]Agent: {self.name}[/bold cyan]")
-
-    def _process_ai_message(self, ai_msg, conversation, show_msgs):
+    
+    def _process_ai_message(self, ai_msg, conversation):
         """Process the AI message and determine next steps"""
         conversation.append(ai_msg)
 
@@ -256,14 +230,12 @@ class Agent:
         if ai_msg.function_calls:
             logger.info('function calls: %s', ai_msg.function_calls)
 
-            tool_msgs = self.process_func_call(ai_msg, show_msgs)
+            tool_msgs = self.process_func_call(ai_msg)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
         elif ai_msg.content:
-            logger.info('content: %s', ai_msg.content)
-            
-            if show_msgs:
-                logger.info(ai_msg.decorate())
+            logger.info(ai_msg.decorate())
+
             try:
                 return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
             except json.JSONDecodeError as e:
@@ -273,7 +245,7 @@ class Agent:
 
         return None  # Continue the conversation
 
-    async def _async_process_ai_message(self, ai_msg, conversation, show_msgs):
+    async def _async_process_ai_message(self, ai_msg, conversation):
         """Process the AI message asynchronously and determine next steps"""
         conversation.append(ai_msg)
 
@@ -281,14 +253,12 @@ class Agent:
         if ai_msg.function_calls:
             logger.info('function calls: %s', ai_msg.function_calls)
             
-            tool_msgs = await self.async_process_func_call(ai_msg, show_msgs)
+            tool_msgs = await self.async_process_func_call(ai_msg)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
         elif ai_msg.content:
-            logger.info('content: %s', ai_msg.content)
-            
-            if show_msgs:
-                logger.info(ai_msg.decorate())
+            logger.info(ai_msg.decorate())
+
             try:
                 return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
             except json.JSONDecodeError as e:
@@ -298,13 +268,12 @@ class Agent:
 
         return None  # Continue the conversation
 
-    def process_func_call(self, ai_msg, show_msgs):
+    def process_func_call(self, ai_msg):
         '''Process the function call in the LLM result'''
         msgs = []
         for fc in ai_msg.function_calls:
             # Check if this is a repeated tool call
-            if show_msgs:
-                logger.info(f'[bold purple]Tool: {fc.name}[/bold purple]')
+            logger.info(f'[bold purple]Tool: {fc.name}[/bold purple]')
             
             if self._is_repeated_tool_call(fc):
                 msg = f'Tool "{fc.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
@@ -315,8 +284,7 @@ class Agent:
             tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.call_id or fc.id)
             msgs.append(tool_res_msg)
 
-            if show_msgs:
-                logger.info(tool_res_msg.decorate())
+            logger.info(tool_res_msg.decorate())
 
             # Track this tool call
             self._add_tool_call(fc)
@@ -325,13 +293,12 @@ class Agent:
         
         return msg_group
 
-    async def async_process_func_call(self, ai_msg, show_msgs):
+    async def async_process_func_call(self, ai_msg):
         '''Process the function call in the LLM result asynchronously'''
         msgs = []
         for fc in ai_msg.function_calls:
             # Check if this is a repeated tool call
-            if show_msgs:
-                logger.info(f'[bold purple]Tool: {fc.name}[/bold purple]')
+            logger.info(f'[bold purple]Tool: {fc.name}[/bold purple]')
             
             if self._is_repeated_tool_call(fc):
                 msg = f'Tool "{fc.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
@@ -342,8 +309,7 @@ class Agent:
             tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.call_id or fc.id)
             msgs.append(tool_res_msg)
 
-            if show_msgs:
-                logger.info(tool_res_msg.decorate())
+            logger.info(tool_res_msg.decorate())
 
             # Track this tool call
             self._add_tool_call(fc)
