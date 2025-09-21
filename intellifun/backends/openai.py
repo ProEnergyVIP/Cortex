@@ -11,7 +11,7 @@ from intellifun.tool import (
     FileSearchTool,
     MCPTool,
 )
-from intellifun.message import AIMessage, MessageUsage, SystemMessage, FunctionCall, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
+from intellifun.message import AIMessage, DeveloperMessage, MessageUsage, SystemMessage, FunctionCall, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ class OpenAIBackend(LLMBackend):
     def _register_message_encoders(self):
         # Register pure functions
         self.register_message_encoder(SystemMessage, enc_openai_system)
+        self.register_message_encoder(DeveloperMessage, enc_openai_developer)
         self.register_message_encoder(UserMessage, enc_openai_user)
         self.register_message_encoder(UserVisionMessage, enc_openai_uservision)
         self.register_message_encoder(AIMessage, enc_openai_ai)
@@ -168,11 +169,14 @@ for m in GPTModels:
 
 # --- Pure encoder functions for OpenAI ---
 def enc_openai_system(msg: SystemMessage):
+    return {'role': 'system', 'content': msg.content}
+
+def enc_openai_developer(msg: DeveloperMessage):
     return {'role': 'developer', 'content': msg.content}
 
 def enc_openai_user(msg: UserMessage):
     if msg.images is not None and msg.files is not None:
-        return {'role': 'user', 'content': msg.build_content()}
+        return {'role': 'user', 'content': msg.content}
     
     msgs = []
 
@@ -189,11 +193,10 @@ def enc_openai_user(msg: UserMessage):
 
 
 def enc_openai_uservision(msg: UserVisionMessage):
-    message = msg.build_content()
     if not msg.image_urls:
-        return {'role': 'user', 'content': message}
+        return {'role': 'user', 'content': msg.content}
     
-    msgs = [{'type': 'input_text', 'text': message}]
+    msgs = [{'type': 'input_text', 'text': msg.content}]
     for url in msg.image_urls:
         msgs.append({'type': 'input_image',
                      'image_url': url,

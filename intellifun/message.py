@@ -12,6 +12,10 @@ class SystemMessage(Message):
     pass
 
 @dataclass
+class DeveloperMessage(Message):
+    pass
+
+@dataclass
 class UserMessage(Message):
     user_name: str = None
     # Optional structured inputs for images and files

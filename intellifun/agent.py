@@ -1,12 +1,14 @@
 # Tool classes now live in intellifun.tool
 import logging
+from mailbox import Message
+from typing import List
 from intellifun.tool import BaseTool, FunctionTool, Tool
 import json
 import rich
 
 from intellifun.LLM import get_random_error_message
 from intellifun.debug import is_debug
-from intellifun.message import (FunctionCall, SystemMessage,
+from intellifun.message import (DeveloperMessage, FunctionCall, SystemMessage,
                                 ToolMessage, ToolMessageGroup, UserMessage, AgentUsage, print_message)
 
 from intellifun.logging_config import get_default_logging_config
@@ -78,7 +80,10 @@ class Agent:
         if isinstance(message, str):
             message = UserMessage(content=message, user_name=user_name)
         
-        conversation = [message]
+        if isinstance(message, list):
+            conversation = message
+        else:
+            conversation = [message]
         
         # Print agent name if available
         self.print_name()
@@ -100,7 +105,7 @@ class Agent:
 
             print_message(message)
             
-        return message, conversation, show_msgs
+        return conversation, show_msgs
     
     def _handle_response(self, conversation, agent_usage, usage, show_msgs, is_error=False):
         '''Handle the response after the conversation is complete'''
@@ -128,11 +133,11 @@ class Agent:
         if show_msgs:
             print(END_DELIM)
 
-    def ask(self, message, user_name=None, usage=None, loop_limit=10):
+    def ask(self, message: str | Message | List[Message], user_name=None, usage=None, loop_limit=10):
         '''Ask a question to the agent, and get a response
 
         Args:
-            message (str or Message): The message to ask
+            message (str or Message or List[Message]): The message to ask
             user_name (str, optional): The name of the user. Defaults to None.
             usage (AgentUsage, optional): Object to accumulate token usage across models.
                 You can pass an AgentUsage object to track usage across multiple calls.
@@ -150,7 +155,7 @@ class Agent:
 
         logger.debug('history messages: %s', history_msgs)
         
-        message, conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
+        conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
 
         logger.debug('current conversation: %s', conversation)
         
@@ -182,7 +187,7 @@ class Agent:
         self._handle_response(conversation, agent_usage, usage, show_msgs, is_error)
         return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
 
-    async def async_ask(self, message, user_name=None, usage=None, loop_limit=10):
+    async def async_ask(self, message: str | Message | List[Message], user_name=None, usage=None, loop_limit=10):
         '''Ask a question to the agent asynchronously, and get a response
 
         Args:
@@ -204,7 +209,7 @@ class Agent:
         
         logger.debug('history messages: %s', history_msgs)
         
-        message, conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
+        conversation, show_msgs = self._prepare_conversation(message, user_name, history_msgs)
         
         logger.debug('current conversation: %s', conversation)
         
@@ -261,7 +266,7 @@ class Agent:
                 return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
             except json.JSONDecodeError as e:
                 err_msg = f"Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag."
-                conversation.append(UserMessage(content=err_msg))
+                conversation.append(DeveloperMessage(content=err_msg))
                 return None  # Continue the conversation with error message
 
         return None  # Continue the conversation
@@ -286,7 +291,7 @@ class Agent:
                 return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
             except json.JSONDecodeError as e:
                 err_msg = f"Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag."
-                conversation.append(UserMessage(content=err_msg))
+                conversation.append(DeveloperMessage(content=err_msg))
                 return None  # Continue the conversation with error message
 
         return None  # Continue the conversation

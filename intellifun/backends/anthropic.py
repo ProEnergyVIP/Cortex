@@ -1,7 +1,7 @@
 from enum import Enum
 
 from intellifun.backend import LLMBackend, LLMRequest
-from intellifun.message import AIMessage, FunctionCall, ToolMessageGroup, UserMessage, UserVisionMessage, MessageUsage
+from intellifun.message import AIMessage, DeveloperMessage, FunctionCall, ToolMessageGroup, UserMessage, UserVisionMessage, MessageUsage
 
 
 __anthropic_client = None
@@ -35,6 +35,7 @@ class AnthropicBackend(LLMBackend):
     def _register_message_encoders(self):
         self.register_message_encoder(UserVisionMessage, enc_anthropic_user_vision)
         self.register_message_encoder(UserMessage, enc_anthropic_user)
+        self.register_message_encoder(DeveloperMessage, enc_anthropic_developer)
         self.register_message_encoder(AIMessage, enc_anthropic_ai)
         self.register_message_encoder(ToolMessageGroup, enc_anthropic_tool_group)
     
@@ -125,6 +126,9 @@ def enc_anthropic_user_vision(msg: UserVisionMessage):
 
 def enc_anthropic_user(msg: UserMessage):
     return {'role': 'user', 'content': msg.build_content()}
+
+def enc_anthropic_developer(msg: DeveloperMessage):
+    return {'role': 'user', 'content': f'<<developer>>{msg.content}<<developer>>'}
 
 def enc_anthropic_ai(msg: AIMessage):
     txt = {'type': 'text', 'text': msg.content}
