@@ -120,9 +120,9 @@ class OpenAIBackend(LLMBackend):
         if isinstance(response.output, list):
             for m in response.output:
                 if m.type == "message" and content is None:
-                    content_obj = m.content
+                    content_obj = m.content[0]
                     if content_obj.type == 'output_text':
-                        content = m.text
+                        content = content_obj.text
             output = [m.model_dump(exclude_none=True) for m in response.output]
         else:
             output = response.output.model_dump(exclude_none=True)
