@@ -17,7 +17,7 @@ try:
     import chromadb
     from chromadb.config import Settings
     CHROMA_AVAILABLE = True
-except ImportError:
+except Exception:
     CHROMA_AVAILABLE = False
 
 if TYPE_CHECKING:
