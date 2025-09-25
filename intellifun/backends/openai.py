@@ -115,14 +115,21 @@ class OpenAIBackend(LLMBackend):
     
     def _process_response(self, response):
         '''Process the response from the OpenAI API'''
-        content = response.output_text or ''
+        content = None
 
         if isinstance(response.output, list):
+            for m in response.output:
+                if m.type == "message" and content is None:
+                    content_obj = m.content
+                    if content_obj.type == 'output_text':
+                        content = m.text
             output = [m.model_dump(exclude_none=True) for m in response.output]
         else:
             output = response.output.model_dump(exclude_none=True)
+            content = response.output_text or ''
         
         logger.debug('OpenAI response output: %s', output)
+        logger.debug('extracted content: %s', content)
 
         tool_calls = [FunctionCall(**m) for m in output if m['type'] == "function_call"]
         
