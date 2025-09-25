@@ -126,7 +126,7 @@ class OpenAIBackend(LLMBackend):
                 content_obj = m.content[0]
                 if content_obj.type == 'output_text':
                     content = content_obj.text
-                output_dicts.append(content_obj.model_dump(exclude_none=True))
+                output_dicts.append(m.model_dump(exclude_none=True))
             elif m.type == "function_call":
                 val = m.model_dump(exclude_none=True)
                 tool_calls.append(FunctionCall(**val))
