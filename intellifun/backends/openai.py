@@ -115,23 +115,26 @@ class OpenAIBackend(LLMBackend):
     
     def _process_response(self, response):
         '''Process the response from the OpenAI API'''
+        logger.debug('OpenAI response output: %s', response.output)
+
         content = None
+        tool_calls = []
+        output_dicts = []
 
-        if isinstance(response.output, list):
-            for m in response.output:
-                if m.type == "message" and content is None:
-                    content_obj = m.content[0]
-                    if content_obj.type == 'output_text':
-                        content = content_obj.text
-            output = [m.model_dump(exclude_none=True) for m in response.output]
-        else:
-            output = response.output.model_dump(exclude_none=True)
-            content = response.output_text or ''
+        for m in response.output:
+            if m.type == "message" and content is None:
+                content_obj = m.content[0]
+                if content_obj.type == 'output_text':
+                    content = content_obj.text
+                output_dicts.append(content_obj.model_dump(exclude_none=True))
+            elif m.type == "function_call":
+                val = m.model_dump(exclude_none=True)
+                tool_calls.append(FunctionCall(**val))
+                output_dicts.append(val)
         
-        logger.debug('OpenAI response output: %s', output)
-        logger.debug('extracted content: %s', content)
-
-        tool_calls = [FunctionCall(**m) for m in output if m['type'] == "function_call"]
+        logger.debug('OpenAI response content: %s', content)
+        logger.debug('OpenAI response tool calls: %s', tool_calls)
+        logger.debug('Actual output: %s', output_dicts)
         
         # Create usage information if available
         usg_obj = response.usage
@@ -144,7 +147,7 @@ class OpenAIBackend(LLMBackend):
 
         return AIMessage(model=response.model,
                          content=content,
-                         original_output=output,
+                         original_output=output_dicts,
                          function_calls=tool_calls,
                          usage=usage,
                          )
