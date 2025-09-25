@@ -9,6 +9,15 @@ from typing import List
 from intellifun.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
 from intellifun.message import Message
 
+# Shared Lua script to delete all keys matching a pattern
+DELETE_BY_PATTERN_LUA = """
+local keys = redis.call('keys', ARGV[1])
+if #keys > 0 then
+    return redis.call('del', unpack(keys))
+end
+return 0
+"""
+
 
 class RedisAgentMemory(AgentMemory):
     """
@@ -184,6 +193,22 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         """
         cls._redis_clients[client_name] = redis_client
     
+    @classmethod
+    def _resolve_client(cls, kwargs):
+        """Resolve a Redis client from kwargs or registry."""
+        redis_client = kwargs.get('redis_client')
+        client_name = kwargs.get('client_name', 'default')
+        if redis_client is None:
+            redis_client = cls._redis_clients.get(client_name)
+        if redis_client is None:
+            raise ValueError("No Redis client available. Either provide 'redis_client' or register a client with 'client_name'")
+        return redis_client
+    
+    @staticmethod
+    def _delete_by_pattern(redis_client, key_pattern: str) -> None:
+        """Delete all keys matching pattern using Lua script."""
+        redis_client.eval(DELETE_BY_PATTERN_LUA, 0, key_pattern)
+    
     def _get_agents_key(self) -> str:
         """Get the Redis key for the list of agents"""
         return f"{self.key_prefix}:agents"
@@ -221,18 +246,8 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         return mem
     
     def reset_memory(self):
-        # Lua script to delete all keys matching a pattern
-        # This is more efficient as it runs atomically on the Redis server
-        delete_script = """
-        local keys = redis.call('keys', ARGV[1])
-        if #keys > 0 then
-            return redis.call('del', unpack(keys))
-        end
-        return 0
-        """
-
-        # Execute the Lua script
-        self.redis_client.eval(delete_script, 0, self.key_prefix + ':*')
+        # Delete all keys for this bank's prefix
+        self._delete_by_pattern(self.redis_client, self.key_prefix + ':*')
         
         # Clear the local cache
         self.agent_memories.clear()
@@ -287,32 +302,34 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         Raises:
             ValueError: If no Redis client is available
         """
-        # Try to get client from kwargs
-        redis_client = kwargs.get('redis_client')
-        client_name = kwargs.get('client_name', 'default')
-        
-        # If no direct client provided, try to get from registered clients
-        if redis_client is None:
-            redis_client = cls._redis_clients.get(client_name)
-        
-        if redis_client is None:
-            raise ValueError("No Redis client available. Either provide 'redis_client' or register a client with 'client_name'")
+        # Resolve client
+        redis_client = cls._resolve_client(kwargs)
         
         # Create a pattern to match all keys for this user
         key_pattern = f"user:{user_id}:*"
-        
-        # Lua script to delete all keys matching a pattern
-        # This is more efficient as it runs atomically on the Redis server
-        delete_script = """
-        local keys = redis.call('keys', ARGV[1])
-        if #keys > 0 then
-            return redis.call('del', unpack(keys))
-        end
-        return 0
+        # Delete by pattern
+        cls._delete_by_pattern(redis_client, key_pattern)
+    
+    @classmethod
+    def reset_all(cls, **kwargs) -> None:
         """
+        Reset all memory banks for all users by deleting all matching Redis keys.
         
-        # Execute the Lua script
-        redis_client.eval(delete_script, 0, key_pattern)
+        Args:
+            **kwargs: Additional arguments for accessing Redis
+                client_name: Name of a registered Redis client to use
+                redis_client: A Redis client instance (alternative to client_name)
+        
+        Raises:
+            ValueError: If no Redis client is available
+        """
+        # Resolve client
+        redis_client = cls._resolve_client(kwargs)
+        
+        # Pattern for all users
+        key_pattern = "user:*"
+        # Delete by pattern
+        cls._delete_by_pattern(redis_client, key_pattern)
     
     @classmethod
     def is_active(cls, user_id: str, **kwargs) -> bool:
@@ -331,25 +348,10 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         Raises:
             ValueError: If no Redis client is available
         """
-        # Try to get client from kwargs
-        redis_client = kwargs.get('redis_client')
-        client_name = kwargs.get('client_name', 'default')
-        
-        # If no direct client provided, try to get from registered clients
-        if redis_client is None:
-            redis_client = cls._redis_clients.get(client_name)
-        
-        if redis_client is None:
-            raise ValueError("No Redis client available. Either provide 'redis_client' or register a client with 'client_name'")
-        
-        # Create a temporary memory bank to access the keys
-        memory_bank = RedisAgentMemoryBank(
-            redis_client=redis_client,
-            key_prefix=f"user:{user_id}"
-        )
-        
-        # Check if the agents key exists
-        agents_key = memory_bank._get_agents_key()
+        # Resolve client
+        redis_client = cls._resolve_client(kwargs)
+        # Check if the agents key exists for this user
+        agents_key = f"user:{user_id}:agents"
         return redis_client.exists(agents_key) > 0
 
 
@@ -384,6 +386,22 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
             async_redis_client: Async Redis client instance
         """
         cls._async_redis_clients[client_name] = async_redis_client
+    
+    @classmethod
+    def _resolve_client(cls, kwargs):
+        """Resolve an async Redis client from kwargs or registry."""
+        async_redis_client = kwargs.get('async_redis_client')
+        client_name = kwargs.get('client_name', 'default')
+        if async_redis_client is None:
+            async_redis_client = cls._async_redis_clients.get(client_name)
+        if async_redis_client is None:
+            raise ValueError("No async Redis client available. Either provide 'async_redis_client' or register a client with 'client_name'")
+        return async_redis_client
+    
+    @staticmethod
+    async def _delete_by_pattern(async_redis_client, key_pattern: str) -> None:
+        """Delete all keys matching pattern using Lua script (async)."""
+        await async_redis_client.eval(DELETE_BY_PATTERN_LUA, 0, key_pattern)
     
     def _get_agents_key(self) -> str:
         """Get the Redis key for the list of agents"""
@@ -422,18 +440,8 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         return mem
     
     async def reset_memory(self):
-        # Lua script to delete all keys matching a pattern
-        # This is more efficient as it runs atomically on the Redis server
-        delete_script = """
-        local keys = redis.call('keys', ARGV[1])
-        if #keys > 0 then
-            return redis.call('del', unpack(keys))
-        end
-        return 0
-        """
-
-        # Execute the Lua script
-        await self.async_redis_client.eval(delete_script, 0, self.key_prefix + ':*')
+        # Delete all keys for this bank's prefix
+        await self._delete_by_pattern(self.async_redis_client, self.key_prefix + ':*')
         
         # Clear the local cache
         self.agent_memories.clear()
@@ -488,32 +496,34 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         Raises:
             ValueError: If no async Redis client is available
         """
-        # Try to get client from kwargs
-        async_redis_client = kwargs.get('async_redis_client')
-        client_name = kwargs.get('client_name', 'default')
-        
-        # If no direct client provided, try to get from registered clients
-        if async_redis_client is None:
-            async_redis_client = cls._async_redis_clients.get(client_name)
-        
-        if async_redis_client is None:
-            raise ValueError("No async Redis client available. Either provide 'async_redis_client' or register a client with 'client_name'")
+        # Resolve client
+        async_redis_client = cls._resolve_client(kwargs)
         
         # Create a pattern to match all keys for this user
         key_pattern = f"user:{user_id}:*"
-        
-        # Lua script to delete all keys matching a pattern
-        # This is more efficient as it runs atomically on the Redis server
-        delete_script = """
-        local keys = redis.call('keys', ARGV[1])
-        if #keys > 0 then
-            return redis.call('del', unpack(keys))
-        end
-        return 0
+        # Delete by pattern
+        await cls._delete_by_pattern(async_redis_client, key_pattern)
+    
+    @classmethod
+    async def reset_all(cls, **kwargs) -> None:
         """
+        Reset all memory banks for all users asynchronously by deleting all matching Redis keys.
         
-        # Execute the Lua script
-        await async_redis_client.eval(delete_script, 0, key_pattern)
+        Args:
+            **kwargs: Additional arguments for accessing Redis
+                client_name: Name of a registered async Redis client to use
+                async_redis_client: An async Redis client instance (alternative to client_name)
+        
+        Raises:
+            ValueError: If no async Redis client is available
+        """
+        # Resolve client
+        async_redis_client = cls._resolve_client(kwargs)
+        
+        # Pattern for all users
+        key_pattern = "user:*"
+        # Delete by pattern
+        await cls._delete_by_pattern(async_redis_client, key_pattern)
     
     @classmethod
     async def is_active(cls, user_id: str, **kwargs) -> bool:
@@ -532,24 +542,9 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         Raises:
             ValueError: If no async Redis client is available
         """
-        # Try to get client from kwargs
-        async_redis_client = kwargs.get('async_redis_client')
-        client_name = kwargs.get('client_name', 'default')
-        
-        # If no direct client provided, try to get from registered clients
-        if async_redis_client is None:
-            async_redis_client = cls._async_redis_clients.get(client_name)
-        
-        if async_redis_client is None:
-            raise ValueError("No async Redis client available. Either provide 'async_redis_client' or register a client with 'client_name'")
-        
-        # Create a temporary memory bank to access the keys
-        memory_bank = AsyncRedisAgentMemoryBank(
-            async_redis_client=async_redis_client,
-            key_prefix=f"user:{user_id}"
-        )
-        
-        # Check if the agents key exists
-        agents_key = memory_bank._get_agents_key()
-        exists = await memory_bank.async_redis_client.exists(agents_key)
+        # Resolve client
+        async_redis_client = cls._resolve_client(kwargs)
+        # Check if the agents key exists for this user
+        agents_key = f"user:{user_id}:agents"
+        exists = await async_redis_client.exists(agents_key)
         return exists > 0

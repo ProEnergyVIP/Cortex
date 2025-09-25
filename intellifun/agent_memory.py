@@ -86,6 +86,11 @@ class AgentMemoryBank:
             del cls.user_memories[user_id]
 
     @classmethod
+    def reset_all(cls) -> None:
+        """Reset all memory banks for all users."""
+        cls.user_memories.clear()
+
+    @classmethod
     def is_active(cls, user_id: str) -> bool:
         """Check if user has memory bank in global store."""
         return user_id in cls.user_memories
@@ -128,6 +133,11 @@ class AsyncAgentMemoryBank:
         """Clear user memory bank from global store asynchronously."""
         if user_id in cls.user_memories:
             del cls.user_memories[user_id]
+
+    @classmethod
+    async def reset_all(cls) -> None:
+        """Reset all memory banks for all users asynchronously."""
+        cls.user_memories.clear()
 
     @classmethod
     async def is_active(cls, user_id: str) -> bool:
