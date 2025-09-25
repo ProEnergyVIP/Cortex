@@ -207,7 +207,8 @@ def enc_openai_uservision(msg: UserVisionMessage):
 def enc_openai_ai(msg: AIMessage):
     # if there're old tool calls data
     if msg.tool_calls:
-        return [enc_openai_old_toolcall(tc) for tc in msg.tool_calls]
+        # old tool calls data won't work anymore. just ignore them
+        return None
     return msg.original_output
 
 def enc_openai_old_toolcall(tc: ToolCalling):
@@ -215,8 +216,7 @@ def enc_openai_old_toolcall(tc: ToolCalling):
     return {'type': 'function_call',
             'name': tc.function.name,
             'arguments': tc.function.arguments,
-            'call_id': tc.id,
-            'id': tc.id
+            'call_id': tc.id
             }
 
 def enc_openai_tool(msg: ToolMessage):
