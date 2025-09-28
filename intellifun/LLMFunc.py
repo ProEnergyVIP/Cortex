@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import json
 import logging
 from typing import Any
-from intellifun.message import SystemMessage, UserMessage, UserVisionMessage
+from intellifun.message import InputFile, InputImage, SystemMessage, UserMessage
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +35,16 @@ DO NOT include the JSON schema itself in the output, only the JSON object confor
 DO NOT include the `json` tag in your answer.
 '''
 
-def _prepare_user_message(msg, image_urls=None):
+def _prepare_user_message(msg, image_urls=None, file_urls=None):
     '''Prepare the user message for the LLM call'''
     if isinstance(msg, UserMessage):
         return msg
     elif image_urls:
-        return UserVisionMessage(content=msg, image_urls=image_urls)
+        imgs = [InputImage(image_url=url) for url in image_urls]
+        return UserMessage(content=msg, images=imgs)
+    elif file_urls:
+        files = [InputFile(file_id=url) for url in file_urls]
+        return UserMessage(content=msg, files=files)
     else:
         return UserMessage(content=msg)
 
@@ -95,8 +99,8 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
     llm_args = llm_args or {}
 
     if async_mode:
-        async def func(msg, image_urls=None, usage=None):
-            user_msg = _prepare_user_message(msg, image_urls)
+        async def func(msg, image_urls=None, file_urls=None, usage=None):
+            user_msg = _prepare_user_message(msg, image_urls, file_urls)
             msgs = [user_msg]
             history = []
 
@@ -124,8 +128,8 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
                 history.append(msg)
         return func
     else:
-        def func(msg, image_urls=None, usage=None):
-            user_msg = _prepare_user_message(msg, image_urls)
+        def func(msg, image_urls=None, file_urls=None, usage=None):
+            user_msg = _prepare_user_message(msg, image_urls, file_urls)
             msgs = [user_msg]
             history = []
 
