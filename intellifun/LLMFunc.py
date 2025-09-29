@@ -43,7 +43,7 @@ def _prepare_user_message(msg, image_urls=None, file_urls=None):
         imgs = [InputImage(image_url=url) for url in image_urls]
         return UserMessage(content=msg, images=imgs)
     elif file_urls:
-        files = [InputFile(file_id=url) for url in file_urls]
+        files = [InputFile(file_url=url) for url in file_urls]
         return UserMessage(content=msg, files=files)
     else:
         return UserMessage(content=msg)
