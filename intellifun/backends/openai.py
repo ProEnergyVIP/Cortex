@@ -109,6 +109,11 @@ class OpenAIBackend(LLMBackend):
             tools = [self.encode_tool(t) for t in req.tools]
             params['tools'] = tools
         
+        if req.reasoning_effort:
+            params['reasoning'] = {
+                'effort': req.reasoning_effort.value
+            }
+        
         logger.debug('OpenAI request params: %s', params)
         
         return params

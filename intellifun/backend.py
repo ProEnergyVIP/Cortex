@@ -1,7 +1,20 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Type
+from enum import Enum
 
 from intellifun.message import AIMessage, SystemMessage
+
+
+class ReasoningEffort(Enum):
+    """Level of reasoning effort to request from the model.
+
+    This generally maps to provider settings like OpenAI's
+    reasoning effort (e.g., "low", "medium", "high").
+    """
+    MINIMAL = "minimal"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 @dataclass
@@ -11,6 +24,7 @@ class LLMRequest:
     temperature: Optional[float] = None
     max_tokens: int = None
     tools: list = field(default_factory=list)
+    reasoning_effort: Optional[ReasoningEffort] = None
 
 class LLMBackend:
     backend_registry = {}

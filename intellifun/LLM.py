@@ -70,9 +70,10 @@ class LLM:
             return cls._backup_backends[model]
         return model
 
-    def __init__(self, model, temperature = None):
+    def __init__(self, model, temperature = None, reasoning_effort = None):
         self.model = model
         self.temperature = temperature
+        self.reasoning_effort = reasoning_effort
         self._initialize_backend()
 
     def _initialize_backend(self):
@@ -96,6 +97,7 @@ class LLM:
                             temperature=self.temperature,
                             max_tokens=max_tokens,
                             tools=tools or [],
+                            reasoning_effort=self.reasoning_effort,
                             )
             return self.backend.call(req)
         except Exception as _:
@@ -128,6 +130,7 @@ class LLM:
                             temperature=self.temperature,
                             max_tokens=max_tokens,
                             tools=tools or [],
+                            reasoning_effort=self.reasoning_effort,
                             )
             return await self.backend.async_call(req)
         except Exception as _:
