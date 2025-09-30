@@ -136,6 +136,8 @@ class OpenAIBackend(LLMBackend):
                 val = m.model_dump(exclude_none=True)
                 tool_calls.append(FunctionCall(**val))
                 output_dicts.append(val)
+            elif m.type == "reasoning":
+                output_dicts.append(m.model_dump(exclude_none=True))
         
         logger.debug('OpenAI response content: %s', content)
         logger.debug('OpenAI response tool calls: %s', tool_calls)
