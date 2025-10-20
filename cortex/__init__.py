@@ -23,9 +23,12 @@ from cortex.message import (
     SystemMessage,
     DeveloperMessage,
     UserMessage,
+    MessageUsage,
+    AgentUsage,
     InputImage,
     InputFile,
 )
+from cortex.backend import ReasoningEffort
 
 # Embedding components
 from cortex.embeddings import Embedding
@@ -68,7 +71,10 @@ __all__ = [
     
     # Message types
     'Message', 'SystemMessage', 'DeveloperMessage', 'UserMessage',
-    'InputImage', 'InputFile',
+    'MessageUsage', 'AgentUsage', 'InputImage', 'InputFile',
+    
+    # Backend configuration
+    'ReasoningEffort',
     
     # Memory classes
     'AgentMemory', 'AsyncAgentMemory',
