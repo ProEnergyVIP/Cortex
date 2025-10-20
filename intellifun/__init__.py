@@ -18,7 +18,14 @@ from intellifun.tool import (
     FileSearchTool,
     FileSearchRankingOptions,
 )
-from intellifun.message import InputImage, InputFile
+from intellifun.message import (
+    Message,
+    SystemMessage,
+    DeveloperMessage,
+    UserMessage,
+    InputImage,
+    InputFile,
+)
 
 # Embedding components
 from intellifun.embeddings import Embedding
@@ -58,6 +65,9 @@ __all__ = [
     'CodeInterpreterTool', 'CodeInterpreterContainerAuto',
     'MCPTool', 'MCPToolsFilter', 'MCPApprovalFilter',
     'FileSearchTool', 'FileSearchRankingOptions',
+    
+    # Message types
+    'Message', 'SystemMessage', 'DeveloperMessage', 'UserMessage',
     'InputImage', 'InputFile',
     
     # Memory classes
