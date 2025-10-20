@@ -38,6 +38,16 @@ from intellifun.redis_agent_memory import (
     AsyncRedisAgentMemoryBank
 )
 
+# Agent System - Higher-level API for building multi-agent systems
+from intellifun.agent_system import (
+    AgentBuilder,
+    AgentSystem,
+    CoordinatorAgentBuilder,
+    WorkerAgentBuilder,
+    CoordinatorSystem,
+)
+from intellifun.agent_system.core.context import AgentSystemContext
+
 __all__ = [
     # Core components
     'LLM', 'Tool', 'Agent', 
@@ -57,6 +67,11 @@ __all__ = [
     # Redis implementations
     'RedisAgentMemory', 'AsyncRedisAgentMemory',
     'RedisAgentMemoryBank', 'AsyncRedisAgentMemoryBank',
+
+    # Agent System - Higher-level multi-agent API
+    'AgentBuilder', 'AgentSystem',
+    'CoordinatorAgentBuilder', 'WorkerAgentBuilder', 'CoordinatorSystem',
+    'AgentSystemContext',
 
     # Other components
     'llmfunc', 'CheckResult', 'GPTModels', 'AnthropicModels',
