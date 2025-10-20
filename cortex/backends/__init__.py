@@ -1,4 +1,4 @@
-from intellifun.backends.openai_embedding import (
+from cortex.backends.openai_embedding import (
     OpenAIEmbeddingBackend,
     OpenAIEmbeddingModels
 )

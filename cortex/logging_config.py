@@ -1,11 +1,11 @@
 """
-Logging configuration module for the intellifun library.
+Logging configuration module for the Cortex library.
 
 This module provides a flexible logging configuration system that allows
 controlling which messages are printed during agent interactions.
 
 Example usage:
-    from intellifun.logging_config import LoggingConfig, set_default_logging_config
+    from cortex.logging_config import LoggingConfig, set_default_logging_config
 
     # Create a custom configuration
     config = LoggingConfig(

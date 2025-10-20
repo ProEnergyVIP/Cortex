@@ -7,8 +7,8 @@ Make sure to set your OPENAI_API_KEY environment variable before running this ex
 import os
 import asyncio
 import numpy as np
-from intellifun.embeddings import Embedding
-from intellifun.backends import DEFAULT_OPENAI_EMBEDDING_MODEL
+from cortex.embeddings import Embedding
+from cortex.backends import DEFAULT_OPENAI_EMBEDDING_MODEL
 
 def sync_example():
     """Synchronous embedding example"""

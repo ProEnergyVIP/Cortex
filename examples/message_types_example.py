@@ -1,11 +1,11 @@
 """
-Example demonstrating the various Message types available in intellifun.
+Example demonstrating the various Message types available in Cortex.
 
 Message types are used to structure conversations between users, AI, and tools.
 They provide type safety, metadata tracking, and proper formatting.
 """
 
-from intellifun import (
+from cortex import (
     Message,
     SystemMessage,
     DeveloperMessage,

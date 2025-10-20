@@ -6,8 +6,8 @@ Uses native Redis data structures for optimal performance.
 import pickle
 from typing import List
 
-from intellifun.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
-from intellifun.message import Message
+from cortex.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
+from cortex.message import Message
 
 # Shared Lua script to delete all keys matching a pattern
 DELETE_BY_PATTERN_LUA = """

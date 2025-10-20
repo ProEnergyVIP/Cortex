@@ -1,13 +1,12 @@
-# Tool classes now live in intellifun.tool
 import logging
 from mailbox import Message
 from typing import List
-from intellifun.tool import BaseTool, FunctionTool, Tool
+from cortex.tool import BaseTool, FunctionTool, Tool
 import json
 
-from intellifun.LLM import get_random_error_message
-from intellifun.debug import is_debug
-from intellifun.message import (DeveloperMessage, FunctionCall, SystemMessage,
+from cortex.LLM import get_random_error_message
+from cortex.debug import is_debug
+from cortex.message import (DeveloperMessage, FunctionCall, SystemMessage,
                                 ToolMessage, ToolMessageGroup, UserMessage, AgentUsage)
 
 # Re-export Tool for backward compatibility (old imports from agent)

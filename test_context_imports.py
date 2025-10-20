@@ -5,9 +5,9 @@ import sys
 sys.path.insert(0, '.')
 
 # Test all import paths
-from intellifun.agent_system.core.context import AgentSystemContext as C1
-from intellifun.agent_system.core import AgentSystemContext as C2
-from intellifun.agent_system import AgentSystemContext as C3
+from cortex.agent_system.core.context import AgentSystemContext as C1
+from cortex.agent_system.core import AgentSystemContext as C2
+from cortex.agent_system import AgentSystemContext as C3
 
 # Verify they're all the same class
 assert C1 is C2 is C3, "Import paths should reference the same class"

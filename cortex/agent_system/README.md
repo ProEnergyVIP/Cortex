@@ -59,7 +59,7 @@ Complete system implementation that:
 ## Quick Start
 
 ```python
-from intellifun import (
+from cortex import (
     LLM,
     GPTModels,
     CoordinatorAgentBuilder,
@@ -149,7 +149,7 @@ context = AgentSystemContext(memory_bank=memory_bank)
 Track API calls and token usage across all agents:
 
 ```python
-from intellifun.message import AgentUsage
+from cortex.message import AgentUsage
 
 usage = AgentUsage()
 context = AgentSystemContext(usage=usage, memory_bank=memory_bank)

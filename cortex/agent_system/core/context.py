@@ -1,8 +1,8 @@
 from functools import cached_property
 from typing import Optional
-from intellifun import LLM, AsyncAgentMemoryBank, GPTModels
-from intellifun.message import AgentUsage
-from intellifun.backend import ReasoningEffort
+from cortex import LLM, AsyncAgentMemoryBank, GPTModels
+from cortex.message import AgentUsage
+from cortex.backend import ReasoningEffort
 from pydantic import BaseModel
 
 class AgentSystemContext(BaseModel):

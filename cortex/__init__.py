@@ -1,10 +1,10 @@
-from intellifun.LLM import LLM
-from intellifun.agent import Agent, Tool
-from intellifun.LLMFunc import llmfunc, CheckResult
-from intellifun.backends.openai import GPTModels
-from intellifun.backends.anthropic import AnthropicModels
-from intellifun.logging_config import LoggingConfig, set_default_logging_config, get_default_logging_config
-from intellifun.tool import (
+from cortex.LLM import LLM
+from cortex.agent import Agent, Tool
+from cortex.LLMFunc import llmfunc, CheckResult
+from cortex.backends.openai import GPTModels
+from cortex.backends.anthropic import AnthropicModels
+from cortex.logging_config import LoggingConfig, set_default_logging_config, get_default_logging_config
+from cortex.tool import (
     BaseTool,
     FunctionTool,
     WebSearchTool,
@@ -18,7 +18,7 @@ from intellifun.tool import (
     FileSearchTool,
     FileSearchRankingOptions,
 )
-from intellifun.message import (
+from cortex.message import (
     Message,
     SystemMessage,
     DeveloperMessage,
@@ -28,17 +28,17 @@ from intellifun.message import (
 )
 
 # Embedding components
-from intellifun.embeddings import Embedding
-from intellifun.backends import OpenAIEmbeddingModels
+from cortex.embeddings import Embedding
+from cortex.backends import OpenAIEmbeddingModels
 
 # Vector store components
-from intellifun.vector_stores import VectorStore, VectorStoreType, get_vector_store, InMemoryVectorStore
+from cortex.vector_stores import VectorStore, VectorStoreType, get_vector_store, InMemoryVectorStore
 
 # Base and in-memory implementations
-from intellifun.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
+from cortex.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
 
 # Redis implementations
-from intellifun.redis_agent_memory import (
+from cortex.redis_agent_memory import (
     RedisAgentMemory,
     AsyncRedisAgentMemory,
     RedisAgentMemoryBank,
@@ -46,14 +46,14 @@ from intellifun.redis_agent_memory import (
 )
 
 # Agent System - Higher-level API for building multi-agent systems
-from intellifun.agent_system import (
+from cortex.agent_system import (
     AgentBuilder,
     AgentSystem,
     CoordinatorAgentBuilder,
     WorkerAgentBuilder,
     CoordinatorSystem,
 )
-from intellifun.agent_system.core.context import AgentSystemContext
+from cortex.agent_system.core.context import AgentSystemContext
 
 __all__ = [
     # Core components

@@ -1,7 +1,7 @@
 import boto3
 import json
 
-from intellifun.message import AIMessage
+from cortex.message import AIMessage
 
 
 endpoint_name = 'jumpstart-dft-meta-textgeneration-llama-2-7b-f'

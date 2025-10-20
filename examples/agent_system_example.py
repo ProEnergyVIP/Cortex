@@ -11,7 +11,7 @@ The Agent System provides:
 """
 
 import asyncio
-from intellifun import (
+from cortex import (
     LLM,
     GPTModels,
     CoordinatorAgentBuilder,
@@ -93,7 +93,7 @@ async def worker_with_tools_example():
     """
     Demonstrates how to add custom tools to a worker agent.
     """
-    from intellifun import Tool
+    from cortex import Tool
     
     # Define a custom tool
     def calculate_area(args, context):
@@ -161,7 +161,7 @@ async def usage_tracking_example():
     """
     Demonstrates how to track usage across agent calls.
     """
-    from intellifun.message import AgentUsage
+    from cortex.message import AgentUsage
     
     # Create context with usage tracking
     usage = AgentUsage()

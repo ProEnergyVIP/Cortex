@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import json
 import logging
 from typing import Any
-from intellifun.message import InputFile, InputImage, SystemMessage, UserMessage
+from cortex.message import InputFile, InputImage, SystemMessage, UserMessage
 
 logger = logging.getLogger(__name__)
 

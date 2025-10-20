@@ -8,7 +8,7 @@ to pass custom data and configuration to their agents.
 import asyncio
 from functools import cached_property
 from typing import Optional
-from intellifun import (
+from cortex import (
     LLM,
     GPTModels,
     AgentSystemContext,
@@ -124,7 +124,7 @@ async def database_context_example():
     )
     
     # Define a tool that uses the context's database methods
-    from intellifun import Tool
+    from cortex import Tool
     
     async def search_database_func(args, ctx: DatabaseContext):
         """Search the database."""
@@ -248,16 +248,16 @@ def show_import_paths():
     """Demonstrate different ways to import AgentSystemContext."""
     
     # Method 1: Import from main package
-    from intellifun import AgentSystemContext as Context1
+    from cortex import AgentSystemContext as Context1
     
     # Method 2: Import from agent_system subpackage
-    from intellifun.agent_system import AgentSystemContext as Context2
+    from cortex.agent_system import AgentSystemContext as Context2
     
     # Method 3: Import from core module
-    from intellifun.agent_system.core import AgentSystemContext as Context3
+    from cortex.agent_system.core import AgentSystemContext as Context3
     
     # Method 4: Import from context module directly
-    from intellifun.agent_system.core.context import AgentSystemContext as Context4
+    from cortex.agent_system.core.context import AgentSystemContext as Context4
     
     # All are the same class
     assert Context1 is Context2 is Context3 is Context4

@@ -1,6 +1,6 @@
-# Intellifun
+# Cortex Agent Framework
 
-Intellifun is a Python package designed to simplify the process of building AI agent systems. With its user-friendly APIs, you can easily create AI agents, manage prompts, handle tools, maintain context, and more. Whether you're a beginner or an experienced developer, Intellifun provides the flexibility and power to build robust AI-driven applications quickly.
+Cortex is a Python framework designed to simplify the process of building AI agent systems. With its user-friendly APIs, you can easily create AI agents, manage prompts, handle tools, maintain context, and more. Whether you're a beginner or an experienced developer, Cortex provides the flexibility and power to build robust AI-driven applications quickly.
 
 ## Features
 
@@ -8,12 +8,13 @@ Intellifun is a Python package designed to simplify the process of building AI a
 - **Prompt Engineering**: Build and customize prompts with minimal effort.
 - **Tool Integration**: Add and manage tools that your AI agents can use.
 - **Context Management**: Maintain and manipulate conversational context seamlessly.
+- **Agent System**: Higher-level API for building multi-agent systems with coordinator-worker patterns.
 - **Flexible API**: Designed to adapt to various use cases.
 
 ## Installation
 
-Install Intellifun using pip:
+Install Cortex using pip:
 
 ```bash
-pip install intellifun
+pip install cortex
 ```

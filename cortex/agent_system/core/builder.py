@@ -1,7 +1,7 @@
 from asyncio import iscoroutine
 from inspect import signature
 from typing import Callable, Optional
-from intellifun import LLM
+from cortex import LLM
 
 from .context import AgentSystemContext
 
@@ -12,7 +12,7 @@ class AgentBuilder:
     Subclasses should implement build_agent(context) to construct and return an Agent instance
     using the runtime context (e.g., to fetch llm, memory, project info).
 
-    The install() method returns an intellifun.Tool that, when executed, builds the agent lazily
+    The install() method returns an cortex.Tool that, when executed, builds the agent lazily
     and forwards the user's message (plus optional developer context) to the agent.
     """
 

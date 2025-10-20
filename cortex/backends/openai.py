@@ -3,15 +3,15 @@ from dataclasses import is_dataclass, asdict
 import logging
 from openai import OpenAI, AsyncOpenAI
 
-from intellifun.backend import LLMBackend
-from intellifun.tool import (
+from cortex.backend import LLMBackend
+from cortex.tool import (
     FunctionTool,
     WebSearchTool,
     CodeInterpreterTool,
     FileSearchTool,
     MCPTool,
 )
-from intellifun.message import AIMessage, DeveloperMessage, MessageUsage, SystemMessage, FunctionCall, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
+from cortex.message import AIMessage, DeveloperMessage, MessageUsage, SystemMessage, FunctionCall, ToolCalling, ToolMessage, ToolMessageGroup, UserMessage, UserVisionMessage
 
 logger = logging.getLogger(__name__)
 

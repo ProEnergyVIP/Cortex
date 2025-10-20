@@ -1,7 +1,7 @@
 from enum import Enum
 
-from intellifun.backend import LLMBackend, LLMRequest
-from intellifun.message import AIMessage, DeveloperMessage, FunctionCall, ToolMessageGroup, UserMessage, UserVisionMessage, MessageUsage
+from cortex.backend import LLMBackend, LLMRequest
+from cortex.message import AIMessage, DeveloperMessage, FunctionCall, ToolMessageGroup, UserMessage, UserVisionMessage, MessageUsage
 
 
 __anthropic_client = None

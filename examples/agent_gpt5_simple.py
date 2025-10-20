@@ -6,7 +6,7 @@ Prerequisites:
 - Ensure your account has access to GPT-5; otherwise this script will fall back to GPT-4o automatically.
 """
 
-from intellifun import (
+from cortex import (
     LLM,
     Agent,
     Tool,

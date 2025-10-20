@@ -1,12 +1,12 @@
-from intellifun import LLM, GPTModels
-from intellifun.agent import Agent, Tool
-from intellifun.agent_memory import AgentMemoryBank
+from cortex import LLM, GPTModels
+from cortex.agent import Agent, Tool
+from cortex.agent_memory import AgentMemoryBank
 
 
 AGENT_BUILDER_PROMPT = '''You are a very intelligent python programmer that can build AI agents or
-AI functions based on Large Language Models, using the Intellifun library.
+AI functions based on Large Language Models, using the Cortex library.
 
-Here's the basic building components of intellifun:
+Here's the basic building components of cortex:
 - GPTModels: A collection of GPT models from the OpenAI GPT series, Commonly used
   models are (defined as Enum value of GPTModels):
     - GPT_4O_MINI: gpt-4o-mini model, very fast and good for simple tasks.
@@ -103,7 +103,7 @@ Here's the basic building components of intellifun:
 
 Here's a snippet of code that creates an agent that can help customize an app:
 ```python
-from intellifun import LLM, GPTModels, Agent, AgentMemoryBank, Tool
+from cortex import LLM, GPTModels, Agent, AgentMemoryBank, Tool
 
 CUSTOMIZER_PROMPT = """You're an agent at Pro Energy, specializing on customizing the app
 experience for users. 

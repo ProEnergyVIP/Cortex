@@ -1,8 +1,8 @@
 from asyncio import iscoroutine
 from typing import Callable, Optional
 import re
-from intellifun import LLM, Agent, Tool
-from intellifun.message import DeveloperMessage, UserMessage
+from cortex import LLM, Agent, Tool
+from cortex.message import DeveloperMessage, UserMessage
 
 from ..core.context import AgentSystemContext
 from ..core.builder import AgentBuilder

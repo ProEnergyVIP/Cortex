@@ -1,7 +1,7 @@
 """Example usage of the vector store functionality."""
 import asyncio
 import numpy as np
-from intellifun import get_vector_store
+from cortex import get_vector_store
 
 async def main():
     # Create an in-memory vector store

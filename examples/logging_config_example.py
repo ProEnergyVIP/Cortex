@@ -8,16 +8,16 @@ import sys
 import os
 import logging
 
-# Add the parent directory to the path so we can import intellifun
+# Add the parent directory to the path so we can import cortex
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from intellifun.message import (
+from cortex.message import (
     SystemMessage, UserMessage, AIMessage, ToolMessage
 )
-from intellifun.logging_config import (
+from cortex.logging_config import (
     LoggingConfig, set_default_logging_config
 )
-from intellifun.agent import Agent
+from cortex.agent import Agent
 
 
 logger = logging.getLogger(__name__)
@@ -131,7 +131,7 @@ def custom_ask(message, user_name=None, usage=None):
     
     try:
         # Create a custom config just for this call
-        from intellifun.logging_config import LoggingConfig
+        from cortex.logging_config import LoggingConfig
         custom_config = LoggingConfig(
             print_system_prompt=False,
             print_messages=True,

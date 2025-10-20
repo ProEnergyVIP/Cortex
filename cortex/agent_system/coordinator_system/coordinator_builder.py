@@ -1,6 +1,6 @@
 from typing import Callable, Optional, List
 
-from intellifun import LLM, Agent, Tool
+from cortex import LLM, Agent, Tool
 
 from ..core.context import AgentSystemContext
 from ..core.builder import AgentBuilder

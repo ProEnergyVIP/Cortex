@@ -1,7 +1,7 @@
 import random
 from threading import Lock
 
-from intellifun.backend import LLMBackend, LLMRequest
+from cortex.backend import LLMBackend, LLMRequest
 
 class LLM:
     '''default LLM based on OpenAI's API'''

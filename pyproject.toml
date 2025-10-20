@@ -1,13 +1,13 @@
 [tool.poetry]
-name = "intellifun"
-version = "0.4.2"
-description = "A flexible library for building AI agents with multiple LLM backends"
+name = "cortex"
+version = "1.0.0"
+description = "Cortex Agent Framework - A flexible library for building AI agents with multiple LLM backends"
 authors = ["Eric Wong <eric.wong@proenergy.vip>"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/ProEnergyVIP/intellifun"
-repository = "https://github.com/ProEnergyVIP/intellifun"
-keywords = ["AI", "agents", "LLM"]
+homepage = "https://github.com/ProEnergyVIP/cortex"
+repository = "https://github.com/ProEnergyVIP/cortex"
+keywords = ["AI", "agents", "LLM", "cortex", "agent-framework"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -24,7 +24,7 @@ optional = true
 chromadb = "^1.0.11"
 
 [tool.poetry.scripts]
-intellifun = "intellifun.cli:main"
+cortex = "cortex.cli:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

@@ -4,8 +4,8 @@ from typing import List, Union
 import numpy as np
 import openai
 
-from intellifun.embeddings import Embedding, EmbeddingBackend, EmbeddingRequest
-from intellifun.backends.openai import get_openai_client, get_async_openai_client
+from cortex.embeddings import Embedding, EmbeddingBackend, EmbeddingRequest
+from cortex.backends.openai import get_openai_client, get_async_openai_client
 
 
 class OpenAIEmbeddingModels(str, Enum):

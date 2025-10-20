@@ -2,7 +2,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import List, Dict, ClassVar
 
-from intellifun.message import Message
+from cortex.message import Message
 
 @dataclass
 class AgentMemory:

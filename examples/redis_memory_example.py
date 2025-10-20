@@ -8,7 +8,7 @@ import asyncio
 import redis
 import redis.asyncio as aioredis
 
-from intellifun.redis_agent_memory import (
+from cortex.redis_agent_memory import (
     RedisAgentMemory,
     AsyncRedisAgentMemory,
     RedisAgentMemoryBank,

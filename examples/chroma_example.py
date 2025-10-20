@@ -8,14 +8,14 @@ This example demonstrates how to:
 5. Clean up resources
 
 Prerequisites:
-1. chromadb package installed (automatically installed with intellifun)
+1. chromadb package installed (automatically installed with cortex)
 2. numpy for generating example embeddings
 """
 import asyncio
 import logging
 import numpy as np
 from dotenv import load_dotenv
-from intellifun.vector_stores import get_vector_store, VectorStoreType
+from cortex.vector_stores import get_vector_store, VectorStoreType
 
 # Load environment variables
 load_dotenv()

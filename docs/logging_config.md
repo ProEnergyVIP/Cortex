@@ -12,7 +12,7 @@ The logging system allows you to:
 
 ## LoggingConfig Class
 
-The `LoggingConfig` class is defined in `intellifun.logging_config` and has the following fields:
+The `LoggingConfig` class is defined in `cortex.logging_config` and has the following fields:
 
 ```python
 @dataclass
@@ -28,7 +28,7 @@ class LoggingConfig:
 ### Basic Agent with Default Logging Configuration
 
 ```python
-from intellifun.agent import Agent
+from cortex.agent import Agent
 
 # Create an agent with default logging configuration
 agent = Agent(llm, name="MyAgent")
@@ -44,8 +44,8 @@ agent.ask("Hello agent")
 ### Agent with Custom Logging Configuration
 
 ```python
-from intellifun.agent import Agent
-from intellifun.logging_config import LoggingConfig
+from cortex.agent import Agent
+from cortex.logging_config import LoggingConfig
 
 # Create a custom logging configuration
 custom_config = LoggingConfig(
@@ -67,8 +67,8 @@ agent.ask("Hello agent")
 ### Setting Global Default Logging Configuration
 
 ```python
-from intellifun.logging_config import LoggingConfig, set_default_logging_config
-from intellifun.agent import Agent
+from cortex.logging_config import LoggingConfig, set_default_logging_config
+from cortex.agent import Agent
 
 # Create a global logging configuration
 global_config = LoggingConfig(
@@ -93,7 +93,7 @@ agent.ask("Hello agent")
 If you need more fine-grained control over which messages are printed, you can create a custom solution:
 
 ```python
-from intellifun.agent import Agent
+from cortex.agent import Agent
 
 # Create an agent
 agent = Agent(llm, name="CustomFilterAgent")

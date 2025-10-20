@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 
-from intellifun import Agent
+from cortex import Agent
 
 from .coordinator_builder import CoordinatorAgentBuilder
 from .worker_builder import WorkerAgentBuilder

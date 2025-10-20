@@ -1,7 +1,7 @@
 from typing import Any, List
 
-from intellifun import Agent
-from intellifun.message import Message
+from cortex import Agent
+from cortex.message import Message
 
 
 class AgentSystem:
