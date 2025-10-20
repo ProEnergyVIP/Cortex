@@ -2,8 +2,8 @@ from typing import Any, List, Optional
 
 from intellifun import Agent
 
-from intellifun.agent_system.coordinator_system.coordinator_builder import CoordinatorAgentBuilder
-from intellifun.agent_system.coordinator_system.worker_builder import WorkerAgentBuilder
+from .coordinator_builder import CoordinatorAgentBuilder
+from .worker_builder import WorkerAgentBuilder
 
 from ..core.system import AgentSystem
 

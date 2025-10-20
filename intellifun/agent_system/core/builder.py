@@ -3,7 +3,7 @@ from inspect import signature
 from typing import Callable, Optional
 from intellifun import LLM
 
-from intellifun.agent_system.core.context import AgentSystemContext
+from .context import AgentSystemContext
 
 
 class AgentBuilder:
