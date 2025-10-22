@@ -224,7 +224,7 @@ class WorkerAgentBuilder(AgentBuilder):
                 if iscoroutine(res):
                     res = await res
                 
-                if res is True:
+                if res is None or res is True:
                     pass
                 else:
                     return res
