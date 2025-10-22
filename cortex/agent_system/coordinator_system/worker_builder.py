@@ -153,14 +153,29 @@ class WorkerAgentBuilder(AgentBuilder):
             "required": ["user_input", "context_instructions"],
             "additionalProperties": False,
         }
-
-    async def build_agent(self, *, context: AgentSystemContext, coordinator_name: Optional[str] = None) -> Agent:
-        # Select response format
-        format_block = THOUGHT_FORMAT if self.thinking else NORMAL_FORMAT
+    
+    @classmethod
+    def compose_prompt(cls, agent_name, task_desc, coordinator_name, coordinator_key, thinking=True):
+        """
+        Compose the prompt for the worker agent.
+        This is a class method to allow for easy reuse of the prompt composition logic.
+        Users might just want to use the prompt instead of the builder.
+        """
+        format_block = THOUGHT_FORMAT if thinking else NORMAL_FORMAT
         prompt_parts = [WORKER_PROMPT, format_block]
-
+        
         prompt = "".join(prompt_parts)
-
+        
+        fmt_kwargs = {
+            "agent_role": agent_name,
+            "task_desc": task_desc,
+            "coordinator_name": coordinator_name,
+            "coordinator_key": coordinator_key,
+        }
+        
+        return prompt.format(**fmt_kwargs)
+    
+    async def build_agent(self, *, context: AgentSystemContext, coordinator_name: Optional[str] = None) -> Agent:
         # derive coordinator display and key
         display_name = coordinator_name or "the coordinator"
         if coordinator_name:
@@ -171,14 +186,7 @@ class WorkerAgentBuilder(AgentBuilder):
         
         task_desc = await self.build_prompt(context)
 
-        fmt_kwargs = {
-            "agent_role": self.name,
-            "task_desc": task_desc,
-            "coordinator_name": display_name,
-            "coordinator_key": coordinator_key,
-        }
-
-        sys_prompt = prompt.format(**fmt_kwargs)
+        sys_prompt = self.compose_prompt(self.name, task_desc, display_name, coordinator_key, self.thinking)
 
         bank = await context.get_memory_bank()
         memory = await bank.get_agent_memory(self.name_key, k=self.memory_k)
