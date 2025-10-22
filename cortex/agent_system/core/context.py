@@ -17,7 +17,7 @@ class AgentSystemContext(BaseModel):
     
     @cached_property
     def llm_primary(self) -> LLM:
-        """Primary, general-purpose reasoning LLM for Yumi agents.
+        """Primary, general-purpose reasoning LLM for agents.
         
         Centralized here so agents can reuse a consistent default model
         and temperature. Update this property to roll out model changes app-wide.

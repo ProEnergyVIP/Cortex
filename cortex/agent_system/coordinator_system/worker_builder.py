@@ -54,7 +54,7 @@ You are a dependable domain specialist who:
 
 # Response formatting definitions.
 # The coordinator field key ("{coordinator_key}") is configurable to maintain compatibility
-# with existing systems. The default is "to_yumi", but callers can override it.
+# with existing systems. The default is "to_coordinator", but callers can override it.
 
 NORMAL_FORMAT = """
 [OUTPUT FORMAT — STANDARD MODE]
