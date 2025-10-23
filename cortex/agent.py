@@ -1,12 +1,11 @@
 import logging
-from mailbox import Message
 from typing import List
 from cortex.tool import BaseTool, FunctionTool, Tool
 import json
 
 from cortex.LLM import get_random_error_message
 from cortex.debug import is_debug
-from cortex.message import (DeveloperMessage, FunctionCall, SystemMessage,
+from cortex.message import (DeveloperMessage, FunctionCall, Message, SystemMessage,
                                 ToolMessage, ToolMessageGroup, UserMessage, AgentUsage)
 
 # Re-export Tool for backward compatibility (old imports from agent)
@@ -55,6 +54,15 @@ class Agent:
             if getattr(tool, 'name', None) == tool_name:
                 return tool
         return None
+    
+    def _remove_tool(self, tool: BaseTool):
+        '''Safely remove a tool from both the list and dictionary'''
+        # Remove from list
+        if tool in self.tools:
+            self.tools.remove(tool)
+        # Remove from dictionary if it exists
+        if self.tools_dict and hasattr(tool, 'name'):
+            self.tools_dict.pop(tool.name, None)
 
     def _is_repeated_tool_call(self, func: FunctionCall) -> bool:
         '''Check if this exact tool call was made recently'''
@@ -330,8 +338,8 @@ class Agent:
             return f'Tool "{tool_name}" is not a function tool and cannot be executed locally. Do not call it directly.'
         
         if not tool.check_call_limit(self.tool_call_limit):
-            self.tools.remove(tool)
-            return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
+            self._remove_tool(tool)
+            return f'Tool "{tool_name}" has been called too many times and has been removed from available tools.'
         
         try:
             tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
@@ -363,8 +371,8 @@ class Agent:
             return f'Tool "{tool_name}" is not a function tool and cannot be executed locally. Do not call it directly.'
         
         if not tool.check_call_limit(self.tool_call_limit):
-            self.tools.remove(tool)
-            return f'Tool "{tool_name}" has been called too many times, it will be removed from the list of available tools.'
+            self._remove_tool(tool)
+            return f'Tool "{tool_name}" has been called too many times and has been removed from available tools.'
         
         try:
             tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments

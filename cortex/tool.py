@@ -30,17 +30,17 @@ class FunctionTool(BaseTool):
     prompt: str = None
     strict: bool = True
 
-    __called_times = 0
+    _called_times: int = 0
 
     def check_call_limit(self, limit=10):
         '''Check if the tool has been called too many times'''
-        if self.__called_times >= limit:
+        if self._called_times >= limit:
             return False
         return True
     
     def increment_call_count(self):
         '''Increment the call count of the tool'''
-        self.__called_times += 1
+        self._called_times += 1
 
     @cached_property
     def is_async(self):
