@@ -1,12 +1,14 @@
-import logging
-from typing import List
-from cortex.tool import BaseTool, FunctionTool, Tool
+# Standard library
 import json
+import logging
+from typing import List, Optional
 
-from cortex.LLM import get_random_error_message
+# Local imports
 from cortex.debug import is_debug
+from cortex.LLM import get_random_error_message
 from cortex.message import (DeveloperMessage, FunctionCall, Message, SystemMessage,
                                 ToolMessage, ToolMessageGroup, UserMessage, AgentUsage)
+from cortex.tool import BaseTool, FunctionTool, Tool
 
 # Re-export Tool for backward compatibility (old imports from agent)
 __all__ = ['Agent', 'Tool']
@@ -14,48 +16,40 @@ __all__ = ['Agent', 'Tool']
 logger = logging.getLogger(__name__)
 
 MAX_RECENT_CALLS = 5  # Only track the last 5 calls
+DEFAULT_FALLBACK_MESSAGE = 'Sorry, I am not sure how to answer that.'
 
 START_DELIM = '-' * 80
 END_DELIM = '^' * 80
 
 class Agent:
     def __init__(self, llm, tools=None, sys_prompt='', memory=None, context=None, json_reply=False, 
-                 name=None, logging_config=None, tool_call_limit=10):
+                 name=None, tool_call_limit=10, save_error_to_memory=False):
         self.llm = llm
         self.tools = tools or []
 
-        # If there are more than 5 tools, use a dictionary for faster lookup
-        if len(self.tools) > 5:
-            tmp = {}
-            for tool in self.tools:
-                tool_name = getattr(tool, 'name', None)
-                if tool_name:
-                    tmp[tool_name] = tool
-            self.tools_dict = tmp if tmp else None
-        else:
-            self.tools_dict = None
+        # Validate all tools have names and build dictionary for O(1) lookup
+        self.tools_dict = {}
+        for tool in self.tools:
+            tool_name = getattr(tool, 'name', None)
+            if not tool_name:
+                raise ValueError(f"Tool {tool} must have a 'name' attribute")
+            self.tools_dict[tool_name] = tool
         
         self.sys_msg = sys_prompt if isinstance(sys_prompt, SystemMessage) else SystemMessage(content=sys_prompt)
         self.memory = memory
         self.context = context
         self.json_reply = json_reply
+        self.name = name
+        self.tool_call_limit = tool_call_limit
+        self.save_error_to_memory = save_error_to_memory
         # Track recent tool calls to detect repetition
         self._recent_tool_calls = []
-        # Agent name and logging configuration
-        self.name = name
-        self.logging_config = logging_config
-        self.tool_call_limit = tool_call_limit
     
-    def _find_tool(self, tool_name: str) -> BaseTool | None:
-        if self.tools_dict:
-            return self.tools_dict.get(tool_name)
-
-        for tool in self.tools:
-            if getattr(tool, 'name', None) == tool_name:
-                return tool
-        return None
+    def _find_tool(self, tool_name: str) -> Optional[BaseTool]:
+        '''Find a tool by name using O(1) dictionary lookup'''
+        return self.tools_dict.get(tool_name)
     
-    def _remove_tool(self, tool: BaseTool):
+    def _remove_tool(self, tool: BaseTool) -> None:
         '''Safely remove a tool from both the list and dictionary'''
         # Remove from list
         if tool in self.tools:
@@ -64,53 +58,61 @@ class Agent:
         if self.tools_dict and hasattr(tool, 'name'):
             self.tools_dict.pop(tool.name, None)
 
+    def _serialize_arguments(self, arguments) -> str:
+        '''Serialize arguments to a consistent string format for comparison'''
+        if isinstance(arguments, dict):
+            return json.dumps(arguments, sort_keys=True)
+        return str(arguments)
+
     def _is_repeated_tool_call(self, func: FunctionCall) -> bool:
         '''Check if this exact tool call was made recently'''
-        current_call = (func.name, func.arguments)
-        # Look for the same tool name and arguments in recent calls
+        args_str = self._serialize_arguments(func.arguments)
+        current_call = (func.name, args_str)
         return current_call in self._recent_tool_calls
 
-    def _add_tool_call(self, func: FunctionCall):
+    def _add_tool_call(self, func: FunctionCall) -> None:
         '''Add a tool call to the recent calls list'''
-        current_call = (func.name, func.arguments)
+        args_str = self._serialize_arguments(func.arguments)
+        current_call = (func.name, args_str)
         self._recent_tool_calls.append(current_call)
         # Keep only the most recent calls
         self._recent_tool_calls = self._recent_tool_calls[-MAX_RECENT_CALLS:]
 
-    def _prepare_conversation(self, message, user_name, history_msgs):
+    def _prepare_conversation(self, message, user_name, history_msgs) -> List[Message]:
         '''Prepare the conversation with the user message'''
-        # Add the user's message to the conversation
+        # Convert string to UserMessage
         if isinstance(message, str):
             message = UserMessage(content=message, user_name=user_name)
         
-        if isinstance(message, list):
-            conversation = message
-        else:
-            conversation = [message]
+        # Convert to list if needed
+        conversation = message if isinstance(message, list) else [message]
         
+        # Log conversation
+        self._log_conversation_start(message, history_msgs)
+        
+        return conversation
+    
+    def _log_conversation_start(self, message, history_msgs) -> None:
+        '''Log the start of a conversation'''
         # Print agent name if available
         if self.name:
             logger.info(f"[bold cyan]Agent: {self.name}[/bold cyan]")
 
         logger.debug(self.sys_msg.decorate())
-
         logger.info(START_DELIM)
 
-        # log history when showing system prompt
-        for m in history_msgs:
-            logger.debug(m.decorate())
+        # Log history when showing system prompt
+        for msg in history_msgs:
+            logger.debug(msg.decorate())
 
-        if isinstance(message, list):
-            for m in message:
-                logger.info(m.decorate())
-        else:
-            logger.info(message.decorate())
-        
-        return conversation
+        # Log current message(s)
+        messages = message if isinstance(message, list) else [message]
+        for msg in messages:
+            logger.info(msg.decorate())
     
-    def _handle_response(self, conversation, agent_usage, usage, is_error=False):
+    def _handle_response(self, conversation, agent_usage, usage, is_error=False) -> None:
         '''Handle the response after the conversation is complete'''
-        if self.memory and not is_error:
+        if self.memory and (not is_error or self.save_error_to_memory):
             self.memory.add_messages(conversation)
         
         logger.info(agent_usage.format())
@@ -120,9 +122,9 @@ class Agent:
         
         logger.info(END_DELIM)
             
-    async def _async_handle_response(self, conversation, agent_usage, usage, is_error=False):
+    async def _async_handle_response(self, conversation, agent_usage, usage, is_error=False) -> None:
         '''Handle the response after the conversation is complete (async version)'''
-        if self.memory and not is_error:
+        if self.memory and (not is_error or self.save_error_to_memory):
             await self.memory.add_messages(conversation)
         
         logger.info(agent_usage.format())
@@ -179,7 +181,7 @@ class Agent:
                 return reply
 
         self._handle_response(conversation, agent_usage, usage, is_error)
-        return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
+        return reply if reply is not None else DEFAULT_FALLBACK_MESSAGE
 
     async def async_ask(self, message: str | Message | List[Message], user_name=None, usage=None, loop_limit=10):
         '''Ask a question to the agent asynchronously, and get a response
@@ -228,24 +230,28 @@ class Agent:
                 return reply
 
         await self._async_handle_response(conversation, agent_usage, usage, is_error)
-        return reply if reply is not None else 'Sorry, I am not sure how to answer that.'
+        return reply if reply is not None else DEFAULT_FALLBACK_MESSAGE
+    
+    def _parse_json_reply(self, content: str):
+        '''Parse JSON reply if json_reply mode is enabled'''
+        if self.json_reply:
+            return json.loads(content)
+        return content
     
     def _process_ai_message(self, ai_msg, conversation):
-        """Process the AI message and determine next steps"""
+        '''Process the AI message and determine next steps'''
         conversation.append(ai_msg)
 
-        # check if we need to run a tool
+        # Check if we need to run a tool
         if ai_msg.function_calls:
             logger.info('function calls: %s', ai_msg.function_calls)
-
             tool_msgs = self.process_func_call(ai_msg)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
         elif ai_msg.content:
             logger.info(ai_msg.decorate())
-
             try:
-                return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
+                return self._parse_json_reply(ai_msg.content)
             except json.JSONDecodeError as e:
                 err_msg = f"Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag."
                 conversation.append(DeveloperMessage(content=err_msg))
@@ -254,21 +260,19 @@ class Agent:
         return None  # Continue the conversation
 
     async def _async_process_ai_message(self, ai_msg, conversation):
-        """Process the AI message asynchronously and determine next steps"""
+        '''Process the AI message asynchronously and determine next steps'''
         conversation.append(ai_msg)
 
-        # check if we need to run a tool
+        # Check if we need to run a tool
         if ai_msg.function_calls:
             logger.info('function calls: %s', ai_msg.function_calls)
-            
             tool_msgs = await self.async_process_func_call(ai_msg)
             conversation.append(tool_msgs)
             return None  # Continue the conversation
         elif ai_msg.content:
             logger.info(ai_msg.decorate())
-
             try:
-                return json.loads(ai_msg.content) if self.json_reply else ai_msg.content
+                return self._parse_json_reply(ai_msg.content)
             except json.JSONDecodeError as e:
                 err_msg = f"Error processing JSON message: {e}. Make sure your response is a valid JSON string and do not include the `json` tag."
                 conversation.append(DeveloperMessage(content=err_msg))
@@ -276,63 +280,76 @@ class Agent:
 
         return None  # Continue the conversation
 
+    def _get_tool_call_id(self, func_call: FunctionCall) -> str:
+        '''Get the tool call ID, with fallback'''
+        return func_call.call_id or func_call.id
+    
     def process_func_call(self, ai_msg):
         '''Process the function call in the LLM result'''
-        msgs = []
-        for fc in ai_msg.function_calls:
-            # Check if this is a repeated tool call
-            logger.info(f'[bold purple]Tool: {fc.name}[/bold purple]')
+        messages = []
+        for func_call in ai_msg.function_calls:
+            logger.info(f'[bold purple]Tool: {func_call.name}[/bold purple]')
             
-            if self._is_repeated_tool_call(fc):
-                msg = f'Tool "{fc.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
-                msgs.append(ToolMessage(content=msg, tool_call_id=fc.call_id or fc.id))
+            # Check if this is a repeated tool call
+            if self._is_repeated_tool_call(func_call):
+                msg = f'Tool "{func_call.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
+                messages.append(ToolMessage(content=msg, tool_call_id=self._get_tool_call_id(func_call)))
                 continue
 
-            func_res = self.run_tool_func(fc)
-            tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.call_id or fc.id)
-            msgs.append(tool_res_msg)
+            func_result = self.run_tool_func(func_call)
+            tool_res_msg = ToolMessage(content=func_result, tool_call_id=self._get_tool_call_id(func_call))
+            messages.append(tool_res_msg)
 
             logger.info(tool_res_msg.decorate())
 
             # Track this tool call
-            self._add_tool_call(fc)
+            self._add_tool_call(func_call)
         
-        msg_group = ToolMessageGroup(tool_messages=msgs)
-        
-        return msg_group
+        return ToolMessageGroup(tool_messages=messages)
 
     async def async_process_func_call(self, ai_msg):
         '''Process the function call in the LLM result asynchronously'''
-        msgs = []
-        for fc in ai_msg.function_calls:
-            # Check if this is a repeated tool call
-            logger.info(f'[bold purple]Tool: {fc.name}[/bold purple]')
+        messages = []
+        for func_call in ai_msg.function_calls:
+            logger.info(f'[bold purple]Tool: {func_call.name}[/bold purple]')
             
-            if self._is_repeated_tool_call(fc):
-                msg = f'Tool "{fc.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
-                msgs.append(ToolMessage(content=msg, tool_call_id=fc.call_id or fc.id))
+            # Check if this is a repeated tool call
+            if self._is_repeated_tool_call(func_call):
+                msg = f'Tool "{func_call.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
+                messages.append(ToolMessage(content=msg, tool_call_id=self._get_tool_call_id(func_call)))
                 continue
 
-            func_res = await self.async_run_tool_func(fc)
-            tool_res_msg = ToolMessage(content=func_res, tool_call_id=fc.call_id or fc.id)
-            msgs.append(tool_res_msg)
+            func_result = await self.async_run_tool_func(func_call)
+            tool_res_msg = ToolMessage(content=func_result, tool_call_id=self._get_tool_call_id(func_call))
+            messages.append(tool_res_msg)
 
             logger.info(tool_res_msg.decorate())
 
             # Track this tool call
-            self._add_tool_call(fc)
+            self._add_tool_call(func_call)
         
-        msg_group = ToolMessageGroup(tool_messages=msgs)
-        
-        return msg_group
+        return ToolMessageGroup(tool_messages=messages)
 
-    def run_tool_func(self, func: FunctionCall):
+    def _parse_tool_arguments(self, arguments) -> dict:
+        '''Parse tool arguments from string or dict'''
+        if isinstance(arguments, str):
+            return json.loads(arguments)
+        return arguments
+    
+    def _format_tool_result(self, result) -> str:
+        '''Format tool result as string'''
+        if isinstance(result, str):
+            return result
+        return json.dumps(result)
+    
+    def run_tool_func(self, func: FunctionCall) -> str:
         '''Run the given tool function and return the result'''
         tool_name = func.name
         
         tool = self._find_tool(tool_name)
         if tool is None:
             return f'No tool named "{tool_name}" found. Do not call it again.'
+        
         # Only FunctionTool can run locally
         if not isinstance(tool, FunctionTool):
             return f'Tool "{tool_name}" is not a function tool and cannot be executed locally. Do not call it directly.'
@@ -342,30 +359,25 @@ class Agent:
             return f'Tool "{tool_name}" has been called too many times and has been removed from available tools.'
         
         try:
-            tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
-            
-            res = tool.run(tool_input, self.context, self)
-            
-            if isinstance(res, str):
-                return res
-
-            return json.dumps(res)
+            tool_input = self._parse_tool_arguments(func.arguments)
+            result = tool.run(tool_input, self.context, self)
+            return self._format_tool_result(result)
         except json.JSONDecodeError as e:
             return f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.'
         except Exception as e:
             if is_debug:
                 import traceback
                 traceback.print_exc()
-
             return f'Error running tool "{tool_name}": {e}'
 
-    async def async_run_tool_func(self, func: FunctionCall):
+    async def async_run_tool_func(self, func: FunctionCall) -> str:
         '''Run the given tool function asynchronously and return the result'''
         tool_name = func.name
         
         tool = self._find_tool(tool_name)
         if tool is None:
             return f'No tool named "{tool_name}" found. Do not call it again.'
+        
         # Only FunctionTool can run locally
         if not isinstance(tool, FunctionTool):
             return f'Tool "{tool_name}" is not a function tool and cannot be executed locally. Do not call it directly.'
@@ -375,19 +387,13 @@ class Agent:
             return f'Tool "{tool_name}" has been called too many times and has been removed from available tools.'
         
         try:
-            tool_input = json.loads(func.arguments) if isinstance(func.arguments, str) else func.arguments
-            
-            res = await tool.async_run(tool_input, self.context, self)
-            
-            if isinstance(res, str):
-                return res
-            
-            return json.dumps(res)
+            tool_input = self._parse_tool_arguments(func.arguments)
+            result = await tool.async_run(tool_input, self.context, self)
+            return self._format_tool_result(result)
         except json.JSONDecodeError as e:
             return f'Error decoding JSON parameter for "{tool_name}": {e}. Use valid JSON string without the `json` tag.'
         except Exception as e:
             if is_debug:
                 import traceback
                 traceback.print_exc()
-
             return f'Error running tool "{tool_name}": {e}'
