@@ -1,7 +1,9 @@
 # Standard library
+import asyncio
 import json
 import logging
-from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional, Tuple
 
 # Local imports
 from cortex.debug import is_debug
@@ -23,7 +25,8 @@ END_DELIM = '^' * 80
 
 class Agent:
     def __init__(self, llm, tools=None, sys_prompt='', memory=None, context=None, json_reply=False, 
-                 name=None, tool_call_limit=10, save_error_to_memory=False, mode='async'):
+                 name=None, tool_call_limit=10, save_error_to_memory=False, mode='async', 
+                 enable_parallel_tools=True, max_parallel_tools=None):
         '''
         Initialize the Agent.
         
@@ -32,6 +35,10 @@ class Agent:
                   'sync' mode requires all tools to be sync functions (use with ask()).
                   'async' mode requires all tools to be async functions (use with async_ask()).
                   Default is 'async' as most users work with async LLM calls.
+            enable_parallel_tools: If True, run multiple tool calls in parallel/concurrently.
+                  Default is True for better performance.
+            max_parallel_tools: Maximum number of tools to run in parallel. None means unlimited.
+                  Only applies when enable_parallel_tools=True.
         '''
         if mode not in ('sync', 'async'):
             raise ValueError(f"mode must be 'sync' or 'async', got '{mode}'")
@@ -50,6 +57,8 @@ class Agent:
         self.name = name
         self.tool_call_limit = tool_call_limit
         self.save_error_to_memory = save_error_to_memory
+        self.enable_parallel_tools = enable_parallel_tools
+        self.max_parallel_tools = max_parallel_tools
         # Track recent tool calls to detect repetition
         self._recent_tool_calls = []
     
@@ -283,7 +292,7 @@ class Agent:
                 break
 
             # Process the AI message
-            reply = await self._async_process_ai_message(ai_msg, conversation)
+            reply = await self._process_ai_message(ai_msg, conversation)
             if reply is not None:
                 await self._async_handle_response(conversation, agent_usage, usage, is_error)
                 return reply
@@ -298,7 +307,7 @@ class Agent:
         return content
     
     def _process_ai_message(self, ai_msg, conversation):
-        '''Process the AI message and determine next steps'''
+        '''Process the AI message and determine next steps (sync mode)'''
         conversation.append(ai_msg)
 
         # Check if we need to run a tool
@@ -317,9 +326,9 @@ class Agent:
                 return None  # Continue the conversation with error message
 
         return None  # Continue the conversation
-
+    
     async def _async_process_ai_message(self, ai_msg, conversation):
-        '''Process the AI message asynchronously and determine next steps'''
+        '''Process the AI message and determine next steps (async mode)'''
         conversation.append(ai_msg)
 
         # Check if we need to run a tool
@@ -343,51 +352,112 @@ class Agent:
         '''Get the tool call ID, with fallback'''
         return func_call.call_id or func_call.id
     
+    def _process_single_tool_call(self, func_call: FunctionCall) -> ToolMessage:
+        '''Process a single tool call (sync mode) - extracted for reuse in parallel execution'''
+        logger.info(f'[bold purple]Tool: {func_call.name}[/bold purple]')
+        
+        # Check if this is a repeated tool call
+        if self._is_repeated_tool_call(func_call):
+            msg = f'Tool "{func_call.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
+            return ToolMessage(content=msg, tool_call_id=self._get_tool_call_id(func_call))
+        
+        func_result = self.run_tool_func(func_call)
+        tool_res_msg = ToolMessage(content=func_result, tool_call_id=self._get_tool_call_id(func_call))
+        
+        logger.info(tool_res_msg.decorate())
+        
+        # Track this tool call
+        self._add_tool_call(func_call)
+        
+        return tool_res_msg
+    
+    async def _async_process_single_tool_call(self, func_call: FunctionCall) -> ToolMessage:
+        '''Process a single tool call (async mode) - extracted for reuse in parallel execution'''
+        logger.info(f'[bold purple]Tool: {func_call.name}[/bold purple]')
+        
+        # Check if this is a repeated tool call
+        if self._is_repeated_tool_call(func_call):
+            msg = f'Tool "{func_call.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
+            return ToolMessage(content=msg, tool_call_id=self._get_tool_call_id(func_call))
+        
+        func_result = await self.async_run_tool_func(func_call)
+        tool_res_msg = ToolMessage(content=func_result, tool_call_id=self._get_tool_call_id(func_call))
+        
+        logger.info(tool_res_msg.decorate())
+        
+        # Track this tool call
+        self._add_tool_call(func_call)
+        
+        return tool_res_msg
+    
     def process_func_call(self, ai_msg):
-        '''Process the function call in the LLM result'''
-        messages = []
-        for func_call in ai_msg.function_calls:
-            logger.info(f'[bold purple]Tool: {func_call.name}[/bold purple]')
-            
-            # Check if this is a repeated tool call
-            if self._is_repeated_tool_call(func_call):
-                msg = f'Tool "{func_call.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
-                messages.append(ToolMessage(content=msg, tool_call_id=self._get_tool_call_id(func_call)))
-                continue
-
-            func_result = self.run_tool_func(func_call)
-            tool_res_msg = ToolMessage(content=func_result, tool_call_id=self._get_tool_call_id(func_call))
-            messages.append(tool_res_msg)
-
-            logger.info(tool_res_msg.decorate())
-
-            # Track this tool call
-            self._add_tool_call(func_call)
+        '''Process function calls in the LLM result (sync mode)'''
+        func_calls = ai_msg.function_calls
+        
+        # Use parallel execution if enabled and multiple tools
+        if self.enable_parallel_tools and len(func_calls) > 1:
+            messages = self._process_func_calls_parallel(func_calls)
+        else:
+            # Sequential execution
+            messages = []
+            for func_call in func_calls:
+                tool_msg = self._process_single_tool_call(func_call)
+                messages.append(tool_msg)
         
         return ToolMessageGroup(tool_messages=messages)
-
+    
+    def _process_func_calls_parallel(self, func_calls: List[FunctionCall]) -> List[ToolMessage]:
+        '''Process multiple function calls in parallel using ThreadPoolExecutor (sync mode)'''
+        max_workers = self.max_parallel_tools or len(func_calls)
+        
+        if self.max_parallel_tools:
+            logger.info(f'Running {len(func_calls)} tools in parallel (max_workers={max_workers})')
+        else:
+            logger.info(f'Running {len(func_calls)} tools in parallel (unlimited)')
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks and maintain order
+            messages = list(executor.map(self._process_single_tool_call, func_calls))
+        
+        return messages
+    
     async def async_process_func_call(self, ai_msg):
-        '''Process the function call in the LLM result asynchronously'''
-        messages = []
-        for func_call in ai_msg.function_calls:
-            logger.info(f'[bold purple]Tool: {func_call.name}[/bold purple]')
-            
-            # Check if this is a repeated tool call
-            if self._is_repeated_tool_call(func_call):
-                msg = f'Tool "{func_call.name}" was just called with the same arguments again. To prevent loops, please try a different approach or different arguments.'
-                messages.append(ToolMessage(content=msg, tool_call_id=self._get_tool_call_id(func_call)))
-                continue
-
-            func_result = await self.async_run_tool_func(func_call)
-            tool_res_msg = ToolMessage(content=func_result, tool_call_id=self._get_tool_call_id(func_call))
-            messages.append(tool_res_msg)
-
-            logger.info(tool_res_msg.decorate())
-
-            # Track this tool call
-            self._add_tool_call(func_call)
+        '''Process function calls in the LLM result (async mode)'''
+        func_calls = ai_msg.function_calls
+        
+        # Use concurrent execution if enabled and multiple tools
+        if self.enable_parallel_tools and len(func_calls) > 1:
+            messages = await self._async_process_func_calls_concurrent(func_calls)
+        else:
+            # Sequential execution
+            messages = []
+            for func_call in func_calls:
+                tool_msg = await self._async_process_single_tool_call(func_call)
+                messages.append(tool_msg)
         
         return ToolMessageGroup(tool_messages=messages)
+    
+    async def _async_process_func_calls_concurrent(self, func_calls: List[FunctionCall]) -> List[ToolMessage]:
+        '''Process multiple function calls concurrently using asyncio.gather (async mode)'''
+        if self.max_parallel_tools:
+            logger.info(f'Running {len(func_calls)} tools concurrently (max={self.max_parallel_tools})')
+            # Use semaphore to limit concurrency
+            semaphore = asyncio.Semaphore(self.max_parallel_tools)
+            
+            async def limited_call(func_call):
+                async with semaphore:
+                    return await self._async_process_single_tool_call(func_call)
+            
+            tasks = [limited_call(fc) for fc in func_calls]
+        else:
+            logger.info(f'Running {len(func_calls)} tools concurrently (unlimited)')
+            # No limit on concurrency
+            tasks = [self._async_process_single_tool_call(fc) for fc in func_calls]
+        
+        # gather returns results in order
+        messages = await asyncio.gather(*tasks)
+        
+        return list(messages)
 
     def _parse_tool_arguments(self, arguments) -> dict:
         '''Parse tool arguments from string or dict'''
@@ -401,21 +471,33 @@ class Agent:
             return result
         return json.dumps(result)
     
-    def run_tool_func(self, func: FunctionCall) -> str:
-        '''Run the given tool function and return the result'''
-        tool_name = func.name
+    def _validate_and_get_tool(self, tool_name: str) -> Tuple[Optional[FunctionTool], Optional[str]]:
+        '''Validate and get tool, returning (tool, error_message)
         
+        Returns:
+            tuple: (tool, error_msg) where tool is None if error, error_msg is None if success
+        '''
         tool = self._find_tool(tool_name)
         if tool is None:
-            return f'No tool named "{tool_name}" found. Do not call it again.'
+            return None, f'No tool named "{tool_name}" found. Do not call it again.'
         
         # Only FunctionTool can run locally
         if not isinstance(tool, FunctionTool):
-            return f'Tool "{tool_name}" is not a function tool and cannot be executed locally. Do not call it directly.'
+            return None, f'Tool "{tool_name}" is not a function tool and cannot be executed locally. Do not call it directly.'
         
         if not tool.check_call_limit(self.tool_call_limit):
             self._remove_tool(tool)
-            return f'Tool "{tool_name}" has been called too many times and has been removed from available tools.'
+            return None, f'Tool "{tool_name}" has been called too many times and has been removed from available tools.'
+        
+        return tool, None
+    
+    def run_tool_func(self, func: FunctionCall) -> str:
+        '''Run the given tool function and return the result (sync mode)'''
+        tool_name = func.name
+        
+        tool, error_msg = self._validate_and_get_tool(tool_name)
+        if error_msg:
+            return error_msg
         
         try:
             tool_input = self._parse_tool_arguments(func.arguments)
@@ -428,22 +510,14 @@ class Agent:
                 import traceback
                 traceback.print_exc()
             return f'Error running tool "{tool_name}": {e}'
-
+    
     async def async_run_tool_func(self, func: FunctionCall) -> str:
-        '''Run the given tool function asynchronously and return the result'''
+        '''Run the given tool function and return the result (async mode)'''
         tool_name = func.name
         
-        tool = self._find_tool(tool_name)
-        if tool is None:
-            return f'No tool named "{tool_name}" found. Do not call it again.'
-        
-        # Only FunctionTool can run locally
-        if not isinstance(tool, FunctionTool):
-            return f'Tool "{tool_name}" is not a function tool and cannot be executed locally. Do not call it directly.'
-        
-        if not tool.check_call_limit(self.tool_call_limit):
-            self._remove_tool(tool)
-            return f'Tool "{tool_name}" has been called too many times and has been removed from available tools.'
+        tool, error_msg = self._validate_and_get_tool(tool_name)
+        if error_msg:
+            return error_msg
         
         try:
             tool_input = self._parse_tool_arguments(func.arguments)
