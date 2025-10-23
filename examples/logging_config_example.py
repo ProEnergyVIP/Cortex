@@ -28,7 +28,7 @@ logger.debug("\n=== Example 1: Basic Message Printing ===\n")
 
 # Create some example messages
 system_msg = SystemMessage(content="I am a system message")
-user_msg = UserMessage(content="hello, I'm a user message", user_name="Alice")
+user_msg = UserMessage(content="hello, I'm a user message")
 ai_msg = AIMessage(content="I'm an AI response message")
 tool_msg = ToolMessage(content="I'm a tool message", tool_call_id="tool1")
 

@@ -23,13 +23,12 @@ class DeveloperMessage(Message):
 
 @dataclass
 class UserMessage(Message):
-    user_name: str = None
     # Optional structured inputs for images and files
     images: Optional[List['InputImage']] = None
     files: Optional[List['InputFile']] = None
 
     def build_content(self):
-        return f'[{self.user_name}] {self.content}' if self.user_name else self.content
+        return self.content
     
     def decorate(self) -> str:
         return f'[bold green]{self.build_content()}[/bold green]'

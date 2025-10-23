@@ -134,11 +134,11 @@ class Agent:
         # Keep only the most recent calls
         self._recent_tool_calls = self._recent_tool_calls[-MAX_RECENT_CALLS:]
 
-    def _prepare_conversation(self, message, user_name, history_msgs) -> List[Message]:
+    def _prepare_conversation(self, message, history_msgs) -> List[Message]:
         '''Prepare the conversation with the user message'''
         # Convert string to UserMessage
         if isinstance(message, str):
-            message = UserMessage(content=message, user_name=user_name)
+            message = UserMessage(content=message)
         
         # Convert to list if needed
         conversation = message if isinstance(message, list) else [message]
@@ -190,12 +190,11 @@ class Agent:
         
         logger.info(END_DELIM)
 
-    def ask(self, message: str | Message | List[Message], user_name=None, usage=None, loop_limit=10):
+    def ask(self, message: str | Message | List[Message], usage=None, loop_limit=10):
         '''Ask a question to the agent, and get a response
 
         Args:
             message (str or Message or List[Message]): The message to ask
-            user_name (str, optional): The name of the user. Defaults to None.
             usage (AgentUsage, optional): Object to accumulate token usage across models.
                 You can pass an AgentUsage object to track usage across multiple calls.
             loop_limit (int, optional): The maximum number of times to call the model.
@@ -215,7 +214,7 @@ class Agent:
         
         # Get history messages from memory
         history_msgs = self.memory.load_memory() if self.memory else []
-        conversation = self._prepare_conversation(message, user_name, history_msgs)
+        conversation = self._prepare_conversation(message, history_msgs)
 
         is_error = False
 
@@ -245,12 +244,11 @@ class Agent:
         self._handle_response(conversation, agent_usage, usage, is_error)
         return reply if reply is not None else DEFAULT_FALLBACK_MESSAGE
 
-    async def async_ask(self, message: str | Message | List[Message], user_name=None, usage=None, loop_limit=10):
+    async def async_ask(self, message: str | Message | List[Message], usage=None, loop_limit=10):
         '''Ask a question to the agent asynchronously, and get a response
 
         Args:
             message (str or Message): The message to ask
-            user_name (str, optional): The name of the user. Defaults to None.
             usage (AgentUsage, optional): Object to accumulate token usage across models.
                 You can pass an AgentUsage object to track usage across multiple calls.
             loop_limit (int, optional): The maximum number of times to call the model.
@@ -270,7 +268,7 @@ class Agent:
         
         # Get history messages from memory asynchronously
         history_msgs = await self.memory.load_memory() if self.memory else []
-        conversation = self._prepare_conversation(message, user_name, history_msgs)
+        conversation = self._prepare_conversation(message, history_msgs)
         
         is_error = False
         # Main conversation loop

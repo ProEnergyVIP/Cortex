@@ -38,7 +38,7 @@ def basic_message_types():
     print(f"Developer: {dev_msg.content}")
     
     # UserMessage - for user input
-    user_msg = UserMessage(content="Hello, how are you?", user_name="Alice")
+    user_msg = UserMessage(content="Hello, how are you?")
     print(f"User: {user_msg.build_content()}")
     
     # AIMessage - for AI responses
@@ -85,7 +85,6 @@ def user_message_with_attachments():
     # UserMessage with attachments
     user_msg = UserMessage(
         content="Please analyze these images and files",
-        user_name="Bob",
         images=[image1, image2],
         files=[file1, file2]
     )
@@ -241,8 +240,7 @@ def conversation_example():
     # User question
     conversation.append(
         UserMessage(
-            content="How do I read a file in Python?",
-            user_name="Student"
+            content="How do I read a file in Python?"
         )
     )
     
@@ -293,7 +291,7 @@ def message_decoration_example():
     messages = [
         SystemMessage(content="System prompt"),
         DeveloperMessage(content="Developer note"),
-        UserMessage(content="User question", user_name="Alice"),
+        UserMessage(content="User question"),
         AIMessage(content="AI response"),
         ToolMessage(content="Tool result", tool_call_id="call_1"),
     ]
