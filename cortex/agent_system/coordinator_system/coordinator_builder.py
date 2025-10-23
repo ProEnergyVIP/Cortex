@@ -40,6 +40,11 @@ Key Definitions:
     - Agents (_agent suffix):
         - Domain experts with memory and autonomy. They handle follow-ups
           independently.
+    
+    Parallel Execution:
+    - When multiple independent tools/agents are needed, call them all at once —
+      the system executes them in parallel for efficiency.
+    - This applies to both _func tools and _agent tools.
 
 Core Rules (Coordinator):
 
