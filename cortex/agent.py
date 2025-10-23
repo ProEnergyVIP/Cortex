@@ -292,7 +292,7 @@ class Agent:
                 break
 
             # Process the AI message
-            reply = await self._process_ai_message(ai_msg, conversation)
+            reply = await self._async_process_ai_message(ai_msg, conversation)
             if reply is not None:
                 await self._async_handle_response(conversation, agent_usage, usage, is_error)
                 return reply
