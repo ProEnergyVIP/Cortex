@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from functools import cached_property
+import asyncio
 import inspect
 import logging
 
@@ -30,27 +31,52 @@ class FunctionTool(BaseTool):
     prompt: str = None
     strict: bool = True
 
-    _called_times: int = 0
+    _called_times: int = field(default=0, init=False)
 
-    def check_call_limit(self, limit=10):
+    def __post_init__(self):
+        '''Validate the tool configuration'''
+        if not callable(self.func):
+            raise TypeError(f"func must be callable, got {type(self.func)}")
+
+    def check_call_limit(self, limit: int = 10) -> bool:
         '''Check if the tool has been called too many times'''
         if self._called_times >= limit:
             return False
         return True
     
-    def increment_call_count(self):
+    def increment_call_count(self) -> None:
         '''Increment the call count of the tool'''
         self._called_times += 1
 
     @cached_property
-    def is_async(self):
+    def is_async(self) -> bool:
         '''Check if the tool is async'''
         return inspect.iscoroutinefunction(self.func)
 
     @cached_property
-    def is_sync(self):
+    def is_sync(self) -> bool:
         '''Check if the tool is sync'''
         return not self.is_async
+    
+    def _prepare_args(self, tool_input, context, agent) -> list:
+        '''Prepare arguments based on the function signature
+        
+        Returns:
+            list: Arguments to pass to the function
+        '''
+        sig = inspect.signature(self.func)
+        num_params = len(sig.parameters)
+
+        if num_params == 0:
+            return []
+        elif num_params == 1:
+            return [tool_input]
+        elif num_params == 2:
+            return [tool_input, context]
+        elif num_params == 3:
+            return [tool_input, context, agent]
+        else:
+            raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
 
     async def async_run(self, tool_input, context, agent):
         '''Run the tool function asynchronously
@@ -63,21 +89,7 @@ class FunctionTool(BaseTool):
             The result of the function call
         '''
         self.increment_call_count()
-        
-        # Check the number of parameters the function expects
-        sig = inspect.signature(self.func)
-        num_params = len(sig.parameters)
-
-        if num_params == 0:
-            args = []
-        elif num_params == 1:
-            args = [tool_input]
-        elif num_params == 2:
-            args = [tool_input, context]
-        elif num_params == 3:
-            args = [tool_input, context, agent]
-        else:
-            raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
+        args = self._prepare_args(tool_input, context, agent)
 
         if self.is_async:
             # If the function is already async, just await it
@@ -85,7 +97,6 @@ class FunctionTool(BaseTool):
             return await self.func(*args)
         else:
             # If the function is sync, run it in a thread pool
-            import asyncio
             logger.debug('run sync tool function "%s" in async mode agent', self.name)
             return await asyncio.to_thread(self.func, *args)
     
@@ -100,21 +111,7 @@ class FunctionTool(BaseTool):
             The result of the function call
         '''
         self.increment_call_count()
-        
-        # Check the number of parameters the function expects
-        sig = inspect.signature(self.func)
-        num_params = len(sig.parameters)
-
-        if num_params == 0:
-            args = []
-        elif num_params == 1:
-            args = [tool_input]
-        elif num_params == 2:
-            args = [tool_input, context]
-        elif num_params == 3:
-            args = [tool_input, context, agent]
-        else:
-            raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
+        args = self._prepare_args(tool_input, context, agent)
         
         if self.is_sync:
             # If the function is sync, just call it
@@ -122,27 +119,9 @@ class FunctionTool(BaseTool):
             return self.func(*args)
         else:
             # If the function is async, run it in an event loop
-            import asyncio
-            
-            # Get or create an event loop
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                # If there's no event loop in this thread, create one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            
             logger.debug('run async tool function "%s" in sync mode agent', self.name)
-            # Run the async function in the event loop
-            if loop.is_running():
-                # If the loop is already running, we need to create a new one
-                # This is a bit of a hack, but it's the best we can do
-                return asyncio.run_coroutine_threadsafe(
-                    self.func(*args), loop
-                ).result()
-            else:
-                # If the loop is not running, we can just run the coroutine
-                return loop.run_until_complete(self.func(*args))
+            # Use asyncio.run which creates a new event loop
+            return asyncio.run(self.func(*args))
 
 
 # Web Search tool
