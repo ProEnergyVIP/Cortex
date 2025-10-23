@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from functools import cached_property
-import asyncio
 import inspect
 import logging
 
@@ -79,49 +78,26 @@ class FunctionTool(BaseTool):
             raise ValueError(f"Tool function {self.name} expects 0, 1, 2, or 3 parameters but received {num_params} parameters")
 
     async def async_run(self, tool_input, context, agent):
-        '''Run the tool function asynchronously
-        
-        This method will handle both async and sync functions correctly:
-        - If the function is async, it will be awaited
-        - If the function is sync, it will be run in a thread pool
+        '''Run the async tool function
         
         Returns:
             The result of the function call
         '''
         self.increment_call_count()
         args = self._prepare_args(tool_input, context, agent)
-
-        if self.is_async:
-            # If the function is already async, just await it
-            logger.debug('run async tool function "%s"', self.name)
-            return await self.func(*args)
-        else:
-            # If the function is sync, run it in a thread pool
-            logger.debug('run sync tool function "%s" in async mode agent', self.name)
-            return await asyncio.to_thread(self.func, *args)
+        logger.debug('run async tool function "%s"', self.name)
+        return await self.func(*args)
     
     def run(self, tool_input, context, agent):
-        '''Run the tool function synchronously
-        
-        This method will handle both async and sync functions correctly:
-        - If the function is sync, it will be called directly
-        - If the function is async, it will be run in an event loop
+        '''Run the sync tool function
         
         Returns:
             The result of the function call
         '''
         self.increment_call_count()
         args = self._prepare_args(tool_input, context, agent)
-        
-        if self.is_sync:
-            # If the function is sync, just call it
-            logger.debug('run sync tool function "%s"', self.name)
-            return self.func(*args)
-        else:
-            # If the function is async, run it in an event loop
-            logger.debug('run async tool function "%s" in sync mode agent', self.name)
-            # Use asyncio.run which creates a new event loop
-            return asyncio.run(self.func(*args))
+        logger.debug('run sync tool function "%s"', self.name)
+        return self.func(*args)
 
 
 # Web Search tool

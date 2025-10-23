@@ -23,17 +23,25 @@ END_DELIM = '^' * 80
 
 class Agent:
     def __init__(self, llm, tools=None, sys_prompt='', memory=None, context=None, json_reply=False, 
-                 name=None, tool_call_limit=10, save_error_to_memory=False):
+                 name=None, tool_call_limit=10, save_error_to_memory=False, mode='async'):
+        '''
+        Initialize the Agent.
+        
+        Args:
+            mode: 'sync' or 'async' - determines which ask method to use and validates tools accordingly.
+                  'sync' mode requires all tools to be sync functions (use with ask()).
+                  'async' mode requires all tools to be async functions (use with async_ask()).
+                  Default is 'async' as most users work with async LLM calls.
+        '''
+        if mode not in ('sync', 'async'):
+            raise ValueError(f"mode must be 'sync' or 'async', got '{mode}'")
+        
+        self.mode = mode
         self.llm = llm
         self.tools = tools or []
-
-        # Validate all tools have names and build dictionary for O(1) lookup
-        self.tools_dict = {}
-        for tool in self.tools:
-            tool_name = getattr(tool, 'name', None)
-            if not tool_name:
-                raise ValueError(f"Tool {tool} must have a 'name' attribute")
-            self.tools_dict[tool_name] = tool
+        
+        # Process and validate all tools
+        self.tools_dict = self._process_and_validate_tools()
         
         self.sys_msg = sys_prompt if isinstance(sys_prompt, SystemMessage) else SystemMessage(content=sys_prompt)
         self.memory = memory
@@ -44,6 +52,45 @@ class Agent:
         self.save_error_to_memory = save_error_to_memory
         # Track recent tool calls to detect repetition
         self._recent_tool_calls = []
+    
+    def _process_and_validate_tools(self) -> dict:
+        '''Process and validate all tools, returning a dictionary for O(1) lookup
+        
+        This method:
+        1. Validates all tools have names
+        2. Validates FunctionTools match the agent mode (sync/async)
+        3. Builds a dictionary for O(1) tool lookup
+        
+        Returns:
+            dict: Dictionary mapping tool names to tool objects
+        '''
+        tools_dict = {}
+
+        is_async = self.mode == 'async'
+        
+        for tool in self.tools:
+            # Validate tool has a name
+            tool_name = getattr(tool, 'name', None)
+            if not tool_name:
+                raise ValueError(f"Tool {tool} must have a 'name' attribute")
+            
+            # Validate FunctionTools match the agent mode
+            if isinstance(tool, FunctionTool):
+                if not is_async and tool.is_async:
+                    raise TypeError(
+                        f"Tool '{tool.name}' is async but agent mode is 'sync'. "
+                        f"Either set mode='async' or convert the tool to a sync function."
+                    )
+                elif is_async and tool.is_sync:
+                    raise TypeError(
+                        f"Tool '{tool.name}' is sync but agent mode is 'async'. "
+                        f"Either set mode='sync' or convert the tool to an async function."
+                    )
+            
+            # Add to dictionary
+            tools_dict[tool_name] = tool
+        
+        return tools_dict
     
     def _find_tool(self, tool_name: str) -> Optional[BaseTool]:
         '''Find a tool by name using O(1) dictionary lookup'''
@@ -148,6 +195,12 @@ class Agent:
         Returns:
             str: The response from the agent
         '''
+        if self.mode != 'sync':
+            raise RuntimeError(
+                f"Agent mode is '{self.mode}' but ask() is for sync mode. "
+                f"Use async_ask() instead or set mode='sync' at initialization."
+            )
+        
         reply = None
         agent_usage = AgentUsage()  # Track total usage across all calls
         
@@ -197,6 +250,12 @@ class Agent:
         Returns:
             str: The response from the agent
         '''
+        if self.mode != 'async':
+            raise RuntimeError(
+                f"Agent mode is '{self.mode}' but async_ask() is for async mode. "
+                f"Use ask() instead or set mode='async' at initialization."
+            )
+        
         reply = None
         agent_usage = AgentUsage()  # Track total usage across all calls
         
