@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import json
 import logging
-from typing import Any
+from typing import Any, List
 from cortex.message import InputFile, InputImage, SystemMessage, UserMessage
 
 logger = logging.getLogger(__name__)
@@ -35,18 +35,21 @@ DO NOT include the JSON schema itself in the output, only the JSON object confor
 DO NOT include the `json` tag in your answer.
 '''
 
-def _prepare_user_message(msg, image_urls=None, file_urls=None):
+def _prepare_messages(msg, image_urls=None, file_urls=None):
     '''Prepare the user message for the LLM call'''
-    if isinstance(msg, UserMessage):
+    if isinstance(msg, List):
         return msg
-    elif image_urls:
+    elif isinstance(msg, UserMessage):
+        return [msg]
+    
+    if image_urls:
         imgs = [InputImage(image_url=url) for url in image_urls]
-        return UserMessage(content=msg, images=imgs)
+        return [UserMessage(content=msg, images=imgs)]
     elif file_urls:
         files = [InputFile(file_url=url) for url in file_urls]
-        return UserMessage(content=msg, files=files)
+        return [UserMessage(content=msg, files=files)]
     else:
-        return UserMessage(content=msg)
+        return [UserMessage(content=msg)]
 
 def _handle_logging(msgs, ai_msg, usage):
     '''Handle logging of messages and usage'''
@@ -100,8 +103,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
 
     if async_mode:
         async def func(msg, image_urls=None, file_urls=None, usage=None):
-            user_msg = _prepare_user_message(msg, image_urls, file_urls)
-            msgs = [user_msg]
+            msgs = _prepare_messages(msg, image_urls, file_urls)
             history = []
 
             for i in range(max_attempts):
@@ -129,8 +131,7 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
         return func
     else:
         def func(msg, image_urls=None, file_urls=None, usage=None):
-            user_msg = _prepare_user_message(msg, image_urls, file_urls)
-            msgs = [user_msg]
+            msgs = _prepare_messages(msg, image_urls, file_urls)
             history = []
 
             for i in range(max_attempts):
