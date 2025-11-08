@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import json
 import logging
 from typing import Any, List
-from cortex.message import InputFile, InputImage, SystemMessage, UserMessage
+from cortex.message import SystemMessage, UserMessage
 
 logger = logging.getLogger(__name__)
 
@@ -35,19 +35,12 @@ DO NOT include the JSON schema itself in the output, only the JSON object confor
 DO NOT include the `json` tag in your answer.
 '''
 
-def _prepare_messages(msg, image_urls=None, file_urls=None):
+def _prepare_messages(msg):
     '''Prepare the user message for the LLM call'''
     if isinstance(msg, List):
         return msg
     elif isinstance(msg, UserMessage):
         return [msg]
-    
-    if image_urls:
-        imgs = [InputImage(image_url=url) for url in image_urls]
-        return [UserMessage(content=msg, images=imgs)]
-    elif file_urls:
-        files = [InputFile(file_url=url) for url in file_urls]
-        return [UserMessage(content=msg, files=files)]
     else:
         return [UserMessage(content=msg)]
 
@@ -102,8 +95,8 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
     llm_args = llm_args or {}
 
     if async_mode:
-        async def func(msg, image_urls=None, file_urls=None, usage=None):
-            msgs = _prepare_messages(msg, image_urls, file_urls)
+        async def func(msg, usage=None):
+            msgs = _prepare_messages(msg)
             history = []
 
             for i in range(max_attempts):
@@ -130,8 +123,8 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
                 history.append(msg)
         return func
     else:
-        def func(msg, image_urls=None, file_urls=None, usage=None):
-            msgs = _prepare_messages(msg, image_urls, file_urls)
+        def func(msg, usage=None):
+            msgs = _prepare_messages(msg)
             history = []
 
             for i in range(max_attempts):
