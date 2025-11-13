@@ -1,0 +1,246 @@
+"""
+Quick test to verify shared context functionality and backward compatibility.
+Run this to ensure the changes work correctly.
+"""
+
+from datetime import datetime, timedelta
+from cortex.agent_system import AgentSystemContext, ContextUpdate
+from cortex import AsyncAgentMemoryBank
+
+
+def test_backward_compatibility():
+    """Test that existing code still works."""
+    print("Testing backward compatibility...")
+    
+    # Old way of creating context (should still work)
+    memory_bank = AsyncAgentMemoryBank()
+    context = AgentSystemContext(memory_bank=memory_bank)
+    
+    # Verify defaults
+    assert context.mission == ""
+    assert context.current_focus == ""
+    assert context.progress == ""
+    assert context.team_roles == {}
+    assert context.protocols == []
+    assert context.updates == []
+    assert context.artifacts == {}
+    assert context.active_blockers == []
+    assert isinstance(context.last_activity, datetime)
+    
+    print("✓ Backward compatibility test passed!")
+
+
+def test_shared_context_fields():
+    """Test new shared context fields."""
+    print("\nTesting shared context fields...")
+    
+    memory_bank = AsyncAgentMemoryBank()
+    context = AgentSystemContext(
+        memory_bank=memory_bank,
+        mission="Test mission",
+        current_focus="Testing phase",
+        progress="50% complete",
+        team_roles={"agent1": "Tester", "agent2": "Developer"},
+        protocols=["Write tests", "Document changes"],
+        active_blockers=["Waiting for review"]
+    )
+    
+    assert context.mission == "Test mission"
+    assert context.current_focus == "Testing phase"
+    assert context.progress == "50% complete"
+    assert len(context.team_roles) == 2
+    assert len(context.protocols) == 2
+    assert len(context.active_blockers) == 1
+    
+    print("✓ Shared context fields test passed!")
+
+
+def test_add_update():
+    """Test add_update method."""
+    print("\nTesting add_update method...")
+    
+    memory_bank = AsyncAgentMemoryBank()
+    context = AgentSystemContext(memory_bank=memory_bank)
+    
+    # Add an update
+    context.add_update(
+        agent_id="test_agent",
+        update_type="status",
+        content="Test update",
+        tags=["test", "demo"]
+    )
+    
+    assert len(context.updates) == 1
+    assert context.updates[0].agent_id == "test_agent"
+    assert context.updates[0].update_type == "status"
+    assert context.updates[0].content == "Test update"
+    assert "test" in context.updates[0].tags
+    assert isinstance(context.updates[0].timestamp, datetime)
+    
+    # Add another update
+    context.add_update(
+        agent_id="another_agent",
+        update_type="finding",
+        content="Important finding"
+    )
+    
+    assert len(context.updates) == 2
+    
+    print("✓ add_update method test passed!")
+
+
+def test_get_agent_view():
+    """Test get_agent_view method."""
+    print("\nTesting get_agent_view method...")
+    
+    memory_bank = AsyncAgentMemoryBank()
+    context = AgentSystemContext(
+        memory_bank=memory_bank,
+        mission="Test mission",
+        current_focus="Testing",
+        progress="In progress",
+        team_roles={"agent1": "Role1", "agent2": "Role2"},
+        protocols=["Protocol 1"],
+        artifacts={"code": [{"name": "test.py"}]},
+        active_blockers=["Blocker 1"]
+    )
+    
+    # Add some updates
+    context.add_update("agent1", "status", "Update 1")
+    context.add_update("agent2", "finding", "Update 2")
+    
+    # Get agent view
+    view = context.get_agent_view("agent1")
+    
+    assert view["mission"] == "Test mission"
+    assert view["current_focus"] == "Testing"
+    assert view["progress"] == "In progress"
+    assert view["my_role"] == "Role1"
+    assert "agent1" in view["team_roles"]
+    assert len(view["protocols"]) == 1
+    assert len(view["recent_updates"]) == 2
+    assert "code" in view["artifacts"]
+    assert len(view["active_blockers"]) == 1
+    assert "last_activity" in view
+    
+    print("✓ get_agent_view method test passed!")
+
+
+def test_get_recent_updates():
+    """Test get_recent_updates method."""
+    print("\nTesting get_recent_updates method...")
+    
+    memory_bank = AsyncAgentMemoryBank()
+    context = AgentSystemContext(memory_bank=memory_bank)
+    
+    # Add various updates
+    context.add_update("agent1", "status", "Status 1", ["tag1"])
+    context.add_update("agent2", "finding", "Finding 1", ["tag2"])
+    context.add_update("agent1", "status", "Status 2", ["tag1"])
+    context.add_update("agent3", "decision", "Decision 1", ["tag3"])
+    
+    # Test: get all updates
+    all_updates = context.get_recent_updates()
+    assert len(all_updates) == 4
+    
+    # Test: filter by agent_id
+    agent1_updates = context.get_recent_updates(agent_id="agent1")
+    assert len(agent1_updates) == 2
+    assert all(u.agent_id == "agent1" for u in agent1_updates)
+    
+    # Test: filter by update_type
+    status_updates = context.get_recent_updates(update_type="status")
+    assert len(status_updates) == 2
+    assert all(u.update_type == "status" for u in status_updates)
+    
+    # Test: filter by time (all updates should be recent)
+    one_hour_ago = datetime.now() - timedelta(hours=1)
+    recent_updates = context.get_recent_updates(since=one_hour_ago)
+    assert len(recent_updates) == 4
+    
+    # Test: combined filters
+    agent1_status = context.get_recent_updates(agent_id="agent1", update_type="status")
+    assert len(agent1_status) == 2
+    
+    print("✓ get_recent_updates method test passed!")
+
+
+def test_context_update_model():
+    """Test ContextUpdate model."""
+    print("\nTesting ContextUpdate model...")
+    
+    # Create a ContextUpdate
+    update = ContextUpdate(
+        agent_id="test_agent",
+        update_type="test",
+        content="Test content",
+        tags=["tag1", "tag2"]
+    )
+    
+    assert update.agent_id == "test_agent"
+    assert update.update_type == "test"
+    assert update.content == "Test content"
+    assert len(update.tags) == 2
+    assert isinstance(update.timestamp, datetime)
+    
+    # Test with default tags
+    update2 = ContextUpdate(
+        agent_id="agent2",
+        update_type="status",
+        content="Status update"
+    )
+    assert update2.tags == []
+    
+    print("✓ ContextUpdate model test passed!")
+
+
+def test_pydantic_validation():
+    """Test that Pydantic validation works correctly."""
+    print("\nTesting Pydantic validation...")
+    
+    memory_bank = AsyncAgentMemoryBank()
+    
+    # Test valid context
+    context = AgentSystemContext(
+        memory_bank=memory_bank,
+        mission="Valid mission",
+        team_roles={"agent1": "Role1"}
+    )
+    assert context.mission == "Valid mission"
+    
+    # Test that we can modify fields
+    context.mission = "Updated mission"
+    assert context.mission == "Updated mission"
+    
+    context.team_roles["agent2"] = "Role2"
+    assert len(context.team_roles) == 2
+    
+    print("✓ Pydantic validation test passed!")
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("Running Shared Context Tests")
+    print("=" * 60)
+    
+    try:
+        test_backward_compatibility()
+        test_shared_context_fields()
+        test_add_update()
+        test_get_agent_view()
+        test_get_recent_updates()
+        test_context_update_model()
+        test_pydantic_validation()
+        
+        print("\n" + "=" * 60)
+        print("✓ ALL TESTS PASSED!")
+        print("=" * 60)
+        print("\nShared context functionality is working correctly.")
+        print("Backward compatibility is maintained.")
+        
+    except AssertionError as e:
+        print(f"\n✗ TEST FAILED: {e}")
+        raise
+    except Exception as e:
+        print(f"\n✗ ERROR: {e}")
+        raise
