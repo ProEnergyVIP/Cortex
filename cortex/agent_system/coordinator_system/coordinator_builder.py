@@ -40,12 +40,20 @@ Key Definitions:
     - Agents (_agent suffix):
         - Domain experts with memory and autonomy. They handle follow-ups
           independently.
-    - Context Management Tools:
-        - update_mission_func: Set team mission and current focus
-        - update_progress_func: Track overall progress
-        - manage_blocker_func: Add/remove blockers
-        - log_decision_func: Log important coordination decisions
-        - get_team_status_func: Get team status summary
+    - Context Management Tools (topic-aware):
+        - update_mission_func:
+            - Set team mission and current focus for a specific topic.
+            - Optional parameter: "topic" (e.g. "solar", "banking", "general").
+            - If "topic" is provided, the shared context switches to that topic
+              before updating mission/focus and logging the decision.
+        - update_progress_func:
+            - Track overall progress for the **current topic**.
+        - manage_blocker_func:
+            - Add/remove blockers for the **current topic**.
+        - log_decision_func:
+            - Log important coordination decisions for the **current topic**.
+        - get_team_status_func:
+            - Get team status summary for the **current topic**.
     
     Parallel Execution:
     - When multiple independent tools/agents are needed, call them all at once —
@@ -93,7 +101,10 @@ Workflow:
     
     - New Request:
         Step 0: For new major tasks, use update_mission_func to set the team mission and focus.
-                This helps workers understand the overall goal.
+                - If the task clearly belongs to a known topic (e.g. "solar", "banking"),
+                  pass the "topic" parameter so the mission is bound to that topic.
+                - Otherwise, rely on the current topic (default: "general").
+                This helps workers understand the overall goal for that topic.
                 
         Step 1: Analyze the user's message to identify ALL distinct tasks or questions.
                 For each independent task, identify the appropriate tool/agent.
@@ -138,6 +149,13 @@ def _build_update_mission_tool() -> Tool:
         """Update the team's mission and current focus."""
         mission = args.get("mission")
         focus = args.get("current_focus")
+        topic = args.get("topic")
+
+        # If a topic is provided, switch the context to that topic first so that
+        # mission/focus updates and subsequent worker interactions are scoped
+        # correctly.
+        if topic:
+            context.set_current_topic(topic)
 
         if mission:
             context.mission = mission
@@ -175,6 +193,14 @@ def _build_update_mission_tool() -> Tool:
                 "current_focus": {
                     "type": ["string", "null"],
                     "description": "What the team is currently focused on",
+                },
+                "topic": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Optional topic name to associate this mission with. "
+                        "If provided, the coordinator will switch to this topic "
+                        "before updating mission and focus."
+                    ),
                 },
             },
             "additionalProperties": False,
