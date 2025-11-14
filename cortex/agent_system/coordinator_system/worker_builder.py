@@ -101,6 +101,50 @@ Rules:
 - Keep both "thought" and "{coordinator_key}" brief (1–3 sentences each).
 """
 
+NORMAL_FORMAT_WITH_CONTEXT = """
+[OUTPUT FORMAT — STANDARD MODE]
+When you are NOT calling a tool, output a single valid JSON object.
+Do not include code fences, Markdown, or extra text.
+
+Allowed top-level keys:
+  - "to_user": the message intended for the end user.
+      • Keep it clear, actionable, and concise.
+      • Avoid technical jargon unless explicitly requested.
+  - "{coordinator_key}": a short note for {coordinator_name}.
+      • Summarize decisions made, blockers, or the next step.
+  - "shared_context_suggestion": OPTIONAL structured suggestions for updating the shared context.
+      • Use this to propose updates to mission, progress, blockers, or decisions.
+      • The coordinator decides whether and how to apply these suggestions.
+
+Rules:
+- Only include the keys listed above; no additional fields.
+- The entire response must be directly parsable by `json.loads()`.
+- Keep "{coordinator_key}" short and factual (1–3 sentences).
+"""
+
+THOUGHT_FORMAT_WITH_CONTEXT = """
+[OUTPUT FORMAT — WITH INTERNAL THOUGHT]
+When you are NOT calling a tool, output a single valid JSON object.
+Do not include code fences, Markdown, or extra text.
+
+Allowed top-level keys:
+  - "thought": your brief internal reasoning note.
+      • Use it to outline logic or next actions concisely.
+      • Do not expose private system logic or sensitive data.
+  - "to_user": the message intended for the end user.
+      • Keep it clear, actionable, and relevant.
+  - "{coordinator_key}": a short coordination note for {coordinator_name}.
+      • State what was done, what’s needed next, or why the task paused.
+  - "shared_context_suggestion": OPTIONAL structured suggestions for updating the shared context.
+      • Use this to propose updates to mission, progress, blockers, or decisions.
+      • The coordinator decides whether and how to apply these suggestions.
+
+Rules:
+- Only include the keys listed above; no additional fields.
+- The response must be valid JSON (parsable by `json.loads()`).
+- Keep both "thought" and "{coordinator_key}" brief (1–3 sentences each).
+"""
+
 
 class WorkerAgentBuilder(AgentBuilder):
     """Builder for a generic worker agent that collaborates with a coordinator.
@@ -131,6 +175,7 @@ class WorkerAgentBuilder(AgentBuilder):
         thinking: bool = True,
         introduction: Optional[str] = None,
         before_agent: Optional[Callable] = None,
+        enable_context_suggestions: bool = True,
     ):
         super().__init__(
             name=name,
@@ -141,6 +186,7 @@ class WorkerAgentBuilder(AgentBuilder):
         )
         # Agent-side settings
         self.thinking = thinking
+        self.enable_context_suggestions = enable_context_suggestions
         # Tool exposure settings
         self.introduction = introduction
         self.before_agent = before_agent
@@ -162,13 +208,17 @@ class WorkerAgentBuilder(AgentBuilder):
         }
     
     @classmethod
-    def compose_prompt(cls, agent_name, task_desc, coordinator_name, coordinator_key, thinking=True):
+    def compose_prompt(cls, agent_name, task_desc, coordinator_name, coordinator_key, thinking=True, enable_context_suggestions: bool = True):
         """
         Compose the prompt for the worker agent.
         This is a class method to allow for easy reuse of the prompt composition logic.
         Users might just want to use the prompt instead of the builder.
         """
-        format_block = THOUGHT_FORMAT if thinking else NORMAL_FORMAT
+        if enable_context_suggestions:
+            format_block = THOUGHT_FORMAT_WITH_CONTEXT if thinking else NORMAL_FORMAT_WITH_CONTEXT
+        else:
+            format_block = THOUGHT_FORMAT if thinking else NORMAL_FORMAT
+
         prompt_parts = [WORKER_PROMPT, format_block]
         
         prompt = "".join(prompt_parts)
@@ -193,7 +243,14 @@ class WorkerAgentBuilder(AgentBuilder):
         
         task_desc = await self.build_prompt(context)
 
-        sys_prompt = self.compose_prompt(self.name, task_desc, display_name, coordinator_key, self.thinking)
+        sys_prompt = self.compose_prompt(
+            self.name,
+            task_desc,
+            display_name,
+            coordinator_key,
+            self.thinking,
+            self.enable_context_suggestions,
+        )
 
         bank = await context.get_memory_bank()
         memory = await bank.get_agent_memory(self.name_key, k=self.memory_k)
