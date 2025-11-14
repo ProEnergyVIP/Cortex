@@ -4,7 +4,7 @@ import re
 from cortex import LLM, Agent, Tool
 from cortex.message import DeveloperMessage, UserMessage
 
-from ..core.context import AgentSystemContext
+from ..core.context import AgentSystemContext, UpdateType
 from ..core.builder import AgentBuilder
 
 # A generic worker agent prompt for a worker agent collaborating within a multi-agent team.
@@ -240,12 +240,62 @@ class WorkerAgentBuilder(AgentBuilder):
             
             user_input = args["user_input"]
             ctx_instructions = args.get("context_instructions")
+            
+            # STEP 1: Get agent-specific view of shared context before routing
+            agent_view = context.get_agent_view(self.name)
+            
+            # STEP 2: Build context summary to include in message
+            context_parts = []
+            if agent_view.get("mission"):
+                context_parts.append(f"Mission: {agent_view['mission']}")
+            if agent_view.get("current_focus"):
+                context_parts.append(f"Current Focus: {agent_view['current_focus']}")
+            if agent_view.get("my_role"):
+                context_parts.append(f"Your Role: {agent_view['my_role']}")
+            if agent_view.get("active_blockers"):
+                context_parts.append(f"Active Blockers: {', '.join(agent_view['active_blockers'])}")
+            
+            # Include recent updates from other agents
+            if agent_view.get("recent_updates"):
+                recent = agent_view["recent_updates"][:5]  # Last 5 updates
+                if recent:
+                    updates_summary = "\n".join([
+                        f"  - [{u['type']}] {u['agent_name']}: {str(u['content'])[:100]}"
+                        for u in recent
+                    ])
+                    context_parts.append(f"Recent Team Updates:\n{updates_summary}")
+            
+            # Combine with existing context_instructions
+            shared_context_info = "\n\n".join(context_parts) if context_parts else None
+            
+            if shared_context_info:
+                if ctx_instructions:
+                    combined_context = f"{ctx_instructions}\n\n[Shared Context]\n{shared_context_info}"
+                else:
+                    combined_context = f"[Shared Context]\n{shared_context_info}"
+            else:
+                combined_context = ctx_instructions
 
             msgs = [UserMessage(content=user_input)]
-            if ctx_instructions:
-                msgs.append(DeveloperMessage(content=ctx_instructions))
+            if combined_context:
+                msgs.append(DeveloperMessage(content=combined_context))
 
-            return await agent.async_ask(msgs, usage=getattr(context, "usage", None))
+            # STEP 3: Execute worker agent
+            response = await agent.async_ask(msgs, usage=getattr(context, "usage", None))
+            
+            # STEP 4: Log worker's response to shared context
+            context.add_update(
+                agent_name=self.name,
+                update_type=UpdateType.FINDING,
+                content={
+                    "task": user_input[:200],  # Truncate long inputs
+                    "response_summary": response[:500] if isinstance(response, str) else str(response)[:500],
+                    "status": "completed"
+                },
+                tags=["worker_response", self.name_key]
+            )
+            
+            return response
 
         tool_name = self.name_key + "_agent"
 

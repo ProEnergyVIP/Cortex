@@ -2,7 +2,7 @@ from typing import Callable, Optional, List
 
 from cortex import LLM, Agent, Tool
 
-from ..core.context import AgentSystemContext
+from ..core.context import AgentSystemContext, UpdateType
 from ..core.builder import AgentBuilder
 
 
@@ -40,6 +40,12 @@ Key Definitions:
     - Agents (_agent suffix):
         - Domain experts with memory and autonomy. They handle follow-ups
           independently.
+    - Context Management Tools:
+        - update_mission_func: Set team mission and current focus
+        - update_progress_func: Track overall progress
+        - manage_blocker_func: Add/remove blockers
+        - log_decision_func: Log important coordination decisions
+        - get_team_status_func: Get team status summary
     
     Parallel Execution:
     - When multiple independent tools/agents are needed, call them all at once —
@@ -86,6 +92,9 @@ Workflow:
       a follow-up. If not, it's a new request.
     
     - New Request:
+        Step 0: For new major tasks, use update_mission_func to set the team mission and focus.
+                This helps workers understand the overall goal.
+                
         Step 1: Analyze the user's message to identify ALL distinct tasks or questions.
                 For each independent task, identify the appropriate tool/agent.
                 
@@ -98,7 +107,10 @@ Workflow:
         Step 3: If only one task or one tool/agent can handle everything:
                 - Call that single tool/agent with the user's message UNALTERED.
                 
-        Step 4: Aggregate results from all tools/agents and present a unified response.
+        Step 4: After workers complete, use update_progress_func to track team progress.
+                If blockers are identified, use manage_blocker_func to track them.
+                
+        Step 5: Aggregate results from all tools/agents and present a unified response.
                 Include a concise thought explanation in your final response.
                 
         NOTE: DO NOT expose the agents' info in your final message to user.
@@ -117,6 +129,294 @@ Critical Prohibitions:
 
 ------
 """
+
+
+def _build_update_mission_tool() -> Tool:
+    """Build the tool used to update mission and current focus."""
+
+    async def update_mission_func(args, context: AgentSystemContext):
+        """Update the team's mission and current focus."""
+        mission = args.get("mission")
+        focus = args.get("current_focus")
+
+        if mission:
+            context.mission = mission
+        if focus:
+            context.current_focus = focus
+
+        # Log the update
+        context.add_update(
+            agent_name="Coordinator",
+            update_type=UpdateType.DECISION,
+            content={
+                "action": "mission_updated",
+                "mission": mission or context.mission,
+                "focus": focus or context.current_focus,
+            },
+            tags=["coordinator", "mission", "planning"],
+        )
+
+        return f"Mission updated: {context.mission}\nCurrent focus: {context.current_focus}"
+
+    return Tool(
+        name="update_mission_func",
+        func=update_mission_func,
+        description=(
+            "Update the team's mission and current focus. Use this when starting a new "
+            "task or changing direction."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "mission": {
+                    "type": ["string", "null"],
+                    "description": "The overall mission or goal for the team",
+                },
+                "current_focus": {
+                    "type": ["string", "null"],
+                    "description": "What the team is currently focused on",
+                },
+            },
+            "additionalProperties": False,
+        },
+    )
+
+
+def _build_update_progress_tool() -> Tool:
+    """Build the tool used to update overall progress."""
+
+    async def update_progress_func(args, context: AgentSystemContext):
+        """Update the team's overall progress."""
+        progress = args["progress"]
+        context.progress = progress
+
+        # Log the update
+        context.add_update(
+            agent_name="Coordinator",
+            update_type=UpdateType.PROGRESS,
+            content={
+                "action": "progress_updated",
+                "progress": progress,
+            },
+            tags=["coordinator", "progress", "status"],
+        )
+
+        return f"Progress updated: {progress}"
+
+    return Tool(
+        name="update_progress_func",
+        func=update_progress_func,
+        description=(
+            "Update the team's overall progress status. Use this to track where the "
+            "team is in completing the mission."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "progress": {
+                    "type": "string",
+                    "description": (
+                        "Current progress description (e.g., 'Completed data "
+                        "collection, starting analysis')"
+                    ),
+                },
+            },
+            "required": ["progress"],
+            "additionalProperties": False,
+        },
+    )
+
+
+def _build_manage_blocker_tool() -> Tool:
+    """Build the tool used to add or remove blockers."""
+
+    async def manage_blocker_func(args, context: AgentSystemContext):
+        """Add or remove a blocker from the team's active blockers list."""
+        action = args["action"]
+        blocker = args["blocker"]
+
+        if action == "add":
+            if blocker not in context.active_blockers:
+                context.active_blockers.append(blocker)
+                status = "added"
+            else:
+                status = "already_exists"
+        elif action == "remove":
+            if blocker in context.active_blockers:
+                context.active_blockers.remove(blocker)
+                status = "removed"
+            else:
+                status = "not_found"
+        else:
+            return f"Invalid action: {action}. Use 'add' or 'remove'."
+
+        # Log the update
+        context.add_update(
+            agent_name="Coordinator",
+            update_type=UpdateType.BLOCKER if action == "add" else UpdateType.PROGRESS,
+            content={
+                "action": f"blocker_{action}",
+                "blocker": blocker,
+                "status": status,
+                "active_blockers": list(context.active_blockers),
+            },
+            tags=["coordinator", "blocker", action],
+        )
+
+        blockers_display = (
+            ", ".join(context.active_blockers) if context.active_blockers else "None"
+        )
+        return f"Blocker {status}: {blocker}\nActive blockers: {blockers_display}"
+
+    return Tool(
+        name="manage_blocker_func",
+        func=manage_blocker_func,
+        description=(
+            "Add or remove a blocker from the team's active blockers list. Use this "
+            "to track issues preventing progress."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["add", "remove"],
+                    "description": "Whether to add or remove the blocker",
+                },
+                "blocker": {
+                    "type": "string",
+                    "description": "Description of the blocker",
+                },
+            },
+            "required": ["action", "blocker"],
+            "additionalProperties": False,
+        },
+    )
+
+
+def _build_log_decision_tool() -> Tool:
+    """Build the tool used to log coordination decisions."""
+
+    async def log_decision_func(args, context: AgentSystemContext):
+        """Log an important coordination decision."""
+        decision = args["decision"]
+        rationale = args.get("rationale")
+
+        content = {
+            "decision": decision,
+            "rationale": rationale,
+        }
+
+        context.add_update(
+            agent_name="Coordinator",
+            update_type=UpdateType.DECISION,
+            content=content,
+            tags=["coordinator", "decision"],
+        )
+
+        return f"Decision logged: {decision}"
+
+    return Tool(
+        name="log_decision_func",
+        func=log_decision_func,
+        description=(
+            "Log an important coordination decision that the team should be aware of."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "decision": {
+                    "type": "string",
+                    "description": "The decision that was made",
+                },
+                "rationale": {
+                    "type": ["string", "null"],
+                    "description": "Optional rationale or reasoning for the decision",
+                },
+            },
+            "required": ["decision"],
+            "additionalProperties": False,
+        },
+    )
+
+
+def _build_get_team_status_tool() -> Tool:
+    """Build the tool used to summarize team status and recent activity."""
+
+    async def get_team_status_func(args, context: AgentSystemContext):
+        """Get a summary of the current team status and recent activity."""
+        recent_updates = context.get_recent_updates()[-10:]  # Last 10 updates
+
+        status = {
+            "mission": context.mission or "Not set",
+            "current_focus": context.current_focus or "Not set",
+            "progress": context.progress or "Not set",
+            "active_blockers": context.active_blockers,
+            "team_roles": context.team_roles,
+            "recent_activity": [
+                {
+                    "agent": u.agent_name,
+                    "type": u.type.value if hasattr(u.type, "value") else u.type,
+                    "content": str(u.content)[:100],
+                    "timestamp": u.timestamp.isoformat(),
+                }
+                for u in recent_updates
+            ],
+        }
+
+        # Format as readable text
+        status_text = (
+            f"""Team Status:
+Mission: {status['mission']}
+Current Focus: {status['current_focus']}
+Progress: {status['progress']}
+Active Blockers: {', '.join(status['active_blockers']) if status['active_blockers'] else 'None'}
+
+Recent Activity ({len(recent_updates)} updates):
+"""
+        )
+        for activity in status["recent_activity"]:
+            status_text += (
+                f"\n- [{activity['type']}] {activity['agent']}: {activity['content']}"
+            )
+
+        return status_text
+
+    return Tool(
+        name="get_team_status_func",
+        func=get_team_status_func,
+        description=(
+            "Get a summary of the current team status, including mission, progress, "
+            "blockers, and recent activity."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    )
+
+
+def create_coordinator_context_tools() -> List[Tool]:
+    """Create shared context management tools for the coordinator.
+
+    These tools allow the coordinator to manage team-wide context:
+    - Set mission and current focus
+    - Track overall progress
+    - Manage active blockers
+    - Log coordination decisions
+
+    Returns:
+        List of Tool instances for context management
+    """
+
+    return [
+        _build_update_mission_tool(),
+        _build_update_progress_tool(),
+        _build_manage_blocker_tool(),
+        _build_log_decision_tool(),
+        _build_get_team_status_tool(),
+    ]
 
 
 class CoordinatorAgentBuilder(AgentBuilder):
@@ -177,6 +477,10 @@ class CoordinatorAgentBuilder(AgentBuilder):
         composed_desc = self.compose_prompt(self.name, task_desc)
 
         all_tools = await self.load_tools(context)
+        
+        # Add shared context management tools for the coordinator
+        context_tools = create_coordinator_context_tools()
+        all_tools.extend(context_tools)
         
         if tools is not None:
             all_tools.extend(tools)
