@@ -87,6 +87,7 @@ class AgentSystemContext(BaseModel):
         }
     )
     _default_topic: str = PrivateAttr(default="general")
+    _max_updates_per_topic: int = PrivateAttr(default=200)
 
     async def get_memory_bank(self) -> AsyncAgentMemoryBank:
         """Get the agent memory bank for this context."""
@@ -204,11 +205,118 @@ class AgentSystemContext(BaseModel):
             tags=tags or [],
         )
         state.updates.append(update)
+        # Simple retention: keep only the most recent N updates per topic
+        if len(state.updates) > self._max_updates_per_topic:
+            state.updates = state.updates[-self._max_updates_per_topic :]
         state.last_activity = datetime.now()
 
         # Keep the top-level view in sync with the current topic state
         self._sync_view_from_state(state)
         return update
+    
+    def apply_shared_context_suggestion(
+        self,
+        suggestion: Dict[str, Any],
+        *,
+        source_agent: str = "Coordinator",
+    ) -> None:
+        """Apply a structured shared_context_suggestion to the current topic.
+
+        The suggestion object is expected to follow the schema used by worker
+        agents and the coordinator prompt:
+
+            {
+                "progress": str (optional),
+                "blockers_add": List[str] (optional),
+                "blockers_remove": List[str] (optional),
+                "decisions": List[{"decision": str, "rationale": Optional[str]}] (optional),
+            }
+
+        This helper mutates the current topic's state (progress/blockers) and
+        logs corresponding ContextUpdate entries for traceability.
+        """
+
+        if not suggestion:
+            return
+
+        state = self._get_or_create_topic_state(self.current_topic)
+
+        # Apply progress suggestion
+        progress = suggestion.get("progress")
+        if isinstance(progress, str) and progress.strip():
+            state.progress = progress
+            self.add_update(
+                agent_name=source_agent,
+                update_type=UpdateType.PROGRESS,
+                content={
+                    "action": "progress_suggested",
+                    "progress": progress,
+                },
+                tags=["shared_context_suggestion", "progress"],
+            )
+
+        # Apply blocker additions
+        blockers_add = suggestion.get("blockers_add") or []
+        if isinstance(blockers_add, list):
+            for blocker in blockers_add:
+                if not isinstance(blocker, str):
+                    continue
+                b = blocker.strip()
+                if not b or b in state.active_blockers:
+                    continue
+                state.active_blockers.append(b)
+                self.add_update(
+                    agent_name=source_agent,
+                    update_type=UpdateType.BLOCKER,
+                    content={
+                        "action": "blocker_add_suggested",
+                        "blocker": b,
+                        "active_blockers": list(state.active_blockers),
+                    },
+                    tags=["shared_context_suggestion", "blocker", "add"],
+                )
+
+        # Apply blocker removals
+        blockers_remove = suggestion.get("blockers_remove") or []
+        if isinstance(blockers_remove, list):
+            for blocker in blockers_remove:
+                if not isinstance(blocker, str):
+                    continue
+                b = blocker.strip()
+                if not b or b not in state.active_blockers:
+                    continue
+                state.active_blockers.remove(b)
+                self.add_update(
+                    agent_name=source_agent,
+                    update_type=UpdateType.PROGRESS,
+                    content={
+                        "action": "blocker_remove_suggested",
+                        "blocker": b,
+                        "active_blockers": list(state.active_blockers),
+                    },
+                    tags=["shared_context_suggestion", "blocker", "remove"],
+                )
+
+        # Apply decision suggestions
+        decisions = suggestion.get("decisions") or []
+        if isinstance(decisions, list):
+            for d in decisions:
+                if not isinstance(d, dict):
+                    continue
+                decision_text = d.get("decision")
+                if not isinstance(decision_text, str) or not decision_text.strip():
+                    continue
+                rationale = d.get("rationale") if isinstance(d.get("rationale"), str) else None
+                self.add_update(
+                    agent_name=source_agent,
+                    update_type=UpdateType.DECISION,
+                    content={
+                        "decision": decision_text,
+                        "rationale": rationale,
+                        "action": "decision_suggested",
+                    },
+                    tags=["shared_context_suggestion", "decision"],
+                )
     
     def get_agent_view(self, agent_name: str) -> Dict:
         """Get a filtered view of the context relevant to a specific agent.

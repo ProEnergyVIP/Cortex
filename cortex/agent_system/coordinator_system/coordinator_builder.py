@@ -61,13 +61,11 @@ Worker Agent Outputs:
     - "to_coordinator" or "to_(your name)": internal note back to you.
 - Some workers may also include an OPTIONAL field:
     - "shared_context_suggestion": structured proposals for updating shared context.
-        - Example shape (illustrative):
-            {{"progress": "Completed X, starting Y",
-             "blockers_add": ["Waiting for user credentials"],
-             "blockers_remove": ["Old blocker"],
-             "decisions": [
-                {{"decision": "Use approach B for data cleaning", "rationale": "More robust to outliers"}}
-             ]}}
+        - If present, it MUST be a JSON object with these optional keys:
+            - "progress": string summary of overall progress.
+            - "blockers_add": array of strings describing blockers to add.
+            - "blockers_remove": array of strings describing blockers that are resolved.
+            - "decisions": array of objects with keys "decision" (string) and optional "rationale" (string).
         - Treat this field as suggestions only — you decide whether and how to apply them.
         - When appropriate, map suggestions to context tools:
             - Use update_progress_func for "progress".

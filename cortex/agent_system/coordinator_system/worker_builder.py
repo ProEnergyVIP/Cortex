@@ -1,6 +1,7 @@
 from asyncio import iscoroutine
 from typing import Callable, Optional
 import re
+import json
 from cortex import LLM, Agent, Tool
 from cortex.message import DeveloperMessage, UserMessage
 
@@ -113,7 +114,11 @@ Allowed top-level keys:
   - "{coordinator_key}": a short note for {coordinator_name}.
       • Summarize decisions made, blockers, or the next step.
   - "shared_context_suggestion": OPTIONAL structured suggestions for updating the shared context.
-      • Use this to propose updates to mission, progress, blockers, or decisions.
+      • If present, it MUST be a JSON object with these optional keys:
+          • "progress": string summary of overall progress.
+          • "blockers_add": array of strings describing blockers to add.
+          • "blockers_remove": array of strings describing blockers that are resolved.
+          • "decisions": array of objects with keys "decision" (string) and optional "rationale" (string).
       • The coordinator decides whether and how to apply these suggestions.
 
 Rules:
@@ -136,7 +141,11 @@ Allowed top-level keys:
   - "{coordinator_key}": a short coordination note for {coordinator_name}.
       • State what was done, what’s needed next, or why the task paused.
   - "shared_context_suggestion": OPTIONAL structured suggestions for updating the shared context.
-      • Use this to propose updates to mission, progress, blockers, or decisions.
+      • If present, it MUST be a JSON object with these optional keys:
+          • "progress": string summary of overall progress.
+          • "blockers_add": array of strings describing blockers to add.
+          • "blockers_remove": array of strings describing blockers that are resolved.
+          • "decisions": array of objects with keys "decision" (string) and optional "rationale" (string).
       • The coordinator decides whether and how to apply these suggestions.
 
 Rules:
@@ -339,6 +348,21 @@ class WorkerAgentBuilder(AgentBuilder):
 
             # STEP 3: Execute worker agent
             response = await agent.async_ask(msgs, usage=getattr(context, "usage", None))
+
+            # STEP 3.5: Apply any shared context suggestions from the worker
+            suggestion = None
+            if isinstance(response, str):
+                try:
+                    parsed = json.loads(response)
+                    if isinstance(parsed, dict):
+                        suggestion = parsed.get("shared_context_suggestion")
+                except Exception:
+                    suggestion = None
+            elif isinstance(response, dict):
+                suggestion = response.get("shared_context_suggestion")
+
+            if suggestion and hasattr(context, "apply_shared_context_suggestion"):
+                context.apply_shared_context_suggestion(suggestion, source_agent=self.name)
             
             # STEP 4: Log worker's response to shared context
             context.add_update(
