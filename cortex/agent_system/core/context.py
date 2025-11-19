@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, PrivateAttr
 
 
 class UpdateType(str, Enum):
-    """Types of updates that can be made to shared context."""
+    """Types of updates that can be made to the Whiteboard."""
     PROGRESS = "progress"
     FINDING = "finding"
     DECISION = "decision"
@@ -19,7 +19,7 @@ class UpdateType(str, Enum):
 
 
 class ContextUpdate(BaseModel):
-    """Represents an update to the shared context by an agent.
+    """Represents an update to the Whiteboard by an agent.
     
     Attributes:
         id: Unique identifier for this update
@@ -214,13 +214,13 @@ class AgentSystemContext(BaseModel):
         self._sync_view_from_state(state)
         return update
     
-    def apply_shared_context_suggestion(
+    def apply_whiteboard_suggestion(
         self,
         suggestion: Dict[str, Any],
         *,
         source_agent: str = "Coordinator",
     ) -> None:
-        """Apply a structured shared_context_suggestion to the current topic.
+        """Apply a structured whiteboard_suggestion to the current topic.
 
         The suggestion object is expected to follow the schema used by worker
         agents and the coordinator prompt:
@@ -252,7 +252,7 @@ class AgentSystemContext(BaseModel):
                     "action": "progress_suggested",
                     "progress": progress,
                 },
-                tags=["shared_context_suggestion", "progress"],
+                tags=["whiteboard", "progress"],
             )
 
         # Apply blocker additions
@@ -273,7 +273,7 @@ class AgentSystemContext(BaseModel):
                         "blocker": b,
                         "active_blockers": list(state.active_blockers),
                     },
-                    tags=["shared_context_suggestion", "blocker", "add"],
+                    tags=["whiteboard", "blocker", "add"],
                 )
 
         # Apply blocker removals
@@ -294,7 +294,7 @@ class AgentSystemContext(BaseModel):
                         "blocker": b,
                         "active_blockers": list(state.active_blockers),
                     },
-                    tags=["shared_context_suggestion", "blocker", "remove"],
+                    tags=["whiteboard", "blocker", "remove"],
                 )
 
         # Apply decision suggestions
@@ -315,7 +315,7 @@ class AgentSystemContext(BaseModel):
                         "rationale": rationale,
                         "action": "decision_suggested",
                     },
-                    tags=["shared_context_suggestion", "decision"],
+                    tags=["whiteboard", "decision"],
                 )
     
     def get_agent_view(self, agent_name: str) -> Dict:

@@ -554,4 +554,4 @@ The context management tools are automatically added to all coordinators. If the
 - `AgentSystemContext` - Core context class
 - `ContextUpdate` and `UpdateType` - Update model
 - `SHARED_CONTEXT_ROUTING_CHANGES.md` - Worker routing details
-- `examples/coordinator_shared_context_example.py` - Complete examples
+- `examples/coordinator_whiteboard_example.py` - Complete examples

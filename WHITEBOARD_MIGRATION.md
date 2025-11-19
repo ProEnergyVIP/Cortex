@@ -1,8 +1,8 @@
-# Shared Context Migration Guide
+# Whiteboard Migration Guide
 
 ## Summary of Changes
 
-The `AgentSystemContext` Pydantic model has been extended with shared context capabilities for multi-agent coordination while maintaining **100% backward compatibility**.
+The `AgentSystemContext` Pydantic model has been extended with Whiteboard capabilities for multi-agent coordination while maintaining **100% backward compatibility**.
 
 ## What Was Added
 
@@ -22,7 +22,7 @@ class ContextUpdate(BaseModel):
 All fields have default values, so existing code continues to work:
 
 ```python
-# Shared context fields for multi-agent coordination
+# Whiteboard fields for multi-agent coordination
 mission: str = ""
 current_focus: str = ""
 progress: str = ""
@@ -37,7 +37,7 @@ active_blockers: List[str] = []
 ### New Methods
 
 #### 1. `add_update(agent_name, update_type, content, tags=None)`
-Add an update to the shared context from an agent.
+Add an update to the Whiteboard from an agent.
 
 ```python
 context.add_update(
@@ -108,7 +108,7 @@ assert context.team_roles == {}
 
 ## Usage Patterns
 
-### Pattern 1: Initialize with Shared Context
+### Pattern 1: Initialize with Whiteboard
 
 ```python
 context = AgentSystemContext(
@@ -125,7 +125,7 @@ context = AgentSystemContext(
 )
 ```
 
-### Pattern 2: Access Shared Context in Prompts
+### Pattern 2: Access Whiteboard in Prompts
 
 ```python
 def worker_prompt_builder(ctx: AgentSystemContext):
@@ -139,7 +139,7 @@ Follow these protocols:
 """
 ```
 
-### Pattern 3: Update Shared Context from Tools
+### Pattern 3: Update the Whiteboard from Tools
 
 ```python
 async def log_finding_func(args, ctx: AgentSystemContext):

@@ -406,4 +406,4 @@ log_progress_tool = Tool(
 
 - `AgentSystemContext` - Main context class
 - `examples/context_update_example.py` - Comprehensive examples
-- `examples/shared_context_example.py` - Multi-agent coordination examples
+- `examples/whiteboard_example.py` - Multi-agent coordination examples

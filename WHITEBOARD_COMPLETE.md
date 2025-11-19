@@ -1,8 +1,8 @@
-# Shared Context System - Complete Implementation
+# Whiteboard System - Complete Implementation
 
 ## Overview
 
-The shared context system enables seamless coordination between the coordinator and worker agents through automatic context sharing. The coordinator actively manages team-wide context, and workers automatically receive and contribute to this shared state.
+The Whiteboard enables seamless coordination between the coordinator and worker agents through automatic context sharing. The coordinator actively manages team-wide state, and workers automatically receive and contribute to this shared state.
 
 ## System Architecture
 
@@ -45,7 +45,7 @@ The shared context system enables seamless coordination between the coordinator 
     │             │  │             │  │             │
     │ AFTER:      │  │ AFTER:      │  │ AFTER:      │
     │ Log result  │  │ Log result  │  │ Log result  │
-    │ to shared   │  │ to shared   │  │ to shared   │
+    │ to Whiteboard│  │ to Whiteboard│  │ to Whiteboard│
     │ context     │  │ context     │  │ context     │
     └─────────────┘  └─────────────┘  └─────────────┘
                               ↓
@@ -70,7 +70,7 @@ The shared context system enables seamless coordination between the coordinator 
 ### 1. AgentSystemContext (Core)
 **File**: `cortex/agent_system/core/context.py`
 
-**Shared Context Fields**:
+**Whiteboard Fields**:
 ```python
 class AgentSystemContext(BaseModel):
     # Existing fields
@@ -257,7 +257,7 @@ agent_view = context.get_agent_view("Data Engineer")
 context_message = """
 Focus on churn-related features
 
-[Shared Context]
+[Whiteboard]
 Mission: Build customer churn prediction system
 Current Focus: Data collection and pipeline setup
 Your Role: Infrastructure & Data
@@ -324,7 +324,7 @@ agent_view = context.get_agent_view("Data Analyst")
 context_message = """
 Identify key churn indicators
 
-[Shared Context]
+[Whiteboard]
 Mission: Build customer churn prediction system
 Current Focus: Data collection and pipeline setup
 Your Role: Analysis & Insights
@@ -466,7 +466,7 @@ system = CoordinatorSystem(
 # Use the system - context management is automatic!
 response = await system.async_ask("Build a recommendation system")
 
-# Check shared context
+# Check Whiteboard
 print(f"Mission: {context.mission}")
 print(f"Progress: {context.progress}")
 print(f"Updates: {len(context.updates)}")
@@ -494,7 +494,7 @@ coordinator = CoordinatorAgentBuilder(
 ## Files Modified
 
 ### Core Context
-- ✅ `cortex/agent_system/core/context.py` - Added shared context fields and methods
+- ✅ `cortex/agent_system/core/context.py` - Added Whiteboard fields and methods
 - ✅ `cortex/agent_system/core/__init__.py` - Exported ContextUpdate and UpdateType
 - ✅ `cortex/agent_system/__init__.py` - Exported ContextUpdate and UpdateType
 
@@ -535,9 +535,9 @@ See `examples/coordinator_shared_context_example.py` for complete working exampl
 
 ## Summary
 
-The shared context system provides automatic team coordination through:
+The Whiteboard provides automatic team coordination through:
 - **Coordinator**: Actively manages mission, progress, and blockers
-- **Workers**: Automatically receive and contribute to shared context
+- **Workers**: Automatically receive and contribute to the Whiteboard
 - **Context**: Central state synchronized across all agents
 - **Updates**: Audit trail of all team activity
 

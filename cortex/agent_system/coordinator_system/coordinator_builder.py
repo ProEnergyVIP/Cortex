@@ -44,7 +44,7 @@ Key Definitions:
         - update_mission_func:
             - Set team mission and current focus for a specific topic.
             - Optional parameter: "topic" (e.g. "solar", "banking", "general").
-            - If "topic" is provided, the shared context switches to that topic
+            - If "topic" is provided, the whiteboard switches to that topic
               before updating mission/focus and logging the decision.
         - update_progress_func:
             - Track overall progress for the **current topic**.
@@ -53,14 +53,14 @@ Key Definitions:
         - log_decision_func:
             - Log important coordination decisions for the **current topic**.
         - get_team_status_func:
-            - Get team status summary for the **current topic**.
+            - Get whiteboard status summary for the **current topic**.
 
 Worker Agent Outputs:
 - Worker agents respond with a JSON object that always includes:
     - "to_user": message for the end user.
     - "to_coordinator" or "to_(your name)": internal note back to you.
 - Some workers may also include an OPTIONAL field:
-    - "shared_context_suggestion": structured proposals for updating shared context.
+    - "whiteboard_suggestion": structured proposals for updating the whiteboard.
         - If present, it MUST be a JSON object with these optional keys:
             - "progress": string summary of overall progress.
             - "blockers_add": array of strings describing blockers to add.
@@ -71,7 +71,7 @@ Worker Agent Outputs:
             - Use update_progress_func for "progress".
             - Use manage_blocker_func with action="add" / "remove" for blockers.
             - Use log_decision_func for decisions.
-        - Always keep shared context consistent and aligned with the overall mission.
+        - Always keep the whiteboard consistent and aligned with the overall mission.
 
 Parallel Execution:
 - When multiple independent tools/agents are needed, call them all at once —
@@ -454,7 +454,7 @@ Recent Activity ({len(recent_updates)} updates):
 
 
 def create_coordinator_context_tools() -> List[Tool]:
-    """Create shared context management tools for the coordinator.
+    """Create Whiteboard management tools for the coordinator.
 
     These tools allow the coordinator to manage team-wide context:
     - Set mission and current focus
@@ -523,7 +523,7 @@ class CoordinatorAgentBuilder(AgentBuilder):
 
         all_tools = await self.load_tools(context)
         
-        # Add shared context management tools for the coordinator
+        # Add Whiteboard management tools for the coordinator
         context_tools = create_coordinator_context_tools()
         all_tools.extend(context_tools)
         

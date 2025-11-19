@@ -1,8 +1,8 @@
-# Shared Context Integration in Message Routing
+# Whiteboard Integration in Message Routing
 
 ## Overview
 
-The coordinator-to-worker message routing has been augmented with shared context capabilities. Workers now receive relevant context before execution and automatically log their findings after completion.
+The coordinator-to-worker message routing has been augmented with Whiteboard capabilities. Workers now receive relevant team context before execution and automatically log their findings after completion.
 
 ## Changes Made
 
@@ -29,14 +29,14 @@ async def func(args, context: AgentSystemContext):
     # 6. Return response
 ```
 
-**AFTER (Enhanced Flow with Shared Context):**
+**AFTER (Enhanced Flow with Whiteboard):**
 ```python
 async def func(args, context: AgentSystemContext):
     # 1. Run before_agent hook (unchanged)
     # 2. Build agent (unchanged)
     # 3. Extract user_input and context_instructions (unchanged)
     
-    # ✨ NEW: STEP 1 - Get agent-specific view of shared context
+    # ✨ NEW: STEP 1 - Get agent-specific view of the Whiteboard
     agent_view = context.get_agent_view(self.name)
     
     # ✨ NEW: STEP 2 - Build context summary from agent view
@@ -60,14 +60,14 @@ async def func(args, context: AgentSystemContext):
             ])
             context_parts.append(f"Recent Team Updates:\n{updates_summary}")
     
-    # ✨ NEW: Combine shared context with existing context_instructions
+    # ✨ NEW: Combine Whiteboard with existing context_instructions
     shared_context_info = "\n\n".join(context_parts) if context_parts else None
     
     if shared_context_info:
         if ctx_instructions:
-            combined_context = f"{ctx_instructions}\n\n[Shared Context]\n{shared_context_info}"
+            combined_context = f"{ctx_instructions}\n\n[Whiteboard]\n{shared_context_info}"
         else:
-            combined_context = f"[Shared Context]\n{shared_context_info}"
+            combined_context = f"[Whiteboard]\n{shared_context_info}"
     else:
         combined_context = ctx_instructions
     
@@ -79,7 +79,7 @@ async def func(args, context: AgentSystemContext):
     # ✨ STEP 3 - Execute worker agent
     response = await agent.async_ask(msgs, usage=getattr(context, "usage", None))
     
-    # ✨ NEW: STEP 4 - Log worker's response to shared context
+    # ✨ NEW: STEP 4 - Log worker's response to the Whiteboard
     context.add_update(
         agent_name=self.name,
         update_type=UpdateType.FINDING,
@@ -125,7 +125,7 @@ The worker tool function:
 The worker receives a `DeveloperMessage` with combined context:
 
 ```
-[Shared Context]
+[Whiteboard]
 Mission: Build recommendation system
 Current Focus: Feature extraction phase
 Your Role: Data Analyst
@@ -168,7 +168,7 @@ This update:
 
 ## Benefits
 
-### 1. **Automatic Context Sharing**
+### 1. **Automatic Whiteboard Sharing**
 Workers automatically receive relevant context without coordinator having to manually pass it.
 
 ### 2. **Team Awareness**

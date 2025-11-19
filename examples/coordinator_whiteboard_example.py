@@ -1,12 +1,12 @@
 """
-Example demonstrating coordinator-managed shared context in a multi-agent system.
+Example demonstrating coordinator-managed Whiteboard in a multi-agent system.
 
 This example shows:
 1. Coordinator setting mission and focus at task start
-2. Workers automatically receiving shared context
-3. Workers logging their findings to shared context
+2. Workers automatically receiving the Whiteboard
+3. Workers logging their findings to the Whiteboard
 4. Coordinator tracking progress and managing blockers
-5. Full team coordination through shared context
+5. Full team coordination through the Whiteboard
 """
 
 import asyncio
@@ -23,7 +23,7 @@ from cortex.agent_system import (
 # Example: Data Analysis Team
 async def data_analysis_team_example():
     """
-    Demonstrate a data analysis team coordinating through shared context.
+    Demonstrate a data analysis team coordinating through the Whiteboard.
     
     Team structure:
     - Coordinator: Manages overall workflow and context
@@ -32,7 +32,7 @@ async def data_analysis_team_example():
     - ML Engineer: Builds models
     """
     
-    # Initialize shared context with team roles
+    # Initialize the Whiteboard with team roles
     memory_bank = AsyncAgentMemoryBank()
     context = AgentSystemContext(
         memory_bank=memory_bank,
@@ -100,7 +100,7 @@ async def data_analysis_team_example():
         - Understand user requirements
         - Break down tasks and delegate to appropriate team members
         - Track team progress and manage blockers
-        - Ensure team coordination through shared context
+        - Ensure team coordination through the Whiteboard
         
         Use your context management tools to:
         - Set mission at the start of new projects
@@ -118,7 +118,7 @@ async def data_analysis_team_example():
     )
     
     print("=" * 80)
-    print("EXAMPLE: Data Analysis Team with Shared Context")
+    print("EXAMPLE: Data Analysis Team with Whiteboard")
     print("=" * 80)
     
     # Task 1: Start a new project
@@ -129,8 +129,8 @@ async def data_analysis_team_example():
     )
     print(f"Coordinator Response:\n{response}\n")
     
-    # Check shared context after Task 1
-    print("\n--- SHARED CONTEXT AFTER TASK 1 ---")
+    # Check Whiteboard after Task 1
+    print("\n--- WHITEBOARD AFTER TASK 1 ---")
     print(f"Mission: {context.mission}")
     print(f"Current Focus: {context.current_focus}")
     print(f"Progress: {context.progress}")
@@ -148,8 +148,8 @@ async def data_analysis_team_example():
     )
     print(f"Coordinator Response:\n{response}\n")
     
-    # Check shared context after Task 2
-    print("\n--- SHARED CONTEXT AFTER TASK 2 ---")
+    # Check Whiteboard after Task 2
+    print("\n--- WHITEBOARD AFTER TASK 2 ---")
     print(f"Progress: {context.progress}")
     print(f"Active Blockers: {context.active_blockers}")
     print(f"\nTotal Updates: {len(context.updates)}")
@@ -176,7 +176,7 @@ async def data_analysis_team_example():
     
     # Final context summary
     print("\n" + "=" * 80)
-    print("FINAL SHARED CONTEXT SUMMARY")
+    print("FINAL WHITEBOARD SUMMARY")
     print("=" * 80)
     print(f"Mission: {context.mission}")
     print(f"Current Focus: {context.current_focus}")
@@ -196,7 +196,7 @@ async def data_analysis_team_example():
 # Example: How workers receive context automatically
 async def worker_context_awareness_example():
     """
-    Demonstrate how workers automatically receive shared context.
+    Demonstrate how workers automatically receive the Whiteboard.
     """
     
     memory_bank = AsyncAgentMemoryBank()
@@ -263,7 +263,7 @@ async def worker_context_awareness_example():
     print("EXAMPLE: Worker Context Awareness")
     print("=" * 80)
     
-    print("\n--- INITIAL SHARED CONTEXT ---")
+    print("\n--- INITIAL WHITEBOARD ---")
     print(f"Mission: {context.mission}")
     print(f"Current Focus: {context.current_focus}")
     print(f"Progress: {context.progress}")
@@ -278,7 +278,7 @@ async def worker_context_awareness_example():
     )
     print(f"Response:\n{response}\n")
     
-    print("\n--- CONTEXT AFTER WORKER EXECUTION ---")
+    print("\n--- WHITEBOARD AFTER WORKER EXECUTION ---")
     print(f"Total Updates: {len(context.updates)}")
     print("\nLatest Update (from Product Analyst):")
     latest = context.updates[-1]

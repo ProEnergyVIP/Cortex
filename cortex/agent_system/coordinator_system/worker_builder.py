@@ -113,7 +113,7 @@ Allowed top-level keys:
       • Avoid technical jargon unless explicitly requested.
   - "{coordinator_key}": a short note for {coordinator_name}.
       • Summarize decisions made, blockers, or the next step.
-  - "shared_context_suggestion": OPTIONAL structured suggestions for updating the shared context.
+  - "whiteboard_suggestion": OPTIONAL structured suggestions for updating the whiteboard.
       • If present, it MUST be a JSON object with these optional keys:
           • "progress": string summary of overall progress.
           • "blockers_add": array of strings describing blockers to add.
@@ -140,7 +140,7 @@ Allowed top-level keys:
       • Keep it clear, actionable, and relevant.
   - "{coordinator_key}": a short coordination note for {coordinator_name}.
       • State what was done, what’s needed next, or why the task paused.
-  - "shared_context_suggestion": OPTIONAL structured suggestions for updating the shared context.
+  - "whiteboard_suggestion": OPTIONAL structured suggestions for updating the whiteboard.
       • If present, it MUST be a JSON object with these optional keys:
           • "progress": string summary of overall progress.
           • "blockers_add": array of strings describing blockers to add.
@@ -307,7 +307,7 @@ class WorkerAgentBuilder(AgentBuilder):
             user_input = args["user_input"]
             ctx_instructions = args.get("context_instructions")
             
-            # STEP 1: Get agent-specific view of shared context before routing
+            # STEP 1: Get agent-specific view of the whiteboard before routing
             agent_view = context.get_agent_view(self.name)
             
             # STEP 2: Build context summary to include in message
@@ -332,13 +332,13 @@ class WorkerAgentBuilder(AgentBuilder):
                     context_parts.append(f"Recent Team Updates:\n{updates_summary}")
             
             # Combine with existing context_instructions
-            shared_context_info = "\n\n".join(context_parts) if context_parts else None
-            
-            if shared_context_info:
+            whiteboard_info = "\n\n".join(context_parts) if context_parts else None
+
+            if whiteboard_info:
                 if ctx_instructions:
-                    combined_context = f"{ctx_instructions}\n\n[Shared Context]\n{shared_context_info}"
+                    combined_context = f"{ctx_instructions}\n\n[Whiteboard]\n{whiteboard_info}"
                 else:
-                    combined_context = f"[Shared Context]\n{shared_context_info}"
+                    combined_context = f"[Whiteboard]\n{whiteboard_info}"
             else:
                 combined_context = ctx_instructions
 
@@ -349,22 +349,22 @@ class WorkerAgentBuilder(AgentBuilder):
             # STEP 3: Execute worker agent
             response = await agent.async_ask(msgs, usage=getattr(context, "usage", None))
 
-            # STEP 3.5: Apply any shared context suggestions from the worker
+            # STEP 3.5: Apply any whiteboard suggestions from the worker
             suggestion = None
             if isinstance(response, str):
                 try:
                     parsed = json.loads(response)
                     if isinstance(parsed, dict):
-                        suggestion = parsed.get("shared_context_suggestion")
+                        suggestion = parsed.get("whiteboard_suggestion")
                 except Exception:
                     suggestion = None
             elif isinstance(response, dict):
-                suggestion = response.get("shared_context_suggestion")
+                suggestion = response.get("whiteboard_suggestion")
 
-            if suggestion and hasattr(context, "apply_shared_context_suggestion"):
-                context.apply_shared_context_suggestion(suggestion, source_agent=self.name)
+            if suggestion and hasattr(context, "apply_whiteboard_suggestion"):
+                context.apply_whiteboard_suggestion(suggestion, source_agent=self.name)
             
-            # STEP 4: Log worker's response to shared context
+            # STEP 4: Log worker's response to the whiteboard
             context.add_update(
                 agent_name=self.name,
                 update_type=UpdateType.FINDING,

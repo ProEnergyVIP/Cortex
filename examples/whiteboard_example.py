@@ -1,7 +1,7 @@
 """
-Example demonstrating the shared context capabilities of AgentSystemContext.
+Example demonstrating the Whiteboard capabilities of AgentSystemContext.
 
-This shows how agents can coordinate through shared context fields:
+This shows how agents can coordinate through Whiteboard fields:
 - mission, current_focus, progress
 - team_roles, protocols, updates
 - artifacts, active_blockers
@@ -16,15 +16,14 @@ from cortex import (
     WorkerAgentBuilder,
     CoordinatorSystem,
     AgentSystemContext,
-    ContextUpdate,
     AsyncAgentMemoryBank,
     Tool,
 )
 
 
-# Example 1: Basic Shared Context Usage
-async def basic_shared_context_example():
-    """Demonstrate basic shared context fields."""
+# Example 1: Basic Whiteboard Usage
+async def basic_whiteboard_example():
+    """Demonstrate basic Whiteboard fields."""
     
     # Create context with shared mission and roles
     memory_bank = AsyncAgentMemoryBank()
@@ -43,7 +42,7 @@ async def basic_shared_context_example():
         ]
     )
     
-    # Workers can access shared context
+    # Workers can access the Whiteboard
     def analyst_prompt_builder(ctx: AgentSystemContext):
         return f"""You are a {ctx.team_roles.get('data_analyst', 'Data Analyst')}.
         
@@ -53,11 +52,11 @@ Current Focus: {ctx.current_focus}
 Protocols:
 {chr(10).join(f"- {p}" for p in ctx.protocols)}
 
-Analyze data and update the shared context with your findings."""
+Analyze data and update the Whiteboard with your findings."""
     
-    # Tool to update shared context
+    # Tool to update the Whiteboard
     async def log_finding_func(args, ctx: AgentSystemContext):
-        """Log a finding to shared context."""
+        """Log a finding to the Whiteboard."""
         finding = args.get("finding", "")
         ctx.add_update(
             agent_name="data_analyst",
@@ -70,7 +69,7 @@ Analyze data and update the shared context with your findings."""
     log_finding_tool = Tool(
         name="log_finding",
         func=log_finding_func,
-        description="Log an important finding to the shared context",
+        description="Log an important finding to the Whiteboard",
         parameters={
             "type": "object",
             "properties": {
@@ -110,8 +109,8 @@ Analyze data and update the shared context with your findings."""
     response = await system.async_ask("Analyze the customer satisfaction trends")
     print("Response:", response)
     
-    # Check shared context updates
-    print("\n=== Shared Context Updates ===")
+    # Check Whiteboard updates
+    print("\n=== Whiteboard Updates ===")
     print(f"Mission: {context.mission}")
     print(f"Progress: {context.progress}")
     print(f"Updates: {len(context.updates)}")
@@ -163,7 +162,7 @@ async def agent_view_example():
     print(f"My Role: {ml_view['my_role']}")
     print(f"Mission: {ml_view['mission']}")
     print(f"Progress: {ml_view['progress']}")
-    print(f"\nRecent Updates:")
+    print("\nRecent Updates:")
     for update in ml_view['recent_updates']:
         print(f"  - [{update['update_type']}] {update['agent_name']}: {update['content']}")
     
@@ -265,8 +264,8 @@ async def backward_compatibility_example():
     response = await system.async_ask("Hello, how are you?")
     print("Response:", response)
     
-    # Verify shared context fields have default values
-    print("\n=== Default Shared Context Values ===")
+    # Verify Whiteboard fields have default values
+    print("\n=== Default Whiteboard Values ===")
     print(f"Mission: '{context.mission}' (empty string)")
     print(f"Updates: {len(context.updates)} (empty list)")
     print(f"Team Roles: {context.team_roles} (empty dict)")
@@ -276,9 +275,9 @@ async def backward_compatibility_example():
 
 if __name__ == "__main__":
     print("=" * 80)
-    print("Example 1: Basic Shared Context Usage")
+    print("Example 1: Basic Whiteboard Usage")
     print("=" * 80)
-    # asyncio.run(basic_shared_context_example())
+    # asyncio.run(basic_whiteboard_example())
     
     print("\n" + "=" * 80)
     print("Example 2: Agent View and Recent Updates")

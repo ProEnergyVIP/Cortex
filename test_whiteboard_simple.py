@@ -1,5 +1,5 @@
 """
-Simple test to verify shared context structure without running full imports.
+Simple test to verify Whiteboard structure without running full imports.
 This tests the Pydantic model structure directly.
 """
 
@@ -24,7 +24,7 @@ class MockAsyncAgentMemoryBank:
 
 # Copy the models from context.py to test them
 class ContextUpdate(BaseModel):
-    """Represents an update to the shared context by an agent."""
+    """Represents an update to the Whiteboard by an agent."""
     agent_name: str
     update_type: str
     content: str
@@ -33,12 +33,12 @@ class ContextUpdate(BaseModel):
 
 
 class TestAgentSystemContext(BaseModel):
-    """Test version of AgentSystemContext with shared context fields."""
+    """Test version of AgentSystemContext with Whiteboard fields."""
     # Existing fields
     usage: Optional[MockAgentUsage] = None
     memory_bank: Optional[object] = None
     
-    # Shared context fields for multi-agent coordination
+    # Whiteboard fields for multi-agent coordination
     mission: str = ""
     current_focus: str = ""
     progress: str = ""
@@ -56,7 +56,7 @@ class TestAgentSystemContext(BaseModel):
         content: str, 
         tags: Optional[List[str]] = None
     ) -> None:
-        """Add an update to the shared context from an agent."""
+        """Add an update to the Whiteboard from an agent."""
         update = ContextUpdate(
             agent_name=agent_name,
             update_type=update_type,
@@ -132,9 +132,9 @@ def test_backward_compatibility():
     print("✓ Backward compatibility test passed!")
 
 
-def test_shared_context_fields():
-    """Test new shared context fields."""
-    print("\nTesting shared context fields...")
+def test_whiteboard_fields():
+    """Test new Whiteboard fields."""
+    print("\nTesting Whiteboard fields...")
     
     context = TestAgentSystemContext(
         mission="Test mission",
@@ -313,12 +313,12 @@ def test_pydantic_validation():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Running Shared Context Structure Tests")
+    print("Running Whiteboard Structure Tests")
     print("=" * 60)
     
     try:
         test_backward_compatibility()
-        test_shared_context_fields()
+        test_whiteboard_fields()
         test_add_update()
         test_get_agent_view()
         test_get_recent_updates()
@@ -328,7 +328,7 @@ if __name__ == "__main__":
         print("\n" + "=" * 60)
         print("✓ ALL TESTS PASSED!")
         print("=" * 60)
-        print("\nShared context structure is correct.")
+        print("\nWhiteboard structure is correct.")
         print("All fields have proper defaults.")
         print("All methods work as expected.")
         print("Backward compatibility is maintained.")
