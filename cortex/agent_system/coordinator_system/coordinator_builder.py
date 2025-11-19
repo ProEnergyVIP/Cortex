@@ -2,12 +2,12 @@ from typing import Callable, Optional, List
 
 from cortex import LLM, Agent, Tool
 
-from ..core.context import AgentSystemContext, UpdateType
+from ..core.context import AgentSystemContext
 from ..core.builder import AgentBuilder
 
 
 # Generic, product-agnostic coordinator prompts
-COORDINATOR_PROMPT = """
+COORDINATOR_PROMPT_BASE = """
 You're an AI agent, named {name}, and your behavior is defined by two sets of instructions:
 
 1. Core Coordination Rules: These define how you manage interactions between the user
@@ -40,38 +40,6 @@ Key Definitions:
     - Agents (_agent suffix):
         - Domain experts with memory and autonomy. They handle follow-ups
           independently.
-    - Context Management Tools (topic-aware):
-        - update_mission_func:
-            - Set team mission and current focus for a specific topic.
-            - Optional parameter: "topic" (e.g. "solar", "banking", "general").
-            - If "topic" is provided, the whiteboard switches to that topic
-              before updating mission/focus and logging the decision.
-        - update_progress_func:
-            - Track overall progress for the **current topic**.
-        - manage_blocker_func:
-            - Add/remove blockers for the **current topic**.
-        - log_decision_func:
-            - Log important coordination decisions for the **current topic**.
-        - get_team_status_func:
-            - Get whiteboard status summary for the **current topic**.
-
-Worker Agent Outputs:
-- Worker agents respond with a JSON object that always includes:
-    - "to_user": message for the end user.
-    - "to_coordinator" or "to_(your name)": internal note back to you.
-- Some workers may also include an OPTIONAL field:
-    - "whiteboard_suggestion": structured proposals for updating the whiteboard.
-        - If present, it MUST be a JSON object with these optional keys:
-            - "progress": string summary of overall progress.
-            - "blockers_add": array of strings describing blockers to add.
-            - "blockers_remove": array of strings describing blockers that are resolved.
-            - "decisions": array of objects with keys "decision" (string) and optional "rationale" (string).
-        - Treat this field as suggestions only — you decide whether and how to apply them.
-        - When appropriate, map suggestions to context tools:
-            - Use update_progress_func for "progress".
-            - Use manage_blocker_func with action="add" / "remove" for blockers.
-            - Use log_decision_func for decisions.
-        - Always keep the whiteboard consistent and aligned with the overall mission.
 
 Parallel Execution:
 - When multiple independent tools/agents are needed, call them all at once —
@@ -119,12 +87,6 @@ Workflow:
       a follow-up. If not, it's a new request.
     
     - New Request:
-        Step 0: For new major tasks, use update_mission_func to set the team mission and focus.
-                - If the task clearly belongs to a known topic (e.g. "solar", "banking"),
-                  pass the "topic" parameter so the mission is bound to that topic.
-                - Otherwise, rely on the current topic (default: "general").
-                This helps workers understand the overall goal for that topic.
-                
         Step 1: Analyze the user's message to identify ALL distinct tasks or questions.
                 For each independent task, identify the appropriate tool/agent.
                 
@@ -137,10 +99,7 @@ Workflow:
         Step 3: If only one task or one tool/agent can handle everything:
                 - Call that single tool/agent with the user's message UNALTERED.
                 
-        Step 4: After workers complete, use update_progress_func to track team progress.
-                If blockers are identified, use manage_blocker_func to track them.
-                
-        Step 5: Aggregate results from all tools/agents and present a unified response.
+        Step 4: Aggregate results from all tools/agents and present a unified response.
                 Include a concise thought explanation in your final response.
                 
         NOTE: DO NOT expose the agents' info in your final message to user.
@@ -171,6 +130,43 @@ Normalization and consistency rules:
 - If any instruction is ambiguous or incomplete, ask a concise clarifying question before delegating.
 """
 
+# Whiteboard-related prompt segment (included only when a whiteboard is configured)
+COORDINATOR_PROMPT_WHITEBOARD = """
+
+Context Management Tools (topic-aware):
+    - update_mission_func:
+        - Set team mission and current focus for a specific topic.
+        - Optional parameter: "topic" (e.g. "solar", "banking", "general").
+        - If "topic" is provided, the whiteboard switches to that topic
+          before updating mission/focus and logging the decision.
+    - update_progress_func:
+        - Track overall progress for the **current topic**.
+    - manage_blocker_func:
+        - Add/remove blockers for the **current topic**.
+    - log_decision_func:
+        - Log important coordination decisions for the **current topic**.
+    - get_team_status_func:
+        - Get whiteboard status summary for the **current topic**.
+
+Worker Agent Outputs:
+- Worker agents respond with a JSON object that always includes:
+    - "to_user": message for the end user.
+    - "to_coordinator" or "to_(your name)": internal note back to you.
+- Some workers may also include an OPTIONAL field:
+    - "whiteboard_suggestion": structured proposals for updating the whiteboard.
+        - If present, it MUST be a JSON object with these optional keys:
+            - "progress": string summary of overall progress.
+            - "blockers_add": array of strings describing blockers to add.
+            - "blockers_remove": array of strings describing blockers that are resolved.
+            - "decisions": array of objects with keys "decision" (string) and optional "rationale" (string).
+        - Treat this field as suggestions only — you decide whether and how to apply them.
+        - When appropriate, map suggestions to context tools:
+            - Use update_progress_func for "progress".
+            - Use manage_blocker_func with action="add" / "remove" for blockers.
+            - Use log_decision_func for decisions.
+        - Always keep the whiteboard consistent and aligned with the overall mission.
+"""
+
 
 def _build_update_mission_tool() -> Tool:
     """Build the tool used to update mission and current focus."""
@@ -186,25 +182,11 @@ def _build_update_mission_tool() -> Tool:
         # correctly.
         if topic:
             context.set_current_topic(topic)
-
-        if mission:
-            context.mission = mission
-        if focus:
-            context.current_focus = focus
-
-        # Log the update
-        context.add_update(
-            agent_name="Coordinator",
-            update_type=UpdateType.DECISION,
-            content={
-                "action": "mission_updated",
-                "mission": mission or context.mission,
-                "focus": focus or context.current_focus,
-            },
-            tags=["coordinator", "mission", "planning"],
-        )
-
-        return f"Mission updated: {context.mission}\nCurrent focus: {context.current_focus}"
+        if not getattr(context, "whiteboard", None):
+            return "Whiteboard not configured on context."
+        await context.whiteboard.async_set_mission_focus(mission=mission, focus=focus)
+        state = context.whiteboard.topics[context.whiteboard.current_topic]
+        return f"Mission updated: {state.mission}\nCurrent focus: {state.current_focus}"
 
     return Tool(
         name="update_mission_func",
@@ -244,19 +226,9 @@ def _build_update_progress_tool() -> Tool:
     async def update_progress_func(args, context: AgentSystemContext):
         """Update the team's overall progress."""
         progress = args["progress"]
-        context.progress = progress
-
-        # Log the update
-        context.add_update(
-            agent_name="Coordinator",
-            update_type=UpdateType.PROGRESS,
-            content={
-                "action": "progress_updated",
-                "progress": progress,
-            },
-            tags=["coordinator", "progress", "status"],
-        )
-
+        if not getattr(context, "whiteboard", None):
+            return "Whiteboard not configured on context."
+        await context.whiteboard.async_update_progress(progress=progress)
         return f"Progress updated: {progress}"
 
     return Tool(
@@ -290,37 +262,18 @@ def _build_manage_blocker_tool() -> Tool:
         """Add or remove a blocker from the team's active blockers list."""
         action = args["action"]
         blocker = args["blocker"]
-
+        if not getattr(context, "whiteboard", None):
+            return "Whiteboard not configured on context."
         if action == "add":
-            if blocker not in context.active_blockers:
-                context.active_blockers.append(blocker)
-                status = "added"
-            else:
-                status = "already_exists"
+            status = await context.whiteboard.async_add_blocker(blocker=blocker)
         elif action == "remove":
-            if blocker in context.active_blockers:
-                context.active_blockers.remove(blocker)
-                status = "removed"
-            else:
-                status = "not_found"
+            status = await context.whiteboard.async_remove_blocker(blocker=blocker)
         else:
             return f"Invalid action: {action}. Use 'add' or 'remove'."
 
-        # Log the update
-        context.add_update(
-            agent_name="Coordinator",
-            update_type=UpdateType.BLOCKER if action == "add" else UpdateType.PROGRESS,
-            content={
-                "action": f"blocker_{action}",
-                "blocker": blocker,
-                "status": status,
-                "active_blockers": list(context.active_blockers),
-            },
-            tags=["coordinator", "blocker", action],
-        )
-
         blockers_display = (
-            ", ".join(context.active_blockers) if context.active_blockers else "None"
+            "None" if not context.whiteboard.topics[context.whiteboard.current_topic].active_blockers else 
+            ", ".join(context.whiteboard.topics[context.whiteboard.current_topic].active_blockers)
         )
         return f"Blocker {status}: {blocker}\nActive blockers: {blockers_display}"
 
@@ -357,19 +310,9 @@ def _build_log_decision_tool() -> Tool:
         """Log an important coordination decision."""
         decision = args["decision"]
         rationale = args.get("rationale")
-
-        content = {
-            "decision": decision,
-            "rationale": rationale,
-        }
-
-        context.add_update(
-            agent_name="Coordinator",
-            update_type=UpdateType.DECISION,
-            content=content,
-            tags=["coordinator", "decision"],
-        )
-
+        if not getattr(context, "whiteboard", None):
+            return "Whiteboard not configured on context."
+        await context.whiteboard.async_log_decision(decision=decision, rationale=rationale)
         return f"Decision logged: {decision}"
 
     return Tool(
@@ -401,14 +344,20 @@ def _build_get_team_status_tool() -> Tool:
 
     async def get_team_status_func(args, context: AgentSystemContext):
         """Get a summary of the current team status and recent activity."""
-        recent_updates = context.get_recent_updates()[-10:]  # Last 10 updates
+        # Pull status from Whiteboard current topic (if available)
+        if not getattr(context, "whiteboard", None):
+            return "Whiteboard not configured on context."
+        wb = context.whiteboard
+        wb.set_current_topic(wb.current_topic)
+        state = wb.topics[wb.current_topic]
+        recent_updates = wb.get_recent_updates()[-10:]
 
         status = {
-            "mission": context.mission or "Not set",
-            "current_focus": context.current_focus or "Not set",
-            "progress": context.progress or "Not set",
-            "active_blockers": context.active_blockers,
-            "team_roles": context.team_roles,
+            "mission": state.mission or "Not set",
+            "current_focus": state.current_focus or "Not set",
+            "progress": state.progress or "Not set",
+            "active_blockers": list(state.active_blockers),
+            "team_roles": wb.team_roles,
             "recent_activity": [
                 {
                     "agent": u.agent_name,
@@ -506,20 +455,23 @@ class CoordinatorAgentBuilder(AgentBuilder):
         self.thinking = thinking
     
     @classmethod
-    def compose_prompt(cls, name, task_desc):
+    def compose_prompt(cls, name, task_desc, with_whiteboard: bool):
         """
         Compose the prompt for the coordinator agent.
         This is a class method to allow for easy reuse of the prompt composition logic.
         Users might just want to use the prompt instead of the builder.
         """
-        return COORDINATOR_PROMPT.format(name=name, task_desc=task_desc)
+        prompt = COORDINATOR_PROMPT_BASE
+        if with_whiteboard:
+            prompt = prompt + COORDINATOR_PROMPT_WHITEBOARD
+        return prompt.format(name=name, task_desc=task_desc)
 
     async def build_agent(self, *, context: Optional[AgentSystemContext] = None, tools: Optional[List[Tool]] = None) -> Agent:
         # Build a robust, self-contained system prompt that respects the core coordinator
         # protocol while allowing user customization. The user segment is optional and
         # wrapped so that it cannot accidentally break the protocol or format.
         task_desc = await self.build_prompt(context)
-        composed_desc = self.compose_prompt(self.name, task_desc)
+        composed_desc = self.compose_prompt(self.name, task_desc, with_whiteboard=bool(getattr(context, "whiteboard", None)))
 
         all_tools = await self.load_tools(context)
         

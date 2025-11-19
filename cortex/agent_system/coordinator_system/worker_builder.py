@@ -5,7 +5,8 @@ import json
 from cortex import LLM, Agent, Tool
 from cortex.message import DeveloperMessage, UserMessage
 
-from ..core.context import AgentSystemContext, UpdateType
+from ..core.context import AgentSystemContext
+from ..core.whiteboard import WhiteboardUpdateType
 from ..core.builder import AgentBuilder
 
 # A generic worker agent prompt for a worker agent collaborating within a multi-agent team.
@@ -252,13 +253,14 @@ class WorkerAgentBuilder(AgentBuilder):
         
         task_desc = await self.build_prompt(context)
 
+        enable_suggestions = self.enable_context_suggestions and bool(getattr(context, "whiteboard", None))
         sys_prompt = self.compose_prompt(
             self.name,
             task_desc,
             display_name,
             coordinator_key,
             self.thinking,
-            self.enable_context_suggestions,
+            enable_suggestions,
         )
 
         bank = await context.get_memory_bank()
@@ -307,8 +309,8 @@ class WorkerAgentBuilder(AgentBuilder):
             user_input = args["user_input"]
             ctx_instructions = args.get("context_instructions")
             
-            # STEP 1: Get agent-specific view of the whiteboard before routing
-            agent_view = context.get_agent_view(self.name)
+            # STEP 1: Get agent-specific view of the whiteboard before routing (if available)
+            agent_view = context.whiteboard.get_agent_view(self.name) if getattr(context, "whiteboard", None) else {}
             
             # STEP 2: Build context summary to include in message
             context_parts = []
@@ -361,20 +363,22 @@ class WorkerAgentBuilder(AgentBuilder):
             elif isinstance(response, dict):
                 suggestion = response.get("whiteboard_suggestion")
 
-            if suggestion and hasattr(context, "apply_whiteboard_suggestion"):
-                context.apply_whiteboard_suggestion(suggestion, source_agent=self.name)
+            if suggestion and getattr(context, "whiteboard", None):
+                context.whiteboard.apply_suggestion(suggestion, source_agent=self.name)
             
-            # STEP 4: Log worker's response to the whiteboard
-            context.add_update(
-                agent_name=self.name,
-                update_type=UpdateType.FINDING,
-                content={
-                    "task": user_input[:200],  # Truncate long inputs
-                    "response_summary": response[:500] if isinstance(response, str) else str(response)[:500],
-                    "status": "completed"
-                },
-                tags=["worker_response", self.name_key]
-            )
+            # STEP 4: Log worker's response to the whiteboard and persist if store attached
+            if getattr(context, "whiteboard", None):
+                context.whiteboard.add_update(
+                    agent_name=self.name,
+                    update_type=WhiteboardUpdateType.FINDING,
+                    content={
+                        "task": user_input[:200],  # Truncate long inputs
+                        "response_summary": response[:500] if isinstance(response, str) else str(response)[:500],
+                        "status": "completed"
+                    },
+                    tags=["worker_response", self.name_key]
+                )
+            # Do not auto-save here; user or coordinator controls persistence policy
             
             return response
 

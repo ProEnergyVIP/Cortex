@@ -57,6 +57,12 @@ from cortex.agent_system import (
     CoordinatorSystem,
 )
 from cortex.agent_system.core.context import AgentSystemContext
+from cortex.agent_system.core.whiteboard import (
+    Whiteboard,
+    WhiteboardTopic,
+    WhiteboardUpdate,
+    WhiteboardUpdateType,
+)
 from cortex.agent_system.core.whiteboard_store import (
     InMemoryWhiteboardStore,
     AsyncRedisWhiteboardStore,
@@ -92,6 +98,8 @@ __all__ = [
     'AgentBuilder', 'AgentSystem',
     'CoordinatorAgentBuilder', 'WorkerAgentBuilder', 'CoordinatorSystem',
     'AgentSystemContext',
+    # Whiteboard models
+    'Whiteboard', 'WhiteboardTopic', 'WhiteboardUpdate', 'WhiteboardUpdateType',
     # Whiteboard store
     'InMemoryWhiteboardStore', 'AsyncRedisWhiteboardStore',
 

@@ -9,22 +9,22 @@ from __future__ import annotations
 import json
 from typing import Optional, Protocol
 
-from .context import AgentSystemContext
+from .whiteboard import Whiteboard
 
 
 class AsyncWhiteboardStore(Protocol):
     """Abstract async store for the Whiteboard.
 
-    Implementations should persist and retrieve a single AgentSystemContext
-    per logical key (e.g., user_id:conversation_id).
+    Implementations should persist and retrieve a single Whiteboard per
+    logical key (e.g., user_id:conversation_id).
     """
 
-    async def load(self, key: str) -> Optional[AgentSystemContext]:
+    async def load(self, key: str) -> Optional[Whiteboard]:
         """Load a whiteboard by key. Return None if it does not exist."""
         ...
 
-    async def save(self, key: str, context: AgentSystemContext) -> None:
-        """Persist the given whiteboard under the key."""
+    async def save(self, key: str, board: Whiteboard) -> None:
+        """Persist the given Whiteboard under the key."""
         ...
 
     async def delete(self, key: str) -> None:
@@ -42,14 +42,14 @@ class InMemoryWhiteboardStore:
     def __init__(self):
         self._store: dict[str, dict] = {}
 
-    async def load(self, key: str) -> Optional[AgentSystemContext]:
+    async def load(self, key: str) -> Optional[Whiteboard]:
         payload = self._store.get(key)
         if payload is None:
             return None
-        return AgentSystemContext.model_validate(payload)
+        return Whiteboard.model_validate(payload)
 
-    async def save(self, key: str, context: AgentSystemContext) -> None:
-        self._store[key] = context.model_dump()
+    async def save(self, key: str, board: Whiteboard) -> None:
+        self._store[key] = board.model_dump()
 
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
@@ -76,17 +76,17 @@ class AsyncRedisWhiteboardStore:
         # caller should pass a stable logical key like f"{user_id}:{conversation_id}"
         return f"{self.key_prefix}:{key}"
 
-    async def load(self, key: str) -> Optional[AgentSystemContext]:
+    async def load(self, key: str) -> Optional[Whiteboard]:
         data = await self.async_redis_client.get(self._key(key))
         if not data:
             return None
         if isinstance(data, bytes):
             data = data.decode("utf-8")
         payload = json.loads(data)
-        return AgentSystemContext.model_validate(payload)
+        return Whiteboard.model_validate(payload)
 
-    async def save(self, key: str, context: AgentSystemContext) -> None:
-        payload = json.dumps(context.model_dump())
+    async def save(self, key: str, board: Whiteboard) -> None:
+        payload = json.dumps(board.model_dump())
         await self.async_redis_client.set(self._key(key), payload)
 
     async def delete(self, key: str) -> None:

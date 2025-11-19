@@ -1,11 +1,19 @@
 from .builder import AgentBuilder
 from .system import AgentSystem
-from .context import AgentSystemContext, ContextUpdate, UpdateType
+from .context import AgentSystemContext
+from .whiteboard import (
+    Whiteboard,
+    WhiteboardTopic,
+    WhiteboardUpdate,
+    WhiteboardUpdateType,
+)
 
 __all__ = [
     "AgentBuilder",
     "AgentSystem",
     "AgentSystemContext",
-    "ContextUpdate",
-    "UpdateType",
+    "Whiteboard",
+    "WhiteboardTopic",
+    "WhiteboardUpdate",
+    "WhiteboardUpdateType",
 ]
