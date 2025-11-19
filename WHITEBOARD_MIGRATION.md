@@ -93,7 +93,7 @@ recent = context.get_recent_updates(since=one_hour_ago)
 memory_bank = AsyncAgentMemoryBank()
 context = AgentSystemContext(memory_bank=memory_bank)
 
-# All shared context fields have safe defaults
+# All Whiteboard fields have safe defaults
 assert context.mission == ""
 assert context.updates == []
 assert context.team_roles == {}
@@ -185,8 +185,8 @@ for update in view['recent_updates']:
 3. **`cortex/agent_system/__init__.py`**
    - Exported `ContextUpdate`
 
-4. **`examples/shared_context_example.py`** (NEW)
-   - Comprehensive examples of shared context usage
+4. **`examples/whiteboard_example.py`**
+   - Comprehensive examples of Whiteboard usage
 
 ## Testing Checklist
 
@@ -201,13 +201,13 @@ for update in view['recent_updates']:
 
 1. Run existing tests to verify no regressions
 2. Add unit tests for new methods
-3. Update documentation with shared context patterns
+3. Update documentation with Whiteboard patterns
 4. Consider adding validation helpers (e.g., max update list size)
 
 ## Example Usage
 
-See `examples/shared_context_example.py` for comprehensive examples including:
-- Basic shared context usage
+See `examples/whiteboard_example.py` for comprehensive examples including:
+- Basic Whiteboard usage
 - Agent views and filtered updates
 - Artifacts and blockers management
 - Backward compatibility verification

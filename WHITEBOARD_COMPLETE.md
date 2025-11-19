@@ -50,7 +50,7 @@ The Whiteboard enables seamless coordination between the coordinator and worker 
     └─────────────┘  └─────────────┘  └─────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│                    SHARED CONTEXT STATE                         │
+│                      WHITEBOARD STATE                           │
 │                                                                 │
 │  • mission: "Build customer churn prediction system"            │
 │  • current_focus: "Data collection phase"                       │
@@ -77,7 +77,7 @@ class AgentSystemContext(BaseModel):
     usage: Optional[AgentUsage] = None
     memory_bank: Optional[object] = None
     
-    # Shared context fields
+    # Whiteboard fields
     mission: str = ""                              # Team's overall goal
     current_focus: str = ""                        # Current phase/focus
     progress: str = ""                             # Overall progress
@@ -512,23 +512,23 @@ coordinator = CoordinatorAgentBuilder(
 
 ### Documentation
 - ✅ `CONTEXT_UPDATE_REFERENCE.md` - ContextUpdate model reference
-- ✅ `SHARED_CONTEXT_MIGRATION.md` - Migration guide
-- ✅ `SHARED_CONTEXT_ROUTING_CHANGES.md` - Worker routing details
+- ✅ `WHITEBOARD_MIGRATION.md` - Migration guide
+- ✅ `WHITEBOARD_ROUTING_CHANGES.md` - Worker routing details
 - ✅ `COORDINATOR_CONTEXT_MANAGEMENT.md` - Coordinator tools guide
-- ✅ `SHARED_CONTEXT_COMPLETE.md` - This complete overview
+- ✅ `WHITEBOARD_COMPLETE.md` - This complete overview
 
 ### Examples
 - ✅ `examples/context_update_example.py` - ContextUpdate usage
-- ✅ `examples/shared_context_example.py` - Shared context patterns
-- ✅ `examples/coordinator_shared_context_example.py` - Full team coordination
+- ✅ `examples/whiteboard_example.py` - Whiteboard patterns
+- ✅ `examples/coordinator_whiteboard_example.py` - Full team coordination
 
 ## Testing
 
-See `examples/coordinator_shared_context_example.py` for complete working examples.
+See `examples/coordinator_whiteboard_example.py` for complete working examples.
 
 ## Next Steps
 
-1. **Try the examples**: Run `examples/coordinator_shared_context_example.py`
+1. **Try the examples**: Run `examples/coordinator_whiteboard_example.py`
 2. **Update your systems**: Add team_roles to your AgentSystemContext
 3. **Monitor context**: Check context.updates to see team activity
 4. **Customize**: Adjust coordinator prompts to emphasize context management

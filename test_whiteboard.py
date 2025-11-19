@@ -1,5 +1,5 @@
 """
-Quick test to verify shared context functionality and backward compatibility.
+Quick test to verify Whiteboard functionality and backward compatibility.
 Run this to ensure the changes work correctly.
 """
 
@@ -30,9 +30,9 @@ def test_backward_compatibility():
     print("✓ Backward compatibility test passed!")
 
 
-def test_shared_context_fields():
-    """Test new shared context fields."""
-    print("\nTesting shared context fields...")
+def test_whiteboard_fields():
+    """Test new Whiteboard fields."""
+    print("\nTesting Whiteboard fields...")
     
     memory_bank = AsyncAgentMemoryBank()
     context = AgentSystemContext(
@@ -52,7 +52,7 @@ def test_shared_context_fields():
     assert len(context.protocols) == 2
     assert len(context.active_blockers) == 1
     
-    print("✓ Shared context fields test passed!")
+    print("✓ Whiteboard fields test passed!")
 
 
 def test_add_update():
@@ -220,12 +220,12 @@ def test_pydantic_validation():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Running Shared Context Tests")
+    print("Running Whiteboard Tests")
     print("=" * 60)
     
     try:
         test_backward_compatibility()
-        test_shared_context_fields()
+        test_whiteboard_fields()
         test_add_update()
         test_get_agent_view()
         test_get_recent_updates()
@@ -235,7 +235,7 @@ if __name__ == "__main__":
         print("\n" + "=" * 60)
         print("✓ ALL TESTS PASSED!")
         print("=" * 60)
-        print("\nShared context functionality is working correctly.")
+        print("\nWhiteboard functionality is working correctly.")
         print("Backward compatibility is maintained.")
         
     except AssertionError as e:

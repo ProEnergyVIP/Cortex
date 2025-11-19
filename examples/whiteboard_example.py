@@ -228,9 +228,9 @@ async def artifacts_and_blockers_example():
 
 # Example 4: Backward Compatibility Test
 async def backward_compatibility_example():
-    """Verify that existing code still works without using shared context."""
+    """Verify that existing code still works without Whiteboard features."""
     
-    # Create context the old way (without shared context fields)
+    # Create context the old way (without Whiteboard fields)
     memory_bank = AsyncAgentMemoryBank()
     context = AgentSystemContext(memory_bank=memory_bank)
     

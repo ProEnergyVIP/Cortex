@@ -181,7 +181,7 @@ Each worker can see what other workers have done recently, enabling better coord
 - ✅ Existing `context_instructions` still work and are preserved
 
 ### 4. **Automatic Logging**
-All worker responses are automatically logged to shared context for team visibility.
+All worker responses are automatically logged to the Whiteboard for team visibility.
 
 ## Example Flow
 
@@ -284,13 +284,13 @@ assert len(view["recent_updates"]) > 0
 ### Existing Code Compatibility
 
 ✅ **No breaking changes** - existing coordinator systems work without modification:
-- If context fields are empty, no shared context is added
+- If context fields are empty, no Whiteboard is added
 - Workers still receive their original `context_instructions`
 - Response format unchanged
 
 ### Gradual Adoption
 
-You can adopt shared context incrementally:
+You can adopt the Whiteboard incrementally:
 
 1. **Phase 1**: Just set `mission` and `team_roles` - workers get basic context
 2. **Phase 2**: Add `current_focus` and `protocols` - workers get more guidance
@@ -302,4 +302,4 @@ You can adopt shared context incrementally:
 - `AgentSystemContext` - Main context class
 - `ContextUpdate` and `UpdateType` - Update model and types
 - `CONTEXT_UPDATE_REFERENCE.md` - Detailed update patterns
-- `examples/shared_context_example.py` - Usage examples
+- `examples/whiteboard_example.py` - Usage examples

@@ -41,7 +41,7 @@ class ContextUpdate(BaseModel):
 
 
 class TopicContext(BaseModel):
-    """Per-topic shared context state for a team.
+    """Per-topic Whiteboard state for a team.
 
     This holds all fields that are naturally scoped to a specific conversation
     topic (mission, progress, updates, blockers, artifacts, etc.). The
@@ -63,7 +63,7 @@ class AgentSystemContext(BaseModel):
     usage: Optional[AgentUsage] = None  # Usage tracking for the agent
     memory_bank: Optional[object] = None  # Memory bank for the agent
 
-    # Shared context fields for multi-agent coordination (view of current topic)
+    # Whiteboard fields for multi-agent coordination (view of current topic)
     mission: str = ""
     current_focus: str = ""
     progress: str = ""
@@ -112,7 +112,7 @@ class AgentSystemContext(BaseModel):
         """
         return LLM(model=GPTModels.GPT_5_MINI, reasoning_effort=ReasoningEffort.MEDIUM)
     
-    # --- Core shared context methods (operate on current topic) ---
+    # --- Core Whiteboard methods (operate on current topic) ---
 
     def _get_or_create_topic_state(self, topic: str) -> TopicContext:
         """Get or create the TopicContext for a given topic.
@@ -184,7 +184,7 @@ class AgentSystemContext(BaseModel):
         content: Dict[str, Any], 
         tags: Optional[List[str]] = None
     ) -> ContextUpdate:
-        """Add an update to the shared context from an agent.
+        """Add an update to the Whiteboard from an agent.
         
         Args:
             agent_name: Name of the agent making the update

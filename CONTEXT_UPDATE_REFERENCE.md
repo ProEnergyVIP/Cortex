@@ -10,7 +10,7 @@ The `ContextUpdate` Pydantic model provides a structured, type-safe way for agen
 from cortex.agent_system import ContextUpdate, UpdateType
 
 class UpdateType(str, Enum):
-    """Types of updates that can be made to shared context."""
+    """Types of updates that can be made to the Whiteboard."""
     PROGRESS = "progress"
     FINDING = "finding"
     DECISION = "decision"
@@ -18,7 +18,7 @@ class UpdateType(str, Enum):
     BLOCKER = "blocker"
 
 class ContextUpdate(BaseModel):
-    """Represents an update to the shared context by an agent."""
+    """Represents an update to the Whiteboard by an agent."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     agent_name: str
     type: UpdateType

@@ -152,7 +152,7 @@ def test_whiteboard_fields():
     assert len(context.protocols) == 2
     assert len(context.active_blockers) == 1
     
-    print("✓ Shared context fields test passed!")
+    print("✓ Whiteboard fields test passed!")
 
 
 def test_add_update():

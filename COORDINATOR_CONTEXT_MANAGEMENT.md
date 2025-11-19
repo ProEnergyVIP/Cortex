@@ -2,7 +2,7 @@
 
 ## Overview
 
-The coordinator agent now actively manages shared context for the entire team. This enables:
+The coordinator agent now actively manages the Whiteboard for the entire team. This enables:
 - **Mission Setting**: Coordinator defines team goals at task start
 - **Progress Tracking**: Coordinator monitors and updates team progress
 - **Blocker Management**: Coordinator tracks issues preventing progress
@@ -34,15 +34,15 @@ The coordinator agent now actively manages shared context for the entire team. T
 │  WORKER 1    │   │  WORKER 2    │   │  WORKER 3    │
 │              │   │              │   │              │
 │ Gets context │   │ Gets context │   │ Gets context │
-│ from shared  │   │ from shared  │   │ from shared  │
-│ context      │   │ context      │   │ context      │
+│ from the     │   │ from the     │   │ from the     │
+│ Whiteboard   │   │ Whiteboard   │   │ Whiteboard   │
 │              │   │              │   │              │
 │ Executes     │   │ Executes     │   │ Executes     │
 │ task         │   │ task         │   │ task         │
 │              │   │              │   │              │
 │ Logs result  │   │ Logs result  │   │ Logs result  │
-│ to shared    │   │ to shared    │   │ to shared    │
-│ context      │   │ context      │   │ context      │
+│ to           │   │ to           │   │ to           │
+│ Whiteboard   │   │ Whiteboard   │   │ Whiteboard   │
 └──────────────┘   └──────────────┘   └──────────────┘
 ```
 
@@ -76,7 +76,7 @@ update_mission_func({
 
 **Effect**:
 - Updates `context.mission` and `context.current_focus`
-- Logs decision to shared context
+- Logs decision to the Whiteboard
 - Workers automatically receive this in their context view
 
 ### 2. `update_progress_func`
@@ -102,7 +102,7 @@ update_progress_func({
 
 **Effect**:
 - Updates `context.progress`
-- Logs progress update to shared context
+- Logs progress update to the Whiteboard
 - Workers see current progress in their context view
 
 ### 3. `manage_blocker_func`
@@ -137,7 +137,7 @@ manage_blocker_func({
 
 **Effect**:
 - Updates `context.active_blockers` list
-- Logs blocker change to shared context
+- Logs blocker change to the Whiteboard
 - Workers see active blockers in their context view
 
 ### 4. `log_decision_func`
@@ -165,7 +165,7 @@ log_decision_func({
 ```
 
 **Effect**:
-- Logs decision to shared context
+- Logs decision to the Whiteboard
 - Workers see decisions in recent updates
 
 ### 5. `get_team_status_func`
@@ -298,12 +298,12 @@ response = await system.async_ask(
 # Coordinator automatically:
 # 1. Calls update_mission_func to set mission
 # 2. Delegates to data_engineer and data_analyst
-# 3. Workers receive shared context automatically
+# 3. Workers receive the Whiteboard automatically
 # 4. Workers log their findings
 # 5. Coordinator calls update_progress_func
 # 6. Returns response
 
-# Check shared context
+# Check Whiteboard
 print(f"Mission: {context.mission}")
 print(f"Progress: {context.progress}")
 print(f"Updates: {len(context.updates)}")
@@ -360,7 +360,7 @@ agent_view = context.get_agent_view("Data Engineer")
 
 # STEP 2: Build context message
 context_message = """
-[Shared Context]
+[Whiteboard]
 Mission: Build customer churn prediction system
 Current Focus: Data collection and pipeline setup
 Your Role: Infrastructure & Data
@@ -553,5 +553,5 @@ The context management tools are automatically added to all coordinators. If the
 
 - `AgentSystemContext` - Core context class
 - `ContextUpdate` and `UpdateType` - Update model
-- `SHARED_CONTEXT_ROUTING_CHANGES.md` - Worker routing details
+- `WHITEBOARD_ROUTING_CHANGES.md` - Worker routing details
 - `examples/coordinator_whiteboard_example.py` - Complete examples
