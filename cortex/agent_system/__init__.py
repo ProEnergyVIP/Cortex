@@ -5,6 +5,9 @@ from .core.whiteboard import (
     WhiteboardTopic,
     WhiteboardUpdate,
     WhiteboardUpdateType,
+    RedisWhiteboard,
+    AsyncWhiteboard,
+    AsyncRedisWhiteboard,
 )
 from .coordinator_system import (
     CoordinatorAgentBuilder,
@@ -20,6 +23,9 @@ __all__ = [
     "WhiteboardTopic",
     "WhiteboardUpdate",
     "WhiteboardUpdateType",
+    "RedisWhiteboard",
+    "AsyncWhiteboard",
+    "AsyncRedisWhiteboard",
     "CoordinatorAgentBuilder",
     "WorkerAgentBuilder",
     "CoordinatorSystem",

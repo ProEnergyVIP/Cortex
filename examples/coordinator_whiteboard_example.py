@@ -17,6 +17,8 @@ from cortex.agent_system import (
     CoordinatorSystem,
     CoordinatorAgentBuilder,
     WorkerAgentBuilder,
+    Whiteboard,
+    WhiteboardUpdateType,
 )
 
 
@@ -34,14 +36,14 @@ async def data_analysis_team_example():
     
     # Initialize the Whiteboard with team roles
     memory_bank = AsyncAgentMemoryBank()
-    context = AgentSystemContext(
-        memory_bank=memory_bank,
+    whiteboard = Whiteboard(
         team_roles={
             "Data Engineer": "Infrastructure & Data Pipeline",
             "Data Analyst": "Analysis & Insights",
-            "ML Engineer": "Model Development"
+            "ML Engineer": "Model Development",
         }
     )
+    context = AgentSystemContext(memory_bank=memory_bank, whiteboard=whiteboard)
     
     # Define worker agents
     data_engineer_builder = WorkerAgentBuilder(
@@ -131,14 +133,17 @@ async def data_analysis_team_example():
     
     # Check Whiteboard after Task 1
     print("\n--- WHITEBOARD AFTER TASK 1 ---")
-    print(f"Mission: {context.mission}")
-    print(f"Current Focus: {context.current_focus}")
-    print(f"Progress: {context.progress}")
-    print(f"Active Blockers: {context.active_blockers}")
-    print(f"\nTotal Updates: {len(context.updates)}")
-    print("\nRecent Updates:")
-    for update in context.updates[-5:]:
-        print(f"  - [{update.type}] {update.agent_name}: {str(update.content)[:100]}")
+    wb = context.whiteboard
+    state = wb._state() if wb else None
+    if state:
+        print(f"Mission: {state.mission}")
+        print(f"Current Focus: {state.current_focus}")
+        print(f"Progress: {state.progress}")
+        print(f"Active Blockers: {state.active_blockers}")
+        print(f"\nTotal Updates: {len(state.updates)}")
+        print("\nRecent Updates:")
+        for update in state.updates[-5:]:
+            print(f"  - [{update.type}] {update.agent_name}: {str(update.content)[:100]}")
     
     # Task 2: Continue with model building
     print("\n\n--- TASK 2: Build the prediction model ---\n")
@@ -150,12 +155,13 @@ async def data_analysis_team_example():
     
     # Check Whiteboard after Task 2
     print("\n--- WHITEBOARD AFTER TASK 2 ---")
-    print(f"Progress: {context.progress}")
-    print(f"Active Blockers: {context.active_blockers}")
-    print(f"\nTotal Updates: {len(context.updates)}")
-    print("\nRecent Updates:")
-    for update in context.updates[-5:]:
-        print(f"  - [{update.type}] {update.agent_name}: {str(update.content)[:100]}")
+    if state:
+        print(f"Progress: {state.progress}")
+        print(f"Active Blockers: {state.active_blockers}")
+        print(f"\nTotal Updates: {len(state.updates)}")
+        print("\nRecent Updates:")
+        for update in state.updates[-5:]:
+            print(f"  - [{update.type}] {update.agent_name}: {str(update.content)[:100]}")
     
     # Task 3: Handle a blocker
     print("\n\n--- TASK 3: Report an issue ---\n")
@@ -166,8 +172,9 @@ async def data_analysis_team_example():
     
     # Check blockers
     print("\n--- ACTIVE BLOCKERS ---")
-    for blocker in context.active_blockers:
-        print(f"  - {blocker}")
+    if state:
+        for blocker in state.active_blockers:
+            print(f"  - {blocker}")
     
     # Task 4: Get team status
     print("\n\n--- TASK 4: Check team status ---\n")
@@ -178,19 +185,21 @@ async def data_analysis_team_example():
     print("\n" + "=" * 80)
     print("FINAL WHITEBOARD SUMMARY")
     print("=" * 80)
-    print(f"Mission: {context.mission}")
-    print(f"Current Focus: {context.current_focus}")
-    print(f"Progress: {context.progress}")
-    print(f"Active Blockers: {len(context.active_blockers)}")
-    print(f"Total Updates: {len(context.updates)}")
-    print(f"Team Roles: {len(context.team_roles)}")
+    if state:
+        print(f"Mission: {state.mission}")
+        print(f"Current Focus: {state.current_focus}")
+        print(f"Progress: {state.progress}")
+        print(f"Active Blockers: {len(state.active_blockers)}")
+        print(f"Total Updates: {len(state.updates)}")
+    print(f"Team Roles: {len(context.whiteboard.team_roles) if context.whiteboard else 0}")
     
     print("\n--- ALL UPDATES ---")
-    for i, update in enumerate(context.updates, 1):
-        print(f"{i}. [{update.type}] {update.agent_name} @ {update.timestamp.strftime('%H:%M:%S')}")
-        print(f"   Content: {str(update.content)[:150]}")
-        print(f"   Tags: {', '.join(update.tags)}")
-        print()
+    if state:
+        for i, update in enumerate(state.updates, 1):
+            print(f"{i}. [{update.type}] {update.agent_name} @ {update.timestamp.strftime('%H:%M:%S')}")
+            print(f"   Content: {str(update.content)[:150]}")
+            print(f"   Tags: {', '.join(update.tags)}")
+            print()
 
 
 # Example: How workers receive context automatically
@@ -200,32 +209,30 @@ async def worker_context_awareness_example():
     """
     
     memory_bank = AsyncAgentMemoryBank()
-    context = AgentSystemContext(
-        memory_bank=memory_bank,
-        mission="Analyze Q4 sales performance",
-        current_focus="Revenue analysis",
-        progress="Initial data collection complete",
+    whiteboard = Whiteboard(
         team_roles={
             "Sales Analyst": "Revenue & Sales Metrics",
-            "Marketing Analyst": "Campaign Performance"
-        },
-        active_blockers=["Waiting for Q4 data from finance team"]
+            "Marketing Analyst": "Campaign Performance",
+        }
     )
+    whiteboard.set_mission_focus(mission="Analyze Q4 sales performance", focus="Revenue analysis")
+    whiteboard.update_progress(progress="Initial data collection complete")
+    whiteboard.add_blocker(blocker="Waiting for Q4 data from finance team")
+    context = AgentSystemContext(memory_bank=memory_bank, whiteboard=whiteboard)
     
     # Add some existing updates to show context sharing
-    from cortex.agent_system.core.context import UpdateType
-    context.add_update(
+    context.whiteboard.add_update(
         agent_name="Sales Analyst",
-        update_type=UpdateType.FINDING,
+        update_type=WhiteboardUpdateType.FINDING,
         content={"finding": "Revenue increased 15% in Q4"},
-        tags=["sales", "q4"]
+        tags=["sales", "q4"],
     )
     
-    context.add_update(
+    context.whiteboard.add_update(
         agent_name="Marketing Analyst",
-        update_type=UpdateType.FINDING,
+        update_type=WhiteboardUpdateType.FINDING,
         content={"finding": "Email campaign conversion rate: 8.5%"},
-        tags=["marketing", "campaigns"]
+        tags=["marketing", "campaigns"],
     )
     
     # Create a worker
@@ -264,13 +271,16 @@ async def worker_context_awareness_example():
     print("=" * 80)
     
     print("\n--- INITIAL WHITEBOARD ---")
-    print(f"Mission: {context.mission}")
-    print(f"Current Focus: {context.current_focus}")
-    print(f"Progress: {context.progress}")
-    print(f"Active Blockers: {', '.join(context.active_blockers)}")
-    print("\nExisting Updates:")
-    for update in context.updates:
-        print(f"  - [{update.type}] {update.agent_name}: {update.content}")
+    wb2 = context.whiteboard
+    st2 = wb2._state() if wb2 else None
+    if st2:
+        print(f"Mission: {st2.mission}")
+        print(f"Current Focus: {st2.current_focus}")
+        print(f"Progress: {st2.progress}")
+        print(f"Active Blockers: {', '.join(st2.active_blockers)}")
+        print("\nExisting Updates:")
+        for update in st2.updates:
+            print(f"  - [{update.type}] {update.agent_name}: {update.content}")
     
     print("\n--- TASK: Analyze product usage ---\n")
     response = await system.async_ask(
@@ -279,16 +289,17 @@ async def worker_context_awareness_example():
     print(f"Response:\n{response}\n")
     
     print("\n--- WHITEBOARD AFTER WORKER EXECUTION ---")
-    print(f"Total Updates: {len(context.updates)}")
+    st3 = context.whiteboard._state()
+    print(f"Total Updates: {len(st3.updates)}")
     print("\nLatest Update (from Product Analyst):")
-    latest = context.updates[-1]
+    latest = st3.updates[-1]
     print(f"  Agent: {latest.agent_name}")
     print(f"  Type: {latest.type}")
     print(f"  Content: {latest.content}")
     print(f"  Tags: {latest.tags}")
     
     print("\n--- WHAT THE NEXT WORKER WOULD SEE ---")
-    next_worker_view = context.get_agent_view("Marketing Analyst")
+    next_worker_view = context.whiteboard.get_agent_view("Marketing Analyst")
     print(f"Mission: {next_worker_view['mission']}")
     print(f"My Role: {next_worker_view['my_role']}")
     print(f"Active Blockers: {next_worker_view['active_blockers']}")

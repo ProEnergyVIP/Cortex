@@ -1,9 +1,10 @@
 from __future__ import annotations
 from typing import Optional, Dict, List, Any
+import json
 from datetime import datetime
 from enum import Enum
 import uuid
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class WhiteboardUpdateType(str, Enum):
@@ -341,3 +342,262 @@ class Whiteboard(BaseModel):
                     },
                     tags=["whiteboard", "decision"],
                 )
+
+
+class RedisWhiteboard(Whiteboard):
+    """Redis-backed Whiteboard that persists state to a Redis key on mutation."""
+
+    _redis_client: Any = PrivateAttr()
+    _key: str = PrivateAttr()
+
+    def __init__(self, *, redis_client, key: str, **data):
+        super().__init__(**data)
+        self._redis_client = redis_client
+        self._key = key
+
+    # ---- Persistence helpers ----
+    def _save(self) -> None:
+        payload = json.dumps(self.model_dump())
+        self._redis_client.set(self._key, payload)
+
+    @classmethod
+    def load(cls, *, redis_client, key: str) -> "RedisWhiteboard":
+        data = redis_client.get(key)
+        if not data:
+            return cls(redis_client=redis_client, key=key)
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
+        payload = json.loads(data)
+        return cls(redis_client=redis_client, key=key, **payload)
+
+    def delete(self) -> None:
+        self._redis_client.delete(self._key)
+
+    # ---- Mutations with auto-persist ----
+    def set_current_topic(self, topic: str) -> None:
+        super().set_current_topic(topic)
+        self._save()
+
+    def add_update(
+        self,
+        *,
+        agent_name: str,
+        update_type: WhiteboardUpdateType,
+        content: Dict[str, Any],
+        tags: Optional[List[str]] = None,
+    ) -> WhiteboardUpdate:
+        upd = super().add_update(
+            agent_name=agent_name,
+            update_type=update_type,
+            content=content,
+            tags=tags,
+        )
+        self._save()
+        return upd
+
+    def configure_topics(
+        self,
+        *,
+        topic_keywords: Optional[Dict[str, List[str]]] = None,
+        default_topic: Optional[str] = None,
+    ) -> None:
+        super().configure_topics(topic_keywords=topic_keywords, default_topic=default_topic)
+        self._save()
+
+    def update_progress(self, *, progress: str) -> None:
+        super().update_progress(progress=progress)
+        self._save()
+
+    def add_blocker(self, *, blocker: str) -> str:
+        status = super().add_blocker(blocker=blocker)
+        self._save()
+        return status
+
+    def remove_blocker(self, *, blocker: str) -> str:
+        status = super().remove_blocker(blocker=blocker)
+        self._save()
+        return status
+
+    def log_decision(self, *, decision: str, rationale: Optional[str] = None) -> None:
+        super().log_decision(decision=decision, rationale=rationale)
+        self._save()
+
+    def apply_suggestion(
+        self,
+        suggestion: Dict[str, Any],
+        *,
+        source_agent: str = "Coordinator",
+    ) -> None:
+        super().apply_suggestion(suggestion, source_agent=source_agent)
+        self._save()
+
+
+class AsyncWhiteboard(Whiteboard):
+    """Async base variant of Whiteboard with async methods.
+
+    All operations mirror the sync API but are defined as async to enable
+    truly async-backed implementations. Default behavior is in-memory.
+    """
+
+    # ---- Topic helpers ----
+    async def set_current_topic(self, topic: str) -> None:
+        super().set_current_topic(topic)
+
+    async def known_topics(self) -> List[str]:
+        return super().known_topics()
+
+    async def configure_topics(
+        self,
+        *,
+        topic_keywords: Optional[Dict[str, List[str]]] = None,
+        default_topic: Optional[str] = None,
+    ) -> None:
+        super().configure_topics(topic_keywords=topic_keywords, default_topic=default_topic)
+
+    async def detect_topic(self, message: str) -> str:
+        return super().detect_topic(message)
+
+    async def set_topic_for_message(self, message: str) -> str:
+        return super().set_topic_for_message(message)
+
+    # ---- Operations ----
+    async def add_update(
+        self,
+        *,
+        agent_name: str,
+        update_type: WhiteboardUpdateType,
+        content: Dict[str, Any],
+        tags: Optional[List[str]] = None,
+    ) -> WhiteboardUpdate:
+        return super().add_update(
+            agent_name=agent_name,
+            update_type=update_type,
+            content=content,
+            tags=tags,
+        )
+
+    # High-level coordinator-oriented operations
+    async def set_mission_focus(self, *, mission: Optional[str], focus: Optional[str]) -> None:
+        super().set_mission_focus(mission=mission, focus=focus)
+
+    async def update_progress(self, *, progress: str) -> None:
+        super().update_progress(progress=progress)
+
+    async def add_blocker(self, *, blocker: str) -> str:
+        return super().add_blocker(blocker=blocker)
+
+    async def remove_blocker(self, *, blocker: str) -> str:
+        return super().remove_blocker(blocker=blocker)
+
+    async def log_decision(self, *, decision: str, rationale: Optional[str] = None) -> None:
+        super().log_decision(decision=decision, rationale=rationale)
+
+    async def get_agent_view(self, agent_name: str) -> Dict:
+        return super().get_agent_view(agent_name)
+
+    async def get_recent_updates(
+        self,
+        *,
+        since: Optional[datetime] = None,
+        agent_name: Optional[str] = None,
+        update_type: Optional[WhiteboardUpdateType] = None,
+    ) -> List[WhiteboardUpdate]:
+        return super().get_recent_updates(
+            since=since, agent_name=agent_name, update_type=update_type
+        )
+
+    async def apply_suggestion(
+        self,
+        suggestion: Dict[str, Any],
+        *,
+        source_agent: str = "Coordinator",
+    ) -> None:
+        super().apply_suggestion(suggestion, source_agent=source_agent)
+
+
+class AsyncRedisWhiteboard(AsyncWhiteboard):
+    """Async Redis-backed Whiteboard that persists to a Redis key on mutation."""
+
+    _async_redis_client: Any = PrivateAttr()
+    _key: str = PrivateAttr()
+
+    def __init__(self, *, async_redis_client, key: str, **data):
+        super().__init__(**data)
+        self._async_redis_client = async_redis_client
+        self._key = key
+
+    # ---- Persistence helpers ----
+    async def _save(self) -> None:
+        payload = json.dumps(self.model_dump())
+        await self._async_redis_client.set(self._key, payload)
+
+    @classmethod
+    async def load(cls, *, async_redis_client, key: str) -> "AsyncRedisWhiteboard":
+        data = await async_redis_client.get(key)
+        if not data:
+            return cls(async_redis_client=async_redis_client, key=key)
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
+        payload = json.loads(data)
+        return cls(async_redis_client=async_redis_client, key=key, **payload)
+
+    async def delete(self) -> None:
+        await self._async_redis_client.delete(self._key)
+
+    # ---- Mutations with auto-persist ----
+    async def set_current_topic(self, topic: str) -> None:
+        await super().set_current_topic(topic)
+        await self._save()
+
+    async def add_update(
+        self,
+        *,
+        agent_name: str,
+        update_type: WhiteboardUpdateType,
+        content: Dict[str, Any],
+        tags: Optional[List[str]] = None,
+    ) -> WhiteboardUpdate:
+        upd = await super().add_update(
+            agent_name=agent_name,
+            update_type=update_type,
+            content=content,
+            tags=tags,
+        )
+        await self._save()
+        return upd
+
+    async def configure_topics(
+        self,
+        *,
+        topic_keywords: Optional[Dict[str, List[str]]] = None,
+        default_topic: Optional[str] = None,
+    ) -> None:
+        await super().configure_topics(topic_keywords=topic_keywords, default_topic=default_topic)
+        await self._save()
+
+    async def update_progress(self, *, progress: str) -> None:
+        await super().update_progress(progress=progress)
+        await self._save()
+
+    async def add_blocker(self, *, blocker: str) -> str:
+        status = await super().add_blocker(blocker=blocker)
+        await self._save()
+        return status
+
+    async def remove_blocker(self, *, blocker: str) -> str:
+        status = await super().remove_blocker(blocker=blocker)
+        await self._save()
+        return status
+
+    async def log_decision(self, *, decision: str, rationale: Optional[str] = None) -> None:
+        await super().log_decision(decision=decision, rationale=rationale)
+        await self._save()
+
+    async def apply_suggestion(
+        self,
+        suggestion: Dict[str, Any],
+        *,
+        source_agent: str = "Coordinator",
+    ) -> None:
+        await super().apply_suggestion(suggestion, source_agent=source_agent)
+        await self._save()

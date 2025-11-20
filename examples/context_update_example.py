@@ -1,23 +1,29 @@
 """
-Example demonstrating the ContextUpdate model with UpdateType enum.
+Example demonstrating the WhiteboardUpdate model with WhiteboardUpdateType enum.
 
-Shows how to create updates with flexible content dictionaries and proper typing.
+Shows how to create updates with flexible content dictionaries and proper typing,
+and how to use Whiteboard from AgentSystemContext.
 """
 
-from datetime import datetime, timedelta
-from cortex.agent_system import AgentSystemContext, ContextUpdate, UpdateType, AsyncAgentMemoryBank
+from cortex.agent_system import (
+    AgentSystemContext,
+    Whiteboard,
+    WhiteboardUpdate,
+    WhiteboardUpdateType,
+)
+from cortex import AsyncAgentMemoryBank
 
 
-def example_context_update_creation():
-    """Demonstrate creating ContextUpdate objects with different types."""
+def example_whiteboard_update_creation():
+    """Demonstrate creating WhiteboardUpdate objects with different types."""
     print("=" * 60)
-    print("Creating ContextUpdate Objects")
+    print("Creating WhiteboardUpdate Objects")
     print("=" * 60)
     
     # Progress update
-    progress_update = ContextUpdate(
+    progress_update = WhiteboardUpdate(
         agent_name="data_processor",
-        type=UpdateType.PROGRESS,
+        type=WhiteboardUpdateType.PROGRESS,
         content={
             "stage": "data_cleaning",
             "percentage": 75,
@@ -27,7 +33,7 @@ def example_context_update_creation():
         tags=["data", "processing"]
     )
     
-    print(f"\n1. Progress Update:")
+    print("\n1. Progress Update:")
     print(f"   ID: {progress_update.id}")
     print(f"   Agent: {progress_update.agent_name}")
     print(f"   Type: {progress_update.type.value}")
@@ -35,9 +41,9 @@ def example_context_update_creation():
     print(f"   Tags: {progress_update.tags}")
     
     # Finding update
-    finding_update = ContextUpdate(
+    finding_update = WhiteboardUpdate(
         agent_name="analyst",
-        type=UpdateType.FINDING,
+        type=WhiteboardUpdateType.FINDING,
         content={
             "title": "Customer Satisfaction Trend",
             "summary": "15% increase in satisfaction scores",
@@ -47,16 +53,16 @@ def example_context_update_creation():
         tags=["analysis", "positive", "customer"]
     )
     
-    print(f"\n2. Finding Update:")
+    print("\n2. Finding Update:")
     print(f"   ID: {finding_update.id}")
     print(f"   Type: {finding_update.type.value}")
     print(f"   Finding: {finding_update.content['title']}")
     print(f"   Summary: {finding_update.content['summary']}")
     
     # Decision update
-    decision_update = ContextUpdate(
+    decision_update = WhiteboardUpdate(
         agent_name="coordinator",
-        type=UpdateType.DECISION,
+        type=WhiteboardUpdateType.DECISION,
         content={
             "decision": "Adopt gradient boosting model",
             "rationale": "Best performance on validation set",
@@ -66,15 +72,15 @@ def example_context_update_creation():
         tags=["modeling", "decision", "ml"]
     )
     
-    print(f"\n3. Decision Update:")
+    print("\n3. Decision Update:")
     print(f"   ID: {decision_update.id}")
     print(f"   Decision: {decision_update.content['decision']}")
     print(f"   Rationale: {decision_update.content['rationale']}")
     
     # Artifact update
-    artifact_update = ContextUpdate(
+    artifact_update = WhiteboardUpdate(
         agent_name="developer",
-        type=UpdateType.ARTIFACT,
+        type=WhiteboardUpdateType.ARTIFACT,
         content={
             "artifact_type": "code",
             "name": "data_pipeline.py",
@@ -85,15 +91,15 @@ def example_context_update_creation():
         tags=["code", "pipeline", "completed"]
     )
     
-    print(f"\n4. Artifact Update:")
+    print("\n4. Artifact Update:")
     print(f"   ID: {artifact_update.id}")
     print(f"   Artifact: {artifact_update.content['name']}")
     print(f"   Status: {artifact_update.content['status']}")
     
     # Blocker update
-    blocker_update = ContextUpdate(
+    blocker_update = WhiteboardUpdate(
         agent_name="devops",
-        type=UpdateType.BLOCKER,
+        type=WhiteboardUpdateType.BLOCKER,
         content={
             "blocker": "API rate limit exceeded",
             "severity": "high",
@@ -104,7 +110,7 @@ def example_context_update_creation():
         tags=["blocker", "infrastructure", "urgent"]
     )
     
-    print(f"\n5. Blocker Update:")
+    print("\n5. Blocker Update:")
     print(f"   ID: {blocker_update.id}")
     print(f"   Blocker: {blocker_update.content['blocker']}")
     print(f"   Severity: {blocker_update.content['severity']}")
@@ -112,25 +118,25 @@ def example_context_update_creation():
 
 
 def example_context_with_updates():
-    """Demonstrate using updates in AgentSystemContext."""
+    """Demonstrate using updates via Whiteboard in AgentSystemContext."""
     print("\n" + "=" * 60)
-    print("Using Updates in AgentSystemContext")
+    print("Using Updates in AgentSystemContext (Whiteboard)")
     print("=" * 60)
     
     memory_bank = AsyncAgentMemoryBank()
-    context = AgentSystemContext(
-        memory_bank=memory_bank,
-        mission="Build recommendation system",
+    whiteboard = Whiteboard(
         team_roles={
             "ml_engineer": "ML Engineer",
-            "data_engineer": "Data Engineer"
+            "data_engineer": "Data Engineer",
         }
     )
+    whiteboard.set_mission_focus(mission="Build recommendation system", focus=None)
+    context = AgentSystemContext(memory_bank=memory_bank, whiteboard=whiteboard)
     
     # Add various updates
-    context.add_update(
+    context.whiteboard.add_update(
         agent_name="data_engineer",
-        update_type=UpdateType.PROGRESS,
+        update_type=WhiteboardUpdateType.PROGRESS,
         content={
             "task": "data_collection",
             "status": "completed",
@@ -139,9 +145,9 @@ def example_context_with_updates():
         tags=["data", "completed"]
     )
     
-    context.add_update(
+    context.whiteboard.add_update(
         agent_name="ml_engineer",
-        update_type=UpdateType.FINDING,
+        update_type=WhiteboardUpdateType.FINDING,
         content={
             "finding": "Feature importance analysis complete",
             "top_features": ["user_age", "purchase_history", "session_duration"]
@@ -149,9 +155,9 @@ def example_context_with_updates():
         tags=["ml", "features"]
     )
     
-    context.add_update(
+    context.whiteboard.add_update(
         agent_name="ml_engineer",
-        update_type=UpdateType.DECISION,
+        update_type=WhiteboardUpdateType.DECISION,
         content={
             "decision": "Use collaborative filtering approach",
             "reason": "Better cold-start performance"
@@ -159,9 +165,9 @@ def example_context_with_updates():
         tags=["ml", "architecture"]
     )
     
-    context.add_update(
+    context.whiteboard.add_update(
         agent_name="data_engineer",
-        update_type=UpdateType.BLOCKER,
+        update_type=WhiteboardUpdateType.BLOCKER,
         content={
             "blocker": "Database connection timeout",
             "severity": "medium"
@@ -169,33 +175,34 @@ def example_context_with_updates():
         tags=["infrastructure", "blocker"]
     )
     
-    print(f"\nTotal updates: {len(context.updates)}")
+    st = context.whiteboard._state()
+    print(f"\nTotal updates: {len(st.updates)}")
     
     # Filter by type
     print("\n--- Progress Updates ---")
-    progress_updates = context.get_recent_updates(update_type=UpdateType.PROGRESS)
+    progress_updates = context.whiteboard.get_recent_updates(update_type=WhiteboardUpdateType.PROGRESS)
     for update in progress_updates:
         print(f"  [{update.id}] {update.agent_name}: {update.content}")
     
     print("\n--- Findings ---")
-    findings = context.get_recent_updates(update_type=UpdateType.FINDING)
+    findings = context.whiteboard.get_recent_updates(update_type=WhiteboardUpdateType.FINDING)
     for update in findings:
         print(f"  [{update.id}] {update.agent_name}: {update.content}")
     
     print("\n--- Blockers ---")
-    blockers = context.get_recent_updates(update_type=UpdateType.BLOCKER)
+    blockers = context.whiteboard.get_recent_updates(update_type=WhiteboardUpdateType.BLOCKER)
     for update in blockers:
         print(f"  [{update.id}] {update.agent_name}: {update.content}")
     
     # Filter by agent
     print("\n--- ML Engineer Updates ---")
-    ml_updates = context.get_recent_updates(agent_name="ml_engineer")
+    ml_updates = context.whiteboard.get_recent_updates(agent_name="ml_engineer")
     for update in ml_updates:
         print(f"  [{update.type.value}] {update.content}")
     
     # Get agent view
     print("\n--- ML Engineer's View ---")
-    view = context.get_agent_view("ml_engineer")
+    view = context.whiteboard.get_agent_view("ml_engineer")
     print(f"My Role: {view['my_role']}")
     print(f"Mission: {view['mission']}")
     print(f"Recent Updates ({len(view['recent_updates'])}):")
@@ -204,14 +211,14 @@ def example_context_with_updates():
 
 
 def example_serialization():
-    """Demonstrate that ContextUpdate is serializable."""
+    """Demonstrate that WhiteboardUpdate is serializable."""
     print("\n" + "=" * 60)
     print("Serialization Example")
     print("=" * 60)
     
-    update = ContextUpdate(
+    update = WhiteboardUpdate(
         agent_name="test_agent",
-        type=UpdateType.FINDING,
+        type=WhiteboardUpdateType.FINDING,
         content={
             "key": "value",
             "number": 42,
@@ -221,52 +228,51 @@ def example_serialization():
     )
     
     # Pydantic model can be converted to dict
-    update_dict = update.dict()
+    update_dict = update.model_dump()
     print("\nSerialized to dict:")
     print(f"  {update_dict}")
     
-    # Note: UpdateType enum is serialized as string value due to Config.use_enum_values
+    # Note: WhiteboardUpdateType enum is serialized as string value due to Config.use_enum_values
     print(f"\nType field serialized as: {update_dict['type']} (string)")
     
     # Can be converted to JSON
-    import json
-    update_json = update.json()
-    print(f"\nSerialized to JSON:")
+    update_json = update.model_dump_json()
+    print("\nSerialized to JSON:")
     print(f"  {update_json}")
     
     # Can be reconstructed from dict
-    reconstructed = ContextUpdate(**update_dict)
-    print(f"\nReconstructed from dict:")
+    reconstructed = WhiteboardUpdate(**update_dict)
+    print("\nReconstructed from dict:")
     print(f"  ID: {reconstructed.id}")
     print(f"  Type: {reconstructed.type}")
     print(f"  Content: {reconstructed.content}")
 
 
 def example_enum_usage():
-    """Demonstrate UpdateType enum usage."""
+    """Demonstrate WhiteboardUpdateType enum usage."""
     print("\n" + "=" * 60)
-    print("UpdateType Enum Usage")
+    print("WhiteboardUpdateType Enum Usage")
     print("=" * 60)
     
     print("\nAvailable update types:")
-    for update_type in UpdateType:
-        print(f"  - UpdateType.{update_type.name} = '{update_type.value}'")
+    for update_type in WhiteboardUpdateType:
+        print(f"  - WhiteboardUpdateType.{update_type.name} = '{update_type.value}'")
     
     print("\nUsing enum in code:")
-    print(f"  UpdateType.PROGRESS = {UpdateType.PROGRESS}")
-    print(f"  UpdateType.FINDING = {UpdateType.FINDING}")
-    print(f"  UpdateType.DECISION = {UpdateType.DECISION}")
-    print(f"  UpdateType.ARTIFACT = {UpdateType.ARTIFACT}")
-    print(f"  UpdateType.BLOCKER = {UpdateType.BLOCKER}")
+    print(f"  WhiteboardUpdateType.PROGRESS = {WhiteboardUpdateType.PROGRESS}")
+    print(f"  WhiteboardUpdateType.FINDING = {WhiteboardUpdateType.FINDING}")
+    print(f"  WhiteboardUpdateType.DECISION = {WhiteboardUpdateType.DECISION}")
+    print(f"  WhiteboardUpdateType.ARTIFACT = {WhiteboardUpdateType.ARTIFACT}")
+    print(f"  WhiteboardUpdateType.BLOCKER = {WhiteboardUpdateType.BLOCKER}")
     
     print("\nEnum comparison:")
-    update = ContextUpdate(
+    update = WhiteboardUpdate(
         agent_name="test",
-        type=UpdateType.PROGRESS,
+        type=WhiteboardUpdateType.PROGRESS,
         content={"test": "data"}
     )
     
-    if update.type == UpdateType.PROGRESS:
+    if update.type == WhiteboardUpdateType.PROGRESS:
         print("  ✓ Update is a PROGRESS type")
     
     print(f"\nEnum value: {update.type.value}")
@@ -274,7 +280,7 @@ def example_enum_usage():
 
 
 if __name__ == "__main__":
-    example_context_update_creation()
+    example_whiteboard_update_creation()
     example_context_with_updates()
     example_serialization()
     example_enum_usage()

@@ -6,6 +6,9 @@ from .whiteboard import (
     WhiteboardTopic,
     WhiteboardUpdate,
     WhiteboardUpdateType,
+    RedisWhiteboard,
+    AsyncWhiteboard,
+    AsyncRedisWhiteboard,
 )
 
 __all__ = [
@@ -16,4 +19,7 @@ __all__ = [
     "WhiteboardTopic",
     "WhiteboardUpdate",
     "WhiteboardUpdateType",
+    "RedisWhiteboard",
+    "AsyncWhiteboard",
+    "AsyncRedisWhiteboard",
 ]

@@ -62,10 +62,9 @@ from cortex.agent_system.core.whiteboard import (
     WhiteboardTopic,
     WhiteboardUpdate,
     WhiteboardUpdateType,
-)
-from cortex.agent_system.core.whiteboard_store import (
-    InMemoryWhiteboardStore,
-    AsyncRedisWhiteboardStore,
+    RedisWhiteboard,
+    AsyncWhiteboard,
+    AsyncRedisWhiteboard,
 )
 
 __all__ = [
@@ -100,8 +99,7 @@ __all__ = [
     'AgentSystemContext',
     # Whiteboard models
     'Whiteboard', 'WhiteboardTopic', 'WhiteboardUpdate', 'WhiteboardUpdateType',
-    # Whiteboard store
-    'InMemoryWhiteboardStore', 'AsyncRedisWhiteboardStore',
+    'RedisWhiteboard', 'AsyncWhiteboard', 'AsyncRedisWhiteboard',
 
     # Other components
     'llmfunc', 'CheckResult', 'GPTModels', 'AnthropicModels',
