@@ -181,10 +181,8 @@ def _build_update_mission_tool() -> Tool:
         # mission/focus updates and subsequent worker interactions are scoped
         # correctly.
         if topic:
-            context.set_current_topic(topic)
-        if not getattr(context, "whiteboard", None):
-            return "Whiteboard not configured on context."
-        await context.whiteboard.async_set_mission_focus(mission=mission, focus=focus)
+            context.whiteboard.set_current_topic(topic)
+        context.whiteboard.set_mission_focus(mission=mission, focus=focus)
         state = context.whiteboard.topics[context.whiteboard.current_topic]
         return f"Mission updated: {state.mission}\nCurrent focus: {state.current_focus}"
 
@@ -226,9 +224,7 @@ def _build_update_progress_tool() -> Tool:
     async def update_progress_func(args, context: AgentSystemContext):
         """Update the team's overall progress."""
         progress = args["progress"]
-        if not getattr(context, "whiteboard", None):
-            return "Whiteboard not configured on context."
-        await context.whiteboard.async_update_progress(progress=progress)
+        context.whiteboard.update_progress(progress=progress)
         return f"Progress updated: {progress}"
 
     return Tool(
@@ -262,12 +258,10 @@ def _build_manage_blocker_tool() -> Tool:
         """Add or remove a blocker from the team's active blockers list."""
         action = args["action"]
         blocker = args["blocker"]
-        if not getattr(context, "whiteboard", None):
-            return "Whiteboard not configured on context."
         if action == "add":
-            status = await context.whiteboard.async_add_blocker(blocker=blocker)
+            status = context.whiteboard.add_blocker(blocker=blocker)
         elif action == "remove":
-            status = await context.whiteboard.async_remove_blocker(blocker=blocker)
+            status = context.whiteboard.remove_blocker(blocker=blocker)
         else:
             return f"Invalid action: {action}. Use 'add' or 'remove'."
 
@@ -310,9 +304,7 @@ def _build_log_decision_tool() -> Tool:
         """Log an important coordination decision."""
         decision = args["decision"]
         rationale = args.get("rationale")
-        if not getattr(context, "whiteboard", None):
-            return "Whiteboard not configured on context."
-        await context.whiteboard.async_log_decision(decision=decision, rationale=rationale)
+        context.whiteboard.log_decision(decision=decision, rationale=rationale)
         return f"Decision logged: {decision}"
 
     return Tool(
@@ -344,9 +336,7 @@ def _build_get_team_status_tool() -> Tool:
 
     async def get_team_status_func(args, context: AgentSystemContext):
         """Get a summary of the current team status and recent activity."""
-        # Pull status from Whiteboard current topic (if available)
-        if not getattr(context, "whiteboard", None):
-            return "Whiteboard not configured on context."
+        # Pull status from Whiteboard current topic
         wb = context.whiteboard
         wb.set_current_topic(wb.current_topic)
         state = wb.topics[wb.current_topic]
@@ -402,7 +392,7 @@ Recent Activity ({len(recent_updates)} updates):
     )
 
 
-def create_coordinator_context_tools() -> List[Tool]:
+def create_coordinator_whiteboard_tools() -> List[Tool]:
     """Create Whiteboard management tools for the coordinator.
 
     These tools allow the coordinator to manage team-wide context:
@@ -470,14 +460,17 @@ class CoordinatorAgentBuilder(AgentBuilder):
         # Build a robust, self-contained system prompt that respects the core coordinator
         # protocol while allowing user customization. The user segment is optional and
         # wrapped so that it cannot accidentally break the protocol or format.
+        has_whiteboard = hasattr(context, "whiteboard") and context.whiteboard is not None
+        
         task_desc = await self.build_prompt(context)
-        composed_desc = self.compose_prompt(self.name, task_desc, with_whiteboard=bool(getattr(context, "whiteboard", None)))
+        composed_desc = self.compose_prompt(self.name, task_desc, with_whiteboard=has_whiteboard)
 
         all_tools = await self.load_tools(context)
         
         # Add Whiteboard management tools for the coordinator
-        context_tools = create_coordinator_context_tools()
-        all_tools.extend(context_tools)
+        if has_whiteboard:
+            whiteboard_tools = create_coordinator_whiteboard_tools()
+            all_tools.extend(whiteboard_tools)
         
         if tools is not None:
             all_tools.extend(tools)

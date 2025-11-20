@@ -1,12 +1,9 @@
 from __future__ import annotations
-from typing import Optional, Dict, List, Any, TYPE_CHECKING
+from typing import Optional, Dict, List, Any
 from datetime import datetime
 from enum import Enum
 import uuid
-from pydantic import BaseModel, Field, PrivateAttr
-
-if TYPE_CHECKING:
-    from .whiteboard_store import AsyncWhiteboardStore
+from pydantic import BaseModel, Field
 
 
 class WhiteboardUpdateType(str, Enum):
@@ -61,29 +58,19 @@ class Whiteboard(BaseModel):
     # Team policy/metadata (not tied to a single topic)
     team_roles: Dict[str, str] = Field(default_factory=dict)  # agent_name -> role
     protocols: List[str] = Field(default_factory=list)
+    # Topic routing configuration
+    topic_keywords: Dict[str, List[str]] = Field(
+        default_factory=lambda: {
+            "solar": ["solar", "pv", "photovoltaic", "inverter", "panel"],
+            "banking": ["bank", "loan", "credit", "account", "interest"],
+            "general": [],
+        }
+    )
+    default_topic: str = "general"
+    max_updates_per_topic: int = 200
     # Topic state
     current_topic: str = "general"
     topics: Dict[str, WhiteboardTopic] = Field(default_factory=dict)
-
-    # Store integration (not serialized)
-    _store: Optional[object] = PrivateAttr(default=None)
-    _store_key: Optional[str] = PrivateAttr(default=None)
-
-    # ---- Store wiring ----
-    def attach_store(self, store: "AsyncWhiteboardStore", key: str) -> None:
-        self._store = store
-        self._store_key = key
-
-    def detach_store(self) -> None:
-        self._store = None
-        self._store_key = None
-
-    def has_store(self) -> bool:
-        return self._store is not None and bool(self._store_key)
-
-    async def async_save_if_attached(self) -> None:
-        if self.has_store():
-            await self._store.save(self._store_key, self)  # type: ignore[attr-defined]
 
     # ---- Topic helpers ----
     def set_current_topic(self, topic: str) -> None:
@@ -95,6 +82,41 @@ class Whiteboard(BaseModel):
         if self.current_topic not in self.topics:
             self.topics[self.current_topic] = WhiteboardTopic()
         return self.topics[self.current_topic]
+
+    # ---- Topic routing helpers ----
+    def known_topics(self) -> List[str]:
+        """Return configured topic names plus topics with active state."""
+        wb_topics = set(self.topics.keys())
+        known = set(self.topic_keywords.keys()) | wb_topics
+        return sorted(known)
+
+    def configure_topics(
+        self,
+        *,
+        topic_keywords: Optional[Dict[str, List[str]]] = None,
+        default_topic: Optional[str] = None,
+    ) -> None:
+        """Configure keyword routing and default topic on the whiteboard."""
+        if topic_keywords is not None:
+            self.topic_keywords = topic_keywords
+        if default_topic is not None:
+            self.default_topic = default_topic
+            self.set_current_topic(default_topic)
+
+    def detect_topic(self, message: str) -> str:
+        """Detect topic from a message with simple keyword matching."""
+        text = message.lower()
+        for topic, keywords in self.topic_keywords.items():
+            for kw in keywords:
+                if kw and kw.lower() in text:
+                    return topic
+        return self.default_topic
+
+    def set_topic_for_message(self, message: str) -> str:
+        """Detect the topic from message and set it as current, returning it."""
+        topic = self.detect_topic(message)
+        self.set_current_topic(topic)
+        return topic
 
     # ---- Operations ----
     def add_update(
@@ -192,28 +214,7 @@ class Whiteboard(BaseModel):
             tags=["coordinator", "decision"],
         )
 
-    # Async wrappers that auto-save if a store is attached
-    async def async_set_mission_focus(self, *, mission: Optional[str], focus: Optional[str]) -> None:
-        self.set_mission_focus(mission=mission, focus=focus)
-        await self.async_save_if_attached()
-
-    async def async_update_progress(self, *, progress: str) -> None:
-        self.update_progress(progress=progress)
-        await self.async_save_if_attached()
-
-    async def async_add_blocker(self, *, blocker: str) -> str:
-        status = self.add_blocker(blocker=blocker)
-        await self.async_save_if_attached()
-        return status
-
-    async def async_remove_blocker(self, *, blocker: str) -> str:
-        status = self.remove_blocker(blocker=blocker)
-        await self.async_save_if_attached()
-        return status
-
-    async def async_log_decision(self, *, decision: str, rationale: Optional[str] = None) -> None:
-        self.log_decision(decision=decision, rationale=rationale)
-        await self.async_save_if_attached()
+    # No async wrappers; persistence is external.
 
     def get_agent_view(self, agent_name: str) -> Dict:
         state = self._state()
