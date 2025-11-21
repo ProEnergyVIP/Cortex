@@ -310,7 +310,10 @@ class WorkerAgentBuilder(AgentBuilder):
             ctx_instructions = args.get("context_instructions")
             
             # STEP 1: Get agent-specific view of the whiteboard before routing (if available)
-            agent_view = context.whiteboard.get_agent_view(self.name) if getattr(context, "whiteboard", None) else {}
+            if getattr(context, "whiteboard", None):
+                agent_view = await context.whiteboard.get_agent_view(self.name)
+            else:
+                agent_view = {}
             
             # STEP 2: Build context summary to include in message
             context_parts = []
@@ -364,11 +367,13 @@ class WorkerAgentBuilder(AgentBuilder):
                 suggestion = response.get("whiteboard_suggestion")
 
             if suggestion and getattr(context, "whiteboard", None):
-                context.whiteboard.apply_suggestion(suggestion, source_agent=self.name)
+                await context.whiteboard.apply_suggestion(
+                    suggestion, source_agent=self.name
+                )
             
             # STEP 4: Log worker's response to the whiteboard and persist if store attached
             if getattr(context, "whiteboard", None):
-                context.whiteboard.add_update(
+                await context.whiteboard.add_update(
                     agent_name=self.name,
                     update_type=WhiteboardUpdateType.FINDING,
                     content={

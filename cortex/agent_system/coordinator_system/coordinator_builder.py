@@ -181,8 +181,8 @@ def _build_update_mission_tool() -> Tool:
         # mission/focus updates and subsequent worker interactions are scoped
         # correctly.
         if topic:
-            context.whiteboard.set_current_topic(topic)
-        context.whiteboard.set_mission_focus(mission=mission, focus=focus)
+            await context.whiteboard.set_current_topic(topic)
+        await context.whiteboard.set_mission_focus(mission=mission, focus=focus)
         state = context.whiteboard.topics[context.whiteboard.current_topic]
         return f"Mission updated: {state.mission}\nCurrent focus: {state.current_focus}"
 
@@ -225,7 +225,7 @@ def _build_update_progress_tool() -> Tool:
     async def update_progress_func(args, context: AgentSystemContext):
         """Update the team's overall progress."""
         progress = args["progress"]
-        context.whiteboard.update_progress(progress=progress)
+        await context.whiteboard.update_progress(progress=progress)
         return f"Progress updated: {progress}"
 
     return Tool(
@@ -260,9 +260,9 @@ def _build_manage_blocker_tool() -> Tool:
         action = args["action"]
         blocker = args["blocker"]
         if action == "add":
-            status = context.whiteboard.add_blocker(blocker=blocker)
+            status = await context.whiteboard.add_blocker(blocker=blocker)
         elif action == "remove":
-            status = context.whiteboard.remove_blocker(blocker=blocker)
+            status = await context.whiteboard.remove_blocker(blocker=blocker)
         else:
             return f"Invalid action: {action}. Use 'add' or 'remove'."
 
@@ -305,7 +305,7 @@ def _build_log_decision_tool() -> Tool:
         """Log an important coordination decision."""
         decision = args["decision"]
         rationale = args.get("rationale")
-        context.whiteboard.log_decision(decision=decision, rationale=rationale)
+        await context.whiteboard.log_decision(decision=decision, rationale=rationale)
         return f"Decision logged: {decision}"
 
     return Tool(
@@ -339,9 +339,9 @@ def _build_get_team_status_tool() -> Tool:
         """Get a summary of the current team status and recent activity."""
         # Pull status from Whiteboard current topic
         wb = context.whiteboard
-        wb.set_current_topic(wb.current_topic)
+        await wb.set_current_topic(wb.current_topic)
         state = wb.topics[wb.current_topic]
-        recent_updates = wb.get_recent_updates()[-10:]
+        recent_updates = (await wb.get_recent_updates())[-10:]
 
         status = {
             "mission": state.mission or "Not set",
