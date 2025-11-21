@@ -520,6 +520,8 @@ class AsyncRedisWhiteboard(AsyncWhiteboard):
 
     _async_redis_client: Any = PrivateAttr()
     _key: str = PrivateAttr()
+    # Static mapping of async Redis clients
+    _async_redis_clients: Dict[str, Any] = {}
 
     def __init__(self, *, async_redis_client, key: str, **data):
         super().__init__(**data)
@@ -543,6 +545,75 @@ class AsyncRedisWhiteboard(AsyncWhiteboard):
 
     async def delete(self) -> None:
         await self._async_redis_client.delete(self._key)
+
+    # ---- Client registry and factory helpers ----
+    @classmethod
+    def register_client(cls, client_name: str, async_redis_client) -> None:
+        """Register an async Redis client for later use."""
+        cls._async_redis_clients[client_name] = async_redis_client
+
+    @classmethod
+    def _resolve_client(cls, kwargs):
+        """Resolve an async Redis client from kwargs or registry."""
+        async_redis_client = kwargs.get("async_redis_client")
+        client_name = kwargs.get("client_name", "default")
+        if async_redis_client is None:
+            async_redis_client = cls._async_redis_clients.get(client_name)
+        if async_redis_client is None:
+            raise ValueError(
+                "No async Redis client available. Either provide 'async_redis_client' or register a client with 'client_name'"
+            )
+        return async_redis_client
+
+    @staticmethod
+    async def _delete_by_pattern(async_redis_client, key_pattern: str) -> None:
+        """Delete all keys matching a pattern (async)."""
+        keys = await async_redis_client.keys(key_pattern)
+        if keys:
+            # Some clients require splat expansion
+            await async_redis_client.delete(*keys)
+
+    @classmethod
+    async def whiteboard_for(
+        cls,
+        user_id: str,
+        **kwargs,
+    ) -> "AsyncRedisWhiteboard":
+        """Get or create an async Redis whiteboard for a user.
+
+        Args:
+            user_id: User ID
+            **kwargs: Optional 'client_name', 'async_redis_client', and 'base_prefix'
+        """
+        async_redis_client = cls._resolve_client(kwargs)
+        base_prefix = kwargs.get("base_prefix", "whiteboard")
+        key = f"{base_prefix}:user:{user_id}"
+        return await cls.load(async_redis_client=async_redis_client, key=key)
+
+    @classmethod
+    async def clear_whiteboard_for(cls, user_id: str, **kwargs) -> None:
+        """Delete a user's whiteboard if it exists."""
+        async_redis_client = cls._resolve_client(kwargs)
+        base_prefix = kwargs.get("base_prefix", "whiteboard")
+        key = f"{base_prefix}:user:{user_id}"
+        await async_redis_client.delete(key)
+
+    @classmethod
+    async def reset_all(cls, **kwargs) -> None:
+        """Delete all whiteboards for all users under the base prefix."""
+        async_redis_client = cls._resolve_client(kwargs)
+        base_prefix = kwargs.get("base_prefix", "whiteboard")
+        key_pattern = f"{base_prefix}:user:*"
+        await cls._delete_by_pattern(async_redis_client, key_pattern)
+
+    @classmethod
+    async def is_active(cls, user_id: str, **kwargs) -> bool:
+        """Check if a user's whiteboard exists."""
+        async_redis_client = cls._resolve_client(kwargs)
+        base_prefix = kwargs.get("base_prefix", "whiteboard")
+        key = f"{base_prefix}:user:{user_id}"
+        exists = await async_redis_client.exists(key)
+        return exists > 0
 
     # ---- Mutations with auto-persist ----
     async def set_current_topic(self, topic: str) -> None:
