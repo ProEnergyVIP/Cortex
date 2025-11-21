@@ -357,7 +357,7 @@ class RedisWhiteboard(Whiteboard):
 
     # ---- Persistence helpers ----
     def _save(self) -> None:
-        payload = json.dumps(self.model_dump())
+        payload = self.model_dump_json()
         self._redis_client.set(self._key, payload)
 
     @classmethod
@@ -530,7 +530,7 @@ class AsyncRedisWhiteboard(AsyncWhiteboard):
 
     # ---- Persistence helpers ----
     async def _save(self) -> None:
-        payload = json.dumps(self.model_dump())
+        payload = self.model_dump_json()
         await self._async_redis_client.set(self._key, payload)
 
     @classmethod
