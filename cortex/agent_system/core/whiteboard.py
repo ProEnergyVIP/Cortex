@@ -59,16 +59,8 @@ class Whiteboard(BaseModel):
     # Team policy/metadata (not tied to a single topic)
     team_roles: Dict[str, str] = Field(default_factory=dict)  # agent_name -> role
     protocols: List[str] = Field(default_factory=list)
-    # Topic routing configuration
-    topic_keywords: Dict[str, List[str]] = Field(
-        default_factory=lambda: {
-            "solar": ["solar", "pv", "photovoltaic", "inverter", "panel"],
-            "banking": ["bank", "loan", "credit", "account", "interest"],
-            "general": [],
-        }
-    )
     default_topic: str = "general"
-    max_updates_per_topic: int = 200
+    max_updates_per_topic: int = 10
     # Topic state
     current_topic: str = "general"
     topics: Dict[str, WhiteboardTopic] = Field(default_factory=dict)
@@ -86,38 +78,8 @@ class Whiteboard(BaseModel):
 
     # ---- Topic routing helpers ----
     def known_topics(self) -> List[str]:
-        """Return configured topic names plus topics with active state."""
-        wb_topics = set(self.topics.keys())
-        known = set(self.topic_keywords.keys()) | wb_topics
-        return sorted(known)
-
-    def configure_topics(
-        self,
-        *,
-        topic_keywords: Optional[Dict[str, List[str]]] = None,
-        default_topic: Optional[str] = None,
-    ) -> None:
-        """Configure keyword routing and default topic on the whiteboard."""
-        if topic_keywords is not None:
-            self.topic_keywords = topic_keywords
-        if default_topic is not None:
-            self.default_topic = default_topic
-            self.set_current_topic(default_topic)
-
-    def detect_topic(self, message: str) -> str:
-        """Detect topic from a message with simple keyword matching."""
-        text = message.lower()
-        for topic, keywords in self.topic_keywords.items():
-            for kw in keywords:
-                if kw and kw.lower() in text:
-                    return topic
-        return self.default_topic
-
-    def set_topic_for_message(self, message: str) -> str:
-        """Detect the topic from message and set it as current, returning it."""
-        topic = self.detect_topic(message)
-        self.set_current_topic(topic)
-        return topic
+        """Return topic names that currently exist in the whiteboard."""
+        return sorted(self.topics.keys())
 
     # ---- Operations ----
     def add_update(
@@ -137,7 +99,17 @@ class Whiteboard(BaseModel):
         )
         state.updates.append(update)
         state.last_activity = datetime.now()
+        # Enforce per-topic update limit (oldest first) if configured
+        while len(state.updates) > self.max_updates_per_topic:
+            state.updates.pop(0)
         return update
+
+    def clear_topic(self, topic: Optional[str] = None) -> None:
+        """Reset the specified topic (or current topic) to a clean state."""
+        target = topic or self.current_topic
+        self.topics[target] = WhiteboardTopic()
+        if topic is None:
+            self.current_topic = target
 
     # High-level coordinator-oriented operations (sync)
     def set_mission_focus(self, *, mission: Optional[str], focus: Optional[str]) -> None:
@@ -431,6 +403,10 @@ class RedisWhiteboard(Whiteboard):
         super().apply_suggestion(suggestion, source_agent=source_agent)
         self._save()
 
+    def clear_topic(self, topic: Optional[str] = None) -> None:
+        super().clear_topic(topic=topic)
+        self._save()
+
 
 class AsyncWhiteboard(Whiteboard):
     """Async base variant of Whiteboard with async methods.
@@ -513,6 +489,9 @@ class AsyncWhiteboard(Whiteboard):
         source_agent: str = "Coordinator",
     ) -> None:
         super().apply_suggestion(suggestion, source_agent=source_agent)
+
+    async def clear_topic(self, topic: Optional[str] = None) -> None:
+        super().clear_topic(topic=topic)
 
 
 class AsyncRedisWhiteboard(AsyncWhiteboard):
@@ -671,4 +650,8 @@ class AsyncRedisWhiteboard(AsyncWhiteboard):
         source_agent: str = "Coordinator",
     ) -> None:
         await super().apply_suggestion(suggestion, source_agent=source_agent)
+        await self._save()
+
+    async def clear_topic(self, topic: Optional[str] = None) -> None:
+        await super().clear_topic(topic=topic)
         await self._save()

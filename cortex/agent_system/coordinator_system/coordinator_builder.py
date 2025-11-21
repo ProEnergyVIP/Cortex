@@ -394,6 +394,37 @@ Recent Activity ({len(recent_updates)} updates):
     )
 
 
+def _build_clear_topic_tool() -> Tool:
+    """Build the tool used to clear/reset a whiteboard topic."""
+
+    async def clear_topic_func(args, context: AgentSystemContext):
+        """Clear the specified topic (or current topic) to a clean state."""
+        topic = args.get("topic")
+        await context.whiteboard.clear_topic(topic=topic)
+        target = topic or context.whiteboard.current_topic
+        return f"Topic '{target}' cleared"
+
+    return Tool(
+        name="clear_topic_func",
+        func=clear_topic_func,
+        description=(
+            "Clear a whiteboard topic, removing mission/progress/updates for that topic. "
+            "If no topic is provided, the current topic is cleared."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": ["string", "null"],
+                    "description": "Optional topic name to clear. Defaults to current topic.",
+                }
+            },
+            "required": ["topic"],
+            "additionalProperties": False,
+        },
+    )
+
+
 def create_coordinator_whiteboard_tools() -> List[Tool]:
     """Create Whiteboard management tools for the coordinator.
 
@@ -413,6 +444,7 @@ def create_coordinator_whiteboard_tools() -> List[Tool]:
         _build_manage_blocker_tool(),
         _build_log_decision_tool(),
         _build_get_team_status_tool(),
+        _build_clear_topic_tool(),
     ]
 
 
