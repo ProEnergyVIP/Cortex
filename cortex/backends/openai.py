@@ -33,6 +33,8 @@ def get_async_openai_client():
 
 class GPTModels(str, Enum):
     '''OpenAI GPT models'''
+    GPT_5_1 = 'gpt-5.1'
+    
     GPT_5 = 'gpt-5'
 
     GPT_5_MINI = 'gpt-5-mini'
