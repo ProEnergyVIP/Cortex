@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, ClassVar
 import json
 from datetime import datetime
 from enum import Enum
@@ -521,7 +521,7 @@ class AsyncRedisWhiteboard(AsyncWhiteboard):
     _async_redis_client: Any = PrivateAttr()
     _key: str = PrivateAttr()
     # Static mapping of async Redis clients
-    _async_redis_clients: Dict[str, Any] = {}
+    _async_redis_clients: ClassVar[Dict[str, Any]] = {}
 
     def __init__(self, *, async_redis_client, key: str, **data):
         super().__init__(**data)
