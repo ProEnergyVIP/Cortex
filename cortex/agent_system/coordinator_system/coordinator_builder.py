@@ -213,6 +213,7 @@ def _build_update_mission_tool() -> Tool:
                     ),
                 },
             },
+            "required": ["mission", "current_focus", "topic"],
             "additionalProperties": False,
         },
     )
@@ -325,7 +326,7 @@ def _build_log_decision_tool() -> Tool:
                     "description": "Optional rationale or reasoning for the decision",
                 },
             },
-            "required": ["decision"],
+            "required": ["decision", "rationale"],
             "additionalProperties": False,
         },
     )
@@ -387,6 +388,7 @@ Recent Activity ({len(recent_updates)} updates):
         parameters={
             "type": "object",
             "properties": {},
+            "required": [],
             "additionalProperties": False,
         },
     )
