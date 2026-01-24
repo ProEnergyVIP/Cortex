@@ -151,9 +151,6 @@ class LLMBackend:
             # Fallback to wildcard/pattern matches (exact match always preferred).
             # Patterns are registered as strings (e.g. "gpt-*")
             for pattern, candidate_backend_cls in cls.backend_registry.items():
-                print(f'pattern: {pattern}')
-                print(f'model_key: {model_key}')
-                print(f'matches: {fnmatch.fnmatchcase(model_key, pattern)}')
                 if isinstance(pattern, str) and fnmatch.fnmatchcase(model_key, pattern):
                     backend_cls = candidate_backend_cls
                     break

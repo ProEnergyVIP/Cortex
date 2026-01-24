@@ -1,5 +1,6 @@
 import random
 from threading import Lock
+from enum import Enum
 
 from cortex.backend import LLMBackend, LLMRequest
 
@@ -71,7 +72,10 @@ class LLM:
         return model
 
     def __init__(self, model, temperature = None, reasoning_effort = None):
-        self.model = model
+        if isinstance(model, Enum):
+            self.model = model.value
+        else:
+            self.model = model
         self.temperature = temperature
         self.reasoning_effort = reasoning_effort
         self._initialize_backend()
