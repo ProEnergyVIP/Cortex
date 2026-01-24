@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Type
 from enum import Enum
+import fnmatch
 
 from cortex.message import AIMessage, SystemMessage
 
@@ -140,15 +141,24 @@ class LLMBackend:
         Args:
             model: The model identifier this backend handles
         """
-        if model in cls.backend_instance_cache:
-            return cls.backend_instance_cache[model]
+        model_key = str(model)
+
+        if model_key in cls.backend_instance_cache:
+            return cls.backend_instance_cache[model_key]
         
-        backend_cls = cls.backend_registry.get(model, None)
+        backend_cls = cls.backend_registry.get(model_key, None)
+        if backend_cls is None:
+            # Fallback to wildcard/pattern matches (exact match always preferred).
+            # Patterns are registered as strings (e.g. "gpt-*")
+            for pattern, candidate_backend_cls in cls.backend_registry.items():
+                if isinstance(pattern, str) and fnmatch.fnmatchcase(model_key, pattern):
+                    backend_cls = candidate_backend_cls
+                    break
         if backend_cls is None:
             return None
         
-        backend = backend_cls(model)
-        cls.backend_instance_cache[model] = backend
+        backend = backend_cls(model_key)
+        cls.backend_instance_cache[model_key] = backend
 
         return backend
     
@@ -160,4 +170,4 @@ class LLMBackend:
             model: The model identifier this backend handles
             backend_cls: The backend class to instantiate
         """
-        cls.backend_registry[model] = backend_cls
+        cls.backend_registry[str(model)] = backend_cls

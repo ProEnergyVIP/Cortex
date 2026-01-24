@@ -34,7 +34,7 @@ def get_async_openai_client():
 class GPTModels(str, Enum):
     '''OpenAI GPT models'''
     GPT_5_2 = 'gpt-5.2'
-    
+
     GPT_5_1 = 'gpt-5.1'
     
     GPT_5 = 'gpt-5'
@@ -183,8 +183,7 @@ class OpenAIBackend(LLMBackend):
             raise e
         return self._process_response(response)
 
-for m in GPTModels:
-    LLMBackend.register_backend(m, OpenAIBackend)
+LLMBackend.register_backend('gpt-*', OpenAIBackend)
 
 # --- Pure encoder functions for OpenAI ---
 def enc_openai_system(msg: SystemMessage):
