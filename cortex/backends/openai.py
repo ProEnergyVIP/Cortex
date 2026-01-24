@@ -33,6 +33,8 @@ def get_async_openai_client():
 
 class GPTModels(str, Enum):
     '''OpenAI GPT models'''
+    GPT_5_2 = 'gpt-5.2'
+    
     GPT_5_1 = 'gpt-5.1'
     
     GPT_5 = 'gpt-5'
@@ -56,8 +58,6 @@ class GPTModels(str, Enum):
     GPT_4_TURBO = 'gpt-4-turbo-preview'  # for automatically the latest version of GPT-4 Turbo
 
     GPT_35_TURBO = 'gpt-3.5-turbo-0125'
-
-    GPT_35_FINE_TUNED = 'ft:gpt-3.5-turbo-0613:pro-energy::7w4wKQiR'
 
 
 class OpenAIBackend(LLMBackend):
