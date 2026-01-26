@@ -35,6 +35,16 @@ class Embedding:
     _failed_models = set()  # Set of models that have failed
     _runtime_lock = Lock()  # Lock for protecting runtime state
     backend_registry = {}  # Registry for backends
+
+    @staticmethod
+    def _normalize_model(model: Any) -> str:
+        """Normalize model identifiers (e.g., Enum values) into plain strings."""
+        if isinstance(model, str):
+            return model
+        value = getattr(model, "value", None)
+        if value is not None:
+            return str(value)
+        return str(model)
     
     def __init__(self, model: str, **kwargs):
         """
@@ -44,13 +54,13 @@ class Embedding:
             model: The model identifier to use
             **kwargs: Additional arguments to pass to the backend
         """
-        self.model = model
+        self.model = self._normalize_model(model)
         self.kwargs = kwargs
         self._initialize_backend()
     
     def _initialize_backend(self):
         """Initialize the backend using the effective model"""
-        effective_model = self._get_effective_model(self.model)
+        effective_model = self._get_effective_model(self._normalize_model(self.model))
         backend_class = self.backend_registry.get(effective_model)
         if not backend_class:
             raise ValueError(f"No backend registered for model: {effective_model}")
@@ -59,6 +69,7 @@ class Embedding:
     @classmethod
     def _get_effective_model(cls, model: str) -> str:
         """Get the effective model to use, considering failures and backups"""
+        model = cls._normalize_model(model)
         if model in cls._failed_models and model in cls._backup_backends:
             backup = cls._backup_backends[model]
             logger.warning(f"Model {model} failed, falling back to {backup}")
@@ -76,6 +87,8 @@ class Embedding:
         Raises:
             ValueError: If setting this backup would create a cycle in the backup chain
         """
+        model = cls._normalize_model(model)
+        backup_model = cls._normalize_model(backup_model)
         if model == backup_model:
             raise ValueError("Cannot set a model as its own backup")
         cls._backup_backends[model] = backup_model
@@ -94,6 +107,7 @@ class Embedding:
             model: The model identifier this backend handles
             backend_class: The backend class to instantiate
         """
+        model = cls._normalize_model(model)
         cls.backend_registry[model] = backend_class
     
     def embed(self, text: Union[str, List[str]], metadata: Optional[Dict] = None) -> np.ndarray:

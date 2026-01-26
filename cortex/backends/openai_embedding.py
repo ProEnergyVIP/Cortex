@@ -53,12 +53,8 @@ class OpenAIEmbeddingBackend(EmbeddingBackend):
             )
             
             # Extract embeddings from response
-            embeddings = [np.array(item.embedding) for item in response.data]
-            
-            # Sort embeddings to match input order (important for async)
-            if len(embeddings) > 1:
-                indices = [item.index for item in response.data]
-                embeddings = [embeddings[i] for i in sorted(indices)]
+            sorted_items = sorted(response.data, key=lambda item: item.index)
+            embeddings = [np.array(item.embedding) for item in sorted_items]
             
             return np.array(embeddings[0]) if not is_batch else np.array(embeddings)
             
@@ -93,12 +89,8 @@ class OpenAIEmbeddingBackend(EmbeddingBackend):
             )
             
             # Extract embeddings from response
-            embeddings = [np.array(item.embedding) for item in response.data]
-            
-            # Sort embeddings to match input order (important for async)
-            if len(embeddings) > 1:
-                indices = [item.index for item in response.data]
-                embeddings = [embeddings[i] for i in sorted(indices)]
+            sorted_items = sorted(response.data, key=lambda item: item.index)
+            embeddings = [np.array(item.embedding) for item in sorted_items]
             
             return np.array(embeddings[0]) if not is_batch else np.array(embeddings)
             
