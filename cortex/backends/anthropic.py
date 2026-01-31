@@ -1,7 +1,12 @@
 from enum import Enum
 
+import logging
+from typing import Any, AsyncIterable, Iterable, Optional
+
 from cortex.backend import LLMBackend, LLMRequest
 from cortex.message import AIMessage, DeveloperMessage, FunctionCall, ToolMessageGroup, UserMessage, UserVisionMessage, MessageUsage
+
+logger = logging.getLogger(__name__)
 
 
 __anthropic_client = None
@@ -72,6 +77,69 @@ class AnthropicBackend(LLMBackend):
         client = get_async_anthropic_client()
         resp = await client.messages.create(**params)
         return self.decode_result(resp)
+
+    def _event_type(self, event: Any) -> Optional[str]:
+        if isinstance(event, dict):
+            return event.get('type')
+        return getattr(event, 'type', None)
+
+    def _event_text_delta(self, event: Any) -> Optional[str]:
+        etype = self._event_type(event)
+        if etype != 'content_block_delta':
+            return None
+
+        if isinstance(event, dict):
+            delta = event.get('delta')
+            delta_type = None if delta is None else delta.get('type')
+            if delta_type != 'text_delta':
+                return None
+            return delta.get('text')
+
+        delta = getattr(event, 'delta', None)
+        if delta is None:
+            return None
+        if getattr(delta, 'type', None) != 'text_delta':
+            return None
+        return getattr(delta, 'text', None)
+
+    def stream(self, req: LLMRequest) -> Iterable[str]:
+        params = self._prepare_request_params(req)
+        client = get_anthropic_client()
+
+        stream_method = getattr(client.messages, 'stream', None)
+        if callable(stream_method):
+            try:
+                with stream_method(**params) as stream:
+                    for event in stream:
+                        delta = self._event_text_delta(event)
+                        if delta:
+                            yield delta
+                return
+            except Exception as e:
+                logger.error('Anthropic streaming request failed: %s', e)
+                raise e
+
+        yield from super().stream(req)
+
+    async def async_stream(self, req: LLMRequest) -> AsyncIterable[str]:
+        params = self._prepare_request_params(req)
+        client = get_async_anthropic_client()
+
+        stream_method = getattr(client.messages, 'stream', None)
+        if callable(stream_method):
+            try:
+                async with stream_method(**params) as stream:
+                    async for event in stream:
+                        delta = self._event_text_delta(event)
+                        if delta:
+                            yield delta
+                return
+            except Exception as e:
+                logger.error('Anthropic streaming request failed: %s', e)
+                raise e
+
+        async for chunk in super().async_stream(req):
+            yield chunk
 
     def decode_result(self, resp):
         '''decode the result from the Anthropic API'''
