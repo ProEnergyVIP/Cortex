@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cortex"
-version = "1.2.0"
+version = "1.2.1"
 description = "Cortex Agent Framework - A flexible library for building AI agents with multiple LLM backends"
 authors = ["Eric Wong <eric.wong@proenergy.vip>"]
 license = "MIT"
