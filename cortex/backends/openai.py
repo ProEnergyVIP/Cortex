@@ -1,6 +1,7 @@
 from enum import Enum
 from dataclasses import is_dataclass, asdict
 import logging
+from typing import Any, AsyncIterable, Iterable, Optional
 from openai import OpenAI, AsyncOpenAI
 
 from cortex.backend import LLMBackend
@@ -171,6 +172,57 @@ class OpenAIBackend(LLMBackend):
             logger.error('OpenAI request failed: %s', e)
             raise e
         return self._process_response(response)
+
+    def _event_type(self, event: Any) -> Optional[str]:
+        if isinstance(event, dict):
+            return event.get('type')
+        return getattr(event, 'type', None)
+
+    def _event_text_delta(self, event: Any) -> Optional[str]:
+        """Extract output_text delta from a Responses streaming event.
+
+        We only emit text deltas. All other event types are ignored.
+        """
+        etype = self._event_type(event)
+        if etype != 'response.output_text.delta':
+            return None
+
+        if isinstance(event, dict):
+            delta = event.get('delta')
+        else:
+            delta = getattr(event, 'delta', None)
+        return delta
+
+    def stream(self, req) -> Iterable[str]:
+        params = self._prepare_request_params(req)
+        client = get_openai_client()
+
+        stream_method = getattr(client.responses, 'stream', None)
+        if callable(stream_method):
+            try:
+                with stream_method(**params) as stream:
+                    for event in stream:
+                        delta = self._event_text_delta(event)
+                        if delta:
+                            yield delta
+                return
+            except Exception as e:
+                logger.error('OpenAI streaming request failed: %s', e)
+                raise e
+
+        try:
+            response = client.responses.create(**params, stream=True)
+        except TypeError:
+            yield from super().stream(req)
+            return
+        except Exception as e:
+            logger.error('OpenAI streaming request failed: %s', e)
+            raise e
+
+        for event in response:
+            delta = self._event_text_delta(event)
+            if delta:
+                yield delta
             
     async def async_call(self, req):
         '''Async call to the OpenAI model with the request and return the response as an AIMessage'''
@@ -182,6 +234,38 @@ class OpenAIBackend(LLMBackend):
             logger.error('OpenAI request failed: %s', e)
             raise e
         return self._process_response(response)
+
+    async def async_stream(self, req) -> AsyncIterable[str]:
+        params = self._prepare_request_params(req)
+        client = get_async_openai_client()
+
+        stream_method = getattr(client.responses, 'stream', None)
+        if callable(stream_method):
+            try:
+                async with stream_method(**params) as stream:
+                    async for event in stream:
+                        delta = self._event_text_delta(event)
+                        if delta:
+                            yield delta
+                return
+            except Exception as e:
+                logger.error('OpenAI streaming request failed: %s', e)
+                raise e
+
+        try:
+            response = await client.responses.create(**params, stream=True)
+        except TypeError:
+            async for chunk in super().async_stream(req):
+                yield chunk
+            return
+        except Exception as e:
+            logger.error('OpenAI streaming request failed: %s', e)
+            raise e
+
+        async for event in response:
+            delta = self._event_text_delta(event)
+            if delta:
+                yield delta
 
 LLMBackend.register_backend('gpt-*', OpenAIBackend)
 

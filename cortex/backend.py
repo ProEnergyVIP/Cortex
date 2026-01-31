@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, AsyncIterable, Callable, Dict, Iterable, List, Optional, Type
 from enum import Enum
 import fnmatch
 
@@ -132,6 +132,32 @@ class LLMBackend:
     async def async_call(self, req: LLMRequest) -> AIMessage | None:
         """Async version of call method. By default falls back to synchronous call."""
         return None
+
+    def stream(self, req: LLMRequest) -> Iterable[str]:
+        """Stream text deltas from the model.
+
+        Default behavior is non-streaming: call once and yield the final content.
+        """
+        msg = self.call(req)
+        if msg is None:
+            return iter(())
+        content = getattr(msg, "content", None)
+        if not content:
+            return iter(())
+        return iter((content,))
+
+    async def async_stream(self, req: LLMRequest) -> AsyncIterable[str]:
+        """Async stream text deltas from the model.
+
+        Default behavior is non-streaming: async_call once and yield the final content.
+        """
+        msg = await self.async_call(req)
+        if msg is None:
+            return
+        content = getattr(msg, "content", None)
+        if not content:
+            return
+        yield content
 
     @classmethod
     def get_backend(cls, model):

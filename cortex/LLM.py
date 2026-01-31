@@ -87,7 +87,7 @@ class LLM:
         effective_model = self._get_effective_model(self.model)
         self.backend = LLMBackend.get_backend(effective_model)
 
-    def call(self, sys_msg, msgs, max_tokens=None, tools=None):
+    def call(self, sys_msg, msgs, max_tokens=None, tools=None, streaming: bool = False):
         '''Call the model with the given messages and return the response message
 
         Args:
@@ -96,6 +96,9 @@ class LLM:
         Returns: message like above
         '''
         try:
+            if streaming and tools:
+                raise ValueError('Streaming does not support tools/function calls. Pass tools=None when streaming=True.')
+
             req = LLMRequest(system_message=sys_msg,
                             messages=msgs,
                             temperature=self.temperature,
@@ -103,6 +106,9 @@ class LLM:
                             tools=tools or [],
                             reasoning_effort=self.reasoning_effort,
                             )
+
+            if streaming:
+                return self.backend.stream(req)
             return self.backend.call(req)
         except Exception as _:
             # Check if we can switch to backup
@@ -116,11 +122,11 @@ class LLM:
 
             # Retry with new backend if we switched
             if should_retry:
-                return self.call(sys_msg, msgs, max_tokens, tools)
+                return self.call(sys_msg, msgs, max_tokens, tools, streaming)
             
             raise  # Re-raise if no backup available or already using backup
-    
-    async def async_call(self, sys_msg, msgs, max_tokens=None, tools=None):
+
+    async def async_call(self, sys_msg, msgs, max_tokens=None, tools=None, streaming: bool = False):
         '''Async call to the model with the given messages and return the response message
 
         Args:
@@ -129,6 +135,9 @@ class LLM:
         Returns: message like above
         '''
         try:
+            if streaming and tools:
+                raise ValueError('Streaming does not support tools/function calls. Pass tools=None when streaming=True.')
+
             req = LLMRequest(system_message=sys_msg,
                             messages=msgs,
                             temperature=self.temperature,
@@ -136,6 +145,9 @@ class LLM:
                             tools=tools or [],
                             reasoning_effort=self.reasoning_effort,
                             )
+
+            if streaming:
+                return self.backend.async_stream(req)
             return await self.backend.async_call(req)
         except Exception as _:
             # Check if we can switch to backup
@@ -149,7 +161,7 @@ class LLM:
 
             # Retry with new backend if we switched
             if should_retry:
-                return await self.async_call(sys_msg, msgs, max_tokens, tools)
+                return await self.async_call(sys_msg, msgs, max_tokens, tools, streaming)
             
             raise  # Re-raise if no backup available or already using backup
 
