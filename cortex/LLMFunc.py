@@ -55,7 +55,7 @@ def _handle_logging(msgs, ai_msg, usage):
     if usage and ai_msg.model and ai_msg.usage:
         usage.add_usage(ai_msg.model, ai_msg.usage)
 
-def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm_args=None, logging_config=None, async_mode=False):
+def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm_args=None, logging_config=None, async_mode=False, streaming: bool = False):
     '''Create a new LLMFunc, which is a LLM based intelligent function
     
     This function is used to create a new LLMFunc, which is a function that uses an LLM to
@@ -79,9 +79,12 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
     max_attempts (int): The maximum number of attempts to make, default is 3
     logging_config (LoggingConfig): Configuration for message logging
     async_mode (bool): If True, returns an async function that uses the LLM's async_call method
+    streaming (bool): If True, returns a generator (sync) or async generator (async) that yields text deltas.
+        Streaming is not compatible with result_shape or check_func.
 
     Returns:
-    function: The LLMFunc function (async if async_mode is True)
+    function: The LLMFunc function (async if async_mode is True). When streaming=True, the returned
+        function yields string deltas instead of returning a final value.
     '''
     if result_shape:
         prompt += JSON_FORMAT.format(shape=json.dumps(result_shape))
@@ -94,7 +97,23 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
     
     llm_args = llm_args or {}
 
+    if 'streaming' in llm_args:
+        raise ValueError('Do not pass streaming via llm_args; use the streaming parameter of llmfunc().')
+
+    if streaming and (result_shape or check_func):
+        raise ValueError('Streaming is not compatible with result_shape or check_func.')
+
     if async_mode:
+        if streaming:
+            async def func(msg, usage=None):
+                msgs = _prepare_messages(msg)
+                for msg in msgs:
+                    logger.info(msg.decorate())
+
+                async for delta in llm.async_call(sys_msg, msgs, streaming=True, **llm_args):
+                    yield delta
+            return func
+
         async def func(msg, usage=None):
             msgs = _prepare_messages(msg)
             history = []
@@ -123,6 +142,16 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
                 history.append(msg)
         return func
     else:
+        if streaming:
+            def func(msg, usage=None):
+                msgs = _prepare_messages(msg)
+                for msg in msgs:
+                    logger.info(msg.decorate())
+
+                for delta in llm.call(sys_msg, msgs, streaming=True, **llm_args):
+                    yield delta
+            return func
+
         def func(msg, usage=None):
             msgs = _prepare_messages(msg)
             history = []
