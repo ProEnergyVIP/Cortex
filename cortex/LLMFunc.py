@@ -110,7 +110,8 @@ def llmfunc(llm, prompt, result_shape=None, check_func=None, max_attempts=3, llm
                 for msg in msgs:
                     logger.info(msg.decorate())
 
-                async for delta in llm.async_call(sys_msg, msgs, streaming=True, **llm_args):
+                stream = await llm.async_call(sys_msg, msgs, streaming=True, **llm_args)
+                async for delta in stream:
                     yield delta
             return func
 

@@ -309,7 +309,8 @@ class Agent:
                 msgs = [*history_msgs, *conversation]
                 content_parts: list[str] = []
                 try:
-                    async for delta in self.llm.async_call(self.sys_msg, msgs, tools=None, streaming=True):
+                    stream = await self.llm.async_call(self.sys_msg, msgs, tools=None, streaming=True)
+                    async for delta in stream:
                         if delta:
                             content_parts.append(delta)
                             yield delta
