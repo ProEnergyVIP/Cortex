@@ -3,12 +3,12 @@ import asyncio
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional, Tuple
+from typing import AsyncIterable, Iterable, List, Optional, Tuple
 
 # Local imports
 from cortex.debug import is_debug
 from cortex.LLM import get_random_error_message
-from cortex.message import (DeveloperMessage, FunctionCall, Message, SystemMessage,
+from cortex.message import (AIMessage, DeveloperMessage, FunctionCall, Message, SystemMessage,
                                 ToolMessage, ToolMessageGroup, UserMessage, AgentUsage)
 from cortex.tool import BaseTool, FunctionTool, Tool
 
@@ -190,7 +190,7 @@ class Agent:
         
         logger.info(END_DELIM)
 
-    def ask(self, message: str | Message | List[Message], usage=None, loop_limit=10):
+    def ask(self, message: str | Message | List[Message], usage=None, loop_limit=10, streaming: bool = False):
         '''Ask a question to the agent, and get a response
 
         Args:
@@ -208,6 +208,39 @@ class Agent:
                 f"Agent mode is '{self.mode}' but ask() is for sync mode. "
                 f"Use async_ask() instead or set mode='sync' at initialization."
             )
+
+        if streaming:
+            if self.tools:
+                raise ValueError('Agent streaming currently requires no tools.')
+
+            agent_usage = AgentUsage()
+            history_msgs = self.memory.load_memory() if self.memory else []
+            conversation = self._prepare_conversation(message, history_msgs)
+
+            is_error = False
+
+            def gen() -> Iterable[str]:
+                nonlocal is_error
+
+                msgs = [*history_msgs, *conversation]
+                content_parts: list[str] = []
+                try:
+                    for delta in self.llm.call(self.sys_msg, msgs, tools=None, streaming=True):
+                        if delta:
+                            content_parts.append(delta)
+                            yield delta
+                except Exception as e:
+                    logger.error('error calling LLM model: %s', e)
+                    err_msg = get_random_error_message()
+                    is_error = True
+                    content_parts.append(err_msg)
+                    yield err_msg
+                finally:
+                    ai_msg = AIMessage(content=''.join(content_parts))
+                    conversation.append(ai_msg)
+                    self._handle_response(conversation, agent_usage, usage, is_error)
+
+            return gen()
         
         reply = None
         agent_usage = AgentUsage()  # Track total usage across all calls
@@ -244,7 +277,7 @@ class Agent:
         self._handle_response(conversation, agent_usage, usage, is_error)
         return reply if reply is not None else DEFAULT_FALLBACK_MESSAGE
 
-    async def async_ask(self, message: str | Message | List[Message], usage=None, loop_limit=10):
+    async def async_ask(self, message: str | Message | List[Message], usage=None, loop_limit=10, streaming: bool = False):
         '''Ask a question to the agent asynchronously, and get a response
 
         Args:
@@ -262,6 +295,36 @@ class Agent:
                 f"Agent mode is '{self.mode}' but async_ask() is for async mode. "
                 f"Use ask() instead or set mode='async' at initialization."
             )
+
+        if streaming:
+            if self.tools:
+                raise ValueError('Agent streaming currently requires no tools.')
+
+            agent_usage = AgentUsage()
+            history_msgs = await self.memory.load_memory() if self.memory else []
+            conversation = self._prepare_conversation(message, history_msgs)
+
+            async def gen() -> AsyncIterable[str]:
+                is_error = False
+                msgs = [*history_msgs, *conversation]
+                content_parts: list[str] = []
+                try:
+                    async for delta in self.llm.async_call(self.sys_msg, msgs, tools=None, streaming=True):
+                        if delta:
+                            content_parts.append(delta)
+                            yield delta
+                except Exception as e:
+                    logger.error('error calling LLM model: %s', e)
+                    err_msg = get_random_error_message()
+                    is_error = True
+                    content_parts.append(err_msg)
+                    yield err_msg
+                finally:
+                    ai_msg = AIMessage(content=''.join(content_parts))
+                    conversation.append(ai_msg)
+                    await self._async_handle_response(conversation, agent_usage, usage, is_error)
+
+            return gen()
         
         reply = None
         agent_usage = AgentUsage()  # Track total usage across all calls
