@@ -3,11 +3,18 @@ Redis-based implementation of agent memory system with separate sync and async c
 Uses native Redis data structures for optimal performance.
 """
 
+import logging
 import pickle
-from typing import List
+from typing import Callable, List, Optional
 
-from cortex.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
-from cortex.message import Message
+from cortex.LLM import LLM
+from cortex.agent_memory import (
+    AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank,
+    _build_default_summary_fn_sync, _build_default_summary_fn_async,
+)
+from cortex.message import Message, SystemMessage
+
+logger = logging.getLogger(__name__)
 
 # Shared Lua script to delete all keys matching a pattern
 DELETE_BY_PATTERN_LUA = """
@@ -23,21 +30,66 @@ class RedisAgentMemory(AgentMemory):
     """
     Redis-based implementation of agent memory.
     Stores messages in Redis using native data structures.
+    
+    Supports the same conversation summary feature as AgentMemory.
+    The summary text is persisted in Redis under ``{key}:summary``.
+    
+    Args:
+        k: Maximum number of message groups to store.
+        redis_client: A Redis client instance.
+        key: Redis key for this memory.
+        enable_summary: If True, enable periodic conversation summarization.
+        summary_fn: Custom sync summarization function with signature
+            ``(current_summary: str, messages: List[Message]) -> str``.
+        summary_llm: LLM instance for the default summarizer.
+        summarize_every_n: Run summarization every N evictions. Default 3.
     """
     
-    def __init__(self, k: int, redis_client, key: str):
-        """
-        Initialize a Redis-based agent memory.
-        
-        Args:
-            k: Maximum number of message groups to store
-            redis_client: A Redis client instance
-            key: Redis key for this memory
-        """
+    def __init__(self, k: int, redis_client, key: str,
+                 enable_summary: bool = False,
+                 summary_fn: Optional[Callable] = None,
+                 summary_llm: Optional[object] = None,
+                 summarize_every_n: int = 3):
         self.k = k
         self.redis_client = redis_client
         self.key = key
-    
+        self.enable_summary = enable_summary
+        self.summary_fn = summary_fn
+        self.summary_llm = summary_llm
+        self.summarize_every_n = summarize_every_n
+        # Transient in-memory state
+        self._eviction_counter: int = 0
+        self._summary_fn_resolved: Optional[Callable] = None
+
+    @property
+    def _summary_key(self) -> str:
+        return f"{self.key}:summary"
+
+    def _get_summary_fn(self) -> Callable:
+        """Lazily resolve the summarization function."""
+        if self._summary_fn_resolved is not None:
+            return self._summary_fn_resolved
+        if self.summary_fn is not None:
+            self._summary_fn_resolved = self.summary_fn
+        else:
+            llm = self.summary_llm
+            if llm is None:
+                llm = LLM(model='gpt-5-nano')
+                self.summary_llm = llm
+            self._summary_fn_resolved = _build_default_summary_fn_sync(llm)
+        return self._summary_fn_resolved
+
+    def _run_summarization(self, evicted_msgs: List[Message]) -> None:
+        """Run the summarization function on evicted messages."""
+        try:
+            fn = self._get_summary_fn()
+            current = self.get_summary()
+            new_summary = fn(current, evicted_msgs)
+            self.set_summary(new_summary)
+            logger.debug("Redis conversation summary updated (%d chars)", len(new_summary))
+        except Exception as e:
+            logger.warning("Redis conversation summarization failed: %s", e)
+
     def add_messages(self, msgs: List[Message]) -> None:
         """
         Add messages to the memory.
@@ -54,11 +106,23 @@ class RedisAgentMemory(AgentMemory):
         
         # Trim if necessary to keep only the last k elements
         if self.redis_client.llen(self.key) > self.k:
+            # Grab the evicted round before trimming
+            evicted_data = self.redis_client.lindex(self.key, 0)
             self.redis_client.ltrim(self.key, -self.k, -1)
+
+            if self.enable_summary and evicted_data is not None:
+                self._eviction_counter += 1
+                if self._eviction_counter >= self.summarize_every_n:
+                    evicted_msgs = pickle.loads(evicted_data)
+                    self._run_summarization(evicted_msgs)
+                    self._eviction_counter = 0
     
     def load_memory(self) -> List[Message]:
         """
         Load all messages from memory.
+        
+        If a conversation summary exists in Redis, it is prepended as a
+        SystemMessage so the agent has access to important earlier context.
         
         Returns:
             List of messages
@@ -66,17 +130,33 @@ class RedisAgentMemory(AgentMemory):
         
         # Get all elements from the list
         message_groups = self.redis_client.lrange(self.key, 0, -1)
-        if not message_groups:
-            return []
         
-        # Parse each message group and flatten
         result = []
-        for serialized_group in message_groups:
-            group = pickle.loads(serialized_group)
-            result.extend(group)
+        summary = self.get_summary()
+        if summary:
+            result.append(SystemMessage(content=f"Summary of earlier conversation:\n{summary}"))
+        
+        if message_groups:
+            for serialized_group in message_groups:
+                group = pickle.loads(serialized_group)
+                result.extend(group)
         
         return result
     
+    def get_summary(self) -> str:
+        """Return the current conversation summary from Redis."""
+        val = self.redis_client.get(self._summary_key)
+        if val is None:
+            return ""
+        return val if isinstance(val, str) else val.decode('utf-8')
+
+    def set_summary(self, summary: str) -> None:
+        """Persist the conversation summary to Redis."""
+        if summary:
+            self.redis_client.set(self._summary_key, summary)
+        else:
+            self.redis_client.delete(self._summary_key)
+
     def is_empty(self) -> bool:
         """
         Check if memory is empty.
@@ -85,30 +165,76 @@ class RedisAgentMemory(AgentMemory):
             True if memory is empty, False otherwise
         """
         
-        # Check if the list exists and has elements
         length = self.redis_client.llen(self.key)
-        return length == 0
+        if length > 0:
+            return False
+        return not self.get_summary()
 
 
 class AsyncRedisAgentMemory(AsyncAgentMemory):
     """
     Asynchronous Redis-based implementation of agent memory.
     Stores messages in Redis using native data structures.
+    
+    Supports the same conversation summary feature as AsyncAgentMemory.
+    The summary text is persisted in Redis under ``{key}:summary``.
+    
+    Args:
+        k: Maximum number of message groups to store.
+        async_redis_client: An async Redis client instance.
+        key: Redis key for this memory.
+        enable_summary: If True, enable periodic conversation summarization.
+        summary_fn: Custom async summarization function with signature
+            ``async (current_summary: str, messages: List[Message]) -> str``.
+        summary_llm: LLM instance for the default summarizer.
+        summarize_every_n: Run summarization every N evictions. Default 3.
     """
     
-    def __init__(self, k: int, async_redis_client, key: str):
-        """
-        Initialize an async Redis-based agent memory.
-        
-        Args:
-            k: Maximum number of message groups to store
-            async_redis_client: An async Redis client instance
-            key: Redis key for this memory
-        """
+    def __init__(self, k: int, async_redis_client, key: str,
+                 enable_summary: bool = False,
+                 summary_fn: Optional[Callable] = None,
+                 summary_llm: Optional[object] = None,
+                 summarize_every_n: int = 3):
         self.k = k
         self.async_redis_client = async_redis_client
         self.key = key
-    
+        self.enable_summary = enable_summary
+        self.summary_fn = summary_fn
+        self.summary_llm = summary_llm
+        self.summarize_every_n = summarize_every_n
+        # Transient in-memory state
+        self._eviction_counter: int = 0
+        self._summary_fn_resolved: Optional[Callable] = None
+
+    @property
+    def _summary_key(self) -> str:
+        return f"{self.key}:summary"
+
+    def _get_summary_fn(self) -> Callable:
+        """Lazily resolve the async summarization function."""
+        if self._summary_fn_resolved is not None:
+            return self._summary_fn_resolved
+        if self.summary_fn is not None:
+            self._summary_fn_resolved = self.summary_fn
+        else:
+            llm = self.summary_llm
+            if llm is None:
+                llm = LLM(model='gpt-5-nano')
+                self.summary_llm = llm
+            self._summary_fn_resolved = _build_default_summary_fn_async(llm)
+        return self._summary_fn_resolved
+
+    async def _run_summarization(self, evicted_msgs: List[Message]) -> None:
+        """Run the async summarization function on evicted messages."""
+        try:
+            fn = self._get_summary_fn()
+            current = await self.get_summary()
+            new_summary = await fn(current, evicted_msgs)
+            await self.set_summary(new_summary)
+            logger.debug("Redis async conversation summary updated (%d chars)", len(new_summary))
+        except Exception as e:
+            logger.warning("Redis async conversation summarization failed: %s", e)
+
     async def add_messages(self, msgs: List[Message]) -> None:
         """
         Add messages to the memory asynchronously.
@@ -125,29 +251,56 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
         
         # Trim if necessary to keep only the last k elements
         if await self.async_redis_client.llen(self.key) > self.k:
+            # Grab the evicted round before trimming
+            evicted_data = await self.async_redis_client.lindex(self.key, 0)
             await self.async_redis_client.ltrim(self.key, -self.k, -1)
+
+            if self.enable_summary and evicted_data is not None:
+                self._eviction_counter += 1
+                if self._eviction_counter >= self.summarize_every_n:
+                    evicted_msgs = pickle.loads(evicted_data)
+                    await self._run_summarization(evicted_msgs)
+                    self._eviction_counter = 0
     
     async def load_memory(self) -> List[Message]:
         """
         Load all messages from memory asynchronously.
         
+        If a conversation summary exists in Redis, it is prepended as a
+        SystemMessage so the agent has access to important earlier context.
+        
         Returns:
             List of messages
         """
         
-        # Get all elements from the list
         message_groups = await self.async_redis_client.lrange(self.key, 0, -1)
-        if not message_groups:
-            return []
         
-        # Parse each message group and flatten
         result = []
-        for serialized_group in message_groups:
-            group = pickle.loads(serialized_group)
-            result.extend(group)
+        summary = await self.get_summary()
+        if summary:
+            result.append(SystemMessage(content=f"Summary of earlier conversation:\n{summary}"))
+        
+        if message_groups:
+            for serialized_group in message_groups:
+                group = pickle.loads(serialized_group)
+                result.extend(group)
         
         return result
     
+    async def get_summary(self) -> str:
+        """Return the current conversation summary from Redis."""
+        val = await self.async_redis_client.get(self._summary_key)
+        if val is None:
+            return ""
+        return val if isinstance(val, str) else val.decode('utf-8')
+
+    async def set_summary(self, summary: str) -> None:
+        """Persist the conversation summary to Redis."""
+        if summary:
+            await self.async_redis_client.set(self._summary_key, summary)
+        else:
+            await self.async_redis_client.delete(self._summary_key)
+
     async def is_empty(self) -> bool:
         """
         Check if memory is empty asynchronously.
@@ -156,9 +309,10 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
             True if memory is empty, False otherwise
         """
         
-        # Check if the list exists and has elements
         length = await self.async_redis_client.llen(self.key)
-        return length == 0
+        if length > 0:
+            return False
+        return not await self.get_summary()
 
 
 class RedisAgentMemoryBank(AgentMemoryBank):
@@ -213,13 +367,15 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         """Get the Redis key for the list of agents"""
         return f"{self.key_prefix}:agents"
     
-    def get_agent_memory(self, agent_name: str, k: int = 5) -> RedisAgentMemory:
+    def get_agent_memory(self, agent_name: str, k: int = 5, **kwargs) -> RedisAgentMemory:
         """
         Get memory for a named agent.
         
         Args:
             agent_name: Name of the agent
             k: Maximum number of message groups to store
+            **kwargs: Additional keyword arguments forwarded to RedisAgentMemory
+                (e.g. enable_summary, summary_fn, summary_llm, summarize_every_n).
             
         Returns:
             Agent memory for the specified agent
@@ -233,7 +389,8 @@ class RedisAgentMemoryBank(AgentMemoryBank):
         mem = RedisAgentMemory(
             k=k, 
             redis_client=self.redis_client, 
-            key=memory_key
+            key=memory_key,
+            **kwargs
         )
         
         # Add to local cache for performance
@@ -407,13 +564,15 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         """Get the Redis key for the list of agents"""
         return f"{self.key_prefix}:agents"
     
-    async def get_agent_memory(self, agent_name: str, k: int = 5) -> AsyncRedisAgentMemory:
+    async def get_agent_memory(self, agent_name: str, k: int = 5, **kwargs) -> AsyncRedisAgentMemory:
         """
         Get memory for a named agent asynchronously.
         
         Args:
             agent_name: Name of the agent
             k: Maximum number of message groups to store
+            **kwargs: Additional keyword arguments forwarded to AsyncRedisAgentMemory
+                (e.g. enable_summary, summary_fn, summary_llm, summarize_every_n).
             
         Returns:
             Agent memory for the specified agent
@@ -427,7 +586,8 @@ class AsyncRedisAgentMemoryBank(AsyncAgentMemoryBank):
         mem = AsyncRedisAgentMemory(
             k=k, 
             async_redis_client=self.async_redis_client, 
-            key=memory_key
+            key=memory_key,
+            **kwargs
         )
         
         # Add to local cache for performance

@@ -38,7 +38,7 @@ from cortex.backends import OpenAIEmbeddingModels
 from cortex.vector_stores import VectorStore, VectorStoreType, get_vector_store, InMemoryVectorStore
 
 # Base and in-memory implementations
-from cortex.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank
+from cortex.agent_memory import AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank, DEFAULT_SUMMARY_PROMPT
 
 # Redis implementations
 from cortex.redis_agent_memory import (
@@ -88,6 +88,7 @@ __all__ = [
     # Memory classes
     'AgentMemory', 'AsyncAgentMemory',
     'AgentMemoryBank', 'AsyncAgentMemoryBank',
+    'DEFAULT_SUMMARY_PROMPT',
     
     # Redis implementations
     'RedisAgentMemory', 'AsyncRedisAgentMemory',
