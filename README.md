@@ -8,6 +8,7 @@ Cortex is a Python framework designed to simplify the process of building AI age
 - **Prompt Engineering**: Build and customize prompts with minimal effort.
 - **Tool Integration**: Add and manage tools that your AI agents can use.
 - **Context Management**: Maintain and manipulate conversational context seamlessly.
+- **Conversation Summary**: Automatically retain important context from older conversation rounds via periodic summarization.
 - **Agent System**: Higher-level API for building multi-agent systems with coordinator-worker patterns.
 - **Flexible API**: Designed to adapt to various use cases.
 

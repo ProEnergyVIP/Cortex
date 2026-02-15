@@ -254,6 +254,39 @@ Streaming mode:
 
 - `agent.ask(..., streaming=True)` / `agent.async_ask(..., streaming=True)` currently require **no tools**.
 
+### 6.5 Conversation Summary
+
+Agent memory supports an optional **conversation summary** that retains important context from evicted rounds.
+
+#### How it works
+
+1. When `enable_summary=True`, evicted message rounds are counted.
+2. Every `summarize_every_n` evictions, the summarization function is called with `(current_summary, evicted_messages)`.
+3. The returned string replaces the stored summary.
+4. On `load_memory()`, if a summary exists, it is prepended as a `SystemMessage` before the conversation rounds.
+
+#### Summarization function resolution
+
+The summary function is resolved lazily on first use, in this order:
+
+1. **Custom `summary_fn`** — if provided, used directly (no LLM calls).
+2. **Default LLM summarizer** — built from `summary_llm` (or a lazily-created `LLM(model='gpt-5-nano')`). Uses `DEFAULT_SUMMARY_PROMPT` to instruct the LLM to condense the conversation.
+
+#### Failure handling
+
+Summarization errors are caught and logged as warnings. The agent continues normally — a failed summarization never breaks the conversation loop.
+
+#### In-memory vs Redis storage
+
+- **`AgentMemory` / `AsyncAgentMemory`**: summary is stored as an in-memory string (`_summary` field). Lost on process restart.
+- **`RedisAgentMemory` / `AsyncRedisAgentMemory`**: summary is persisted in Redis under `{key}:summary`. Survives restarts and is shared across instances pointing at the same key.
+
+#### Integration points
+
+- `AgentMemory.add_messages()` / `AsyncAgentMemory.add_messages()` — eviction counting and summarization trigger.
+- `AgentMemory.load_memory()` / `AsyncAgentMemory.load_memory()` — summary injection.
+- `AgentMemoryBank.get_agent_memory(**kwargs)` — forwards `enable_summary`, `summary_fn`, `summary_llm`, `summarize_every_n`.
+
 ---
 
 ## 7) Agent System: builders + runtime systems

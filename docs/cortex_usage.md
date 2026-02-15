@@ -256,6 +256,177 @@ from cortex import AsyncAgentMemoryBank
 memory_bank = AsyncAgentMemoryBank()
 ```
 
+### 5.3.1 Conversation Summary
+
+By default, agent memory keeps only the last `k` conversation rounds. Older rounds are discarded, which means important context from earlier in the conversation is lost.
+
+**Conversation Summary** solves this by periodically summarizing evicted messages and prepending the summary as a `SystemMessage` when loading memory. The agent always sees the important context, even after many rounds.
+
+#### Enable with one flag
+
+The simplest way to enable summarization — uses a built-in LLM summarizer (`gpt-5-nano`):
+
+```python
+from cortex import AgentMemory
+
+memory = AgentMemory(k=5, enable_summary=True)
+```
+
+That's it. Every 3 evictions (default), the memory will call a small LLM to update the running summary. The summary is automatically included when the agent loads its history.
+
+#### Control summarization frequency
+
+By default, summarization runs every 3rd eviction. Adjust with `summarize_every_n`:
+
+```python
+# Summarize on every eviction (more up-to-date, more LLM calls)
+memory = AgentMemory(k=5, enable_summary=True, summarize_every_n=1)
+
+# Summarize every 5th eviction (fewer calls, slightly staler summary)
+memory = AgentMemory(k=5, enable_summary=True, summarize_every_n=5)
+```
+
+#### Use a custom LLM for summarization
+
+If you want a different model for the summarizer:
+
+```python
+from cortex import LLM, GPTModels, AgentMemory
+
+summary_llm = LLM(model=GPTModels.GPT_4O_MINI, temperature=0.2)
+memory = AgentMemory(k=5, enable_summary=True, summary_llm=summary_llm)
+```
+
+#### Provide your own summarization function
+
+For full control over what gets retained, supply a custom `summary_fn`. The function receives the current summary and the evicted messages, and returns the new summary:
+
+```python
+from cortex import AgentMemory
+
+def my_summarizer(current_summary: str, messages: list) -> str:
+    """Keep only user questions in the summary."""
+    questions = [m.content for m in messages if hasattr(m, 'content') and '?' in m.content]
+    new_info = "; ".join(questions)
+    if current_summary:
+        return f"{current_summary}\n{new_info}"
+    return new_info
+
+memory = AgentMemory(k=5, enable_summary=True, summary_fn=my_summarizer)
+```
+
+When `summary_fn` is provided, it takes precedence over the default LLM-based summarizer — no LLM calls are made.
+
+#### Async agents
+
+For async agents, use `AsyncAgentMemory` with the same parameters. If you provide a custom `summary_fn`, it must be an `async` function:
+
+```python
+from cortex import AsyncAgentMemory
+
+async def my_async_summarizer(current_summary: str, messages: list) -> str:
+    # your async logic here
+    return current_summary + "\n" + "; ".join(m.content for m in messages)
+
+memory = AsyncAgentMemory(k=5, enable_summary=True, summary_fn=my_async_summarizer)
+```
+
+#### Read or set the summary manually
+
+You can inspect or override the summary at any time:
+
+```python
+# Read the current summary
+print(memory.get_summary())
+
+# Set it manually (e.g. seed with prior context)
+memory.set_summary("User is a Python developer working on a web app.")
+```
+
+#### Using with memory banks
+
+Memory banks forward summary parameters when creating agent memories:
+
+```python
+from cortex import AgentMemoryBank
+
+bank = AgentMemoryBank.bank_for("user_123")
+memory = bank.get_agent_memory(
+    "assistant",
+    k=5,
+    enable_summary=True,
+    summarize_every_n=2,
+)
+```
+
+#### Redis-backed memory with summary
+
+The Redis memory classes persist the summary in Redis (under `{key}:summary`), so it survives process restarts:
+
+```python
+from cortex.redis_agent_memory import RedisAgentMemory, RedisAgentMemoryBank
+
+# Direct usage
+memory = RedisAgentMemory(
+    k=5,
+    redis_client=redis_client,
+    key="user:123:assistant",
+    enable_summary=True,
+    summarize_every_n=2,
+)
+
+# Via memory bank
+bank = RedisAgentMemoryBank(redis_client=redis_client)
+memory = bank.get_agent_memory(
+    "assistant",
+    k=5,
+    enable_summary=True,
+    summary_fn=my_summarizer,
+)
+```
+
+Because the summary is stored in Redis, a new `RedisAgentMemory` instance pointing at the same key will automatically pick up the existing summary — useful for serverless or multi-process deployments.
+
+#### Wiring memory to an agent
+
+Pass the memory to your agent as usual:
+
+```python
+from cortex import Agent, LLM, GPTModels, AgentMemory
+
+memory = AgentMemory(k=5, enable_summary=True)
+
+agent = Agent(
+    llm=LLM(model=GPTModels.GPT_4O_MINI),
+    sys_prompt="You are a helpful assistant.",
+    memory=memory,
+    mode="sync",
+)
+
+# The agent will automatically use the summary in its context
+agent.ask("My name is Alice and I work at Acme Corp.")
+agent.ask("What's the weather today?")
+# ... many rounds later, the summary retains "Alice", "Acme Corp", etc.
+```
+
+#### Reference: the default summary prompt
+
+The built-in summarizer uses `DEFAULT_SUMMARY_PROMPT`, which you can import for reference or reuse:
+
+```python
+from cortex import DEFAULT_SUMMARY_PROMPT
+print(DEFAULT_SUMMARY_PROMPT)
+```
+
+#### Quick reference
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `enable_summary` | `bool` | `False` | Turn on periodic summarization |
+| `summary_fn` | `Callable` | `None` | Custom summarizer; takes precedence over LLM |
+| `summary_llm` | `LLM` | `None` | LLM for default summarizer (auto-creates `gpt-5-nano`) |
+| `summarize_every_n` | `int` | `3` | Summarize every N-th eviction |
+
 ### 5.4 JSON reply mode
 
 If you set `json_reply=True`, the agent parses the final model output via `json.loads(...)`.
