@@ -86,6 +86,7 @@ class AgentMemory:
     # Internal state
     _summary: str = field(default="", repr=False)
     _eviction_counter: int = field(default=0, repr=False)
+    _eviction_buffer: List = field(default_factory=list, repr=False)
     _summary_fn_resolved: Optional[Callable] = field(default=None, repr=False)
 
     def _get_summary_fn(self) -> Callable[[str, List[Message]], str]:
@@ -102,11 +103,11 @@ class AgentMemory:
             self._summary_fn_resolved = _build_default_summary_fn_sync(llm)
         return self._summary_fn_resolved
 
-    def _run_summarization(self, evicted_msgs: List[Message]) -> None:
-        """Run the summarization function on evicted messages."""
+    def _run_summarization(self, buffered_msgs: List[Message]) -> None:
+        """Run the summarization function on buffered evicted messages."""
         try:
             fn = self._get_summary_fn()
-            self._summary = fn(self._summary, evicted_msgs)
+            self._summary = fn(self._summary, buffered_msgs)
             logger.debug("Conversation summary updated (%d chars)", len(self._summary))
         except Exception as e:
             logger.warning("Conversation summarization failed: %s", e)
@@ -118,10 +119,11 @@ class AgentMemory:
         if len(self.chat_memory) > self.k:
             evicted = self.chat_memory.popleft()
             if self.enable_summary:
+                self._eviction_buffer.extend(evicted)
                 self._eviction_counter += 1
                 if self._eviction_counter >= self.summarize_every_n:
-                    # Collect the evicted round for summarization
-                    self._run_summarization(evicted)
+                    self._run_summarization(self._eviction_buffer)
+                    self._eviction_buffer = []
                     self._eviction_counter = 0
 
     def load_memory(self) -> List[Message]:
@@ -129,12 +131,18 @@ class AgentMemory:
         
         If a conversation summary exists, it is prepended as a SystemMessage
         so the agent has access to important context from earlier rounds.
+        
+        If there are buffered evicted messages not yet summarized, they are
+        also prepended so the LLM never loses visibility of recent evictions.
         """
         msgs = [m for chat in self.chat_memory for m in chat]
+        prefix = []
         if self._summary:
-            summary_msg = SystemMessage(content=f"Summary of earlier conversation:\n{self._summary}")
-            return [summary_msg] + msgs
-        return msgs
+            prefix.append(SystemMessage(content=f"Summary of earlier conversation:\n{self._summary}"))
+        if self._eviction_buffer:
+            buffer_text = _format_messages_for_summary(self._eviction_buffer)
+            prefix.append(SystemMessage(content=f"Recent conversation not yet in summary:\n{buffer_text}"))
+        return prefix + msgs
     
     def get_summary(self) -> str:
         """Return the current conversation summary text."""
@@ -176,6 +184,7 @@ class AsyncAgentMemory:
     # Internal state
     _summary: str = field(default="", repr=False)
     _eviction_counter: int = field(default=0, repr=False)
+    _eviction_buffer: List = field(default_factory=list, repr=False)
     _summary_fn_resolved: Optional[Callable] = field(default=None, repr=False)
 
     def _get_summary_fn(self) -> Callable:
@@ -192,11 +201,11 @@ class AsyncAgentMemory:
             self._summary_fn_resolved = _build_default_summary_fn_async(llm)
         return self._summary_fn_resolved
 
-    async def _run_summarization(self, evicted_msgs: List[Message]) -> None:
-        """Run the async summarization function on evicted messages."""
+    async def _run_summarization(self, buffered_msgs: List[Message]) -> None:
+        """Run the async summarization function on buffered evicted messages."""
         try:
             fn = self._get_summary_fn()
-            self._summary = await fn(self._summary, evicted_msgs)
+            self._summary = await fn(self._summary, buffered_msgs)
             logger.debug("Conversation summary updated (%d chars)", len(self._summary))
         except Exception as e:
             logger.warning("Conversation summarization failed: %s", e)
@@ -208,21 +217,29 @@ class AsyncAgentMemory:
         if len(self.chat_memory) > self.k:
             evicted = self.chat_memory.popleft()
             if self.enable_summary:
+                self._eviction_buffer.extend(evicted)
                 self._eviction_counter += 1
                 if self._eviction_counter >= self.summarize_every_n:
-                    await self._run_summarization(evicted)
+                    await self._run_summarization(self._eviction_buffer)
+                    self._eviction_buffer = []
                     self._eviction_counter = 0
             
     async def load_memory(self) -> List[Message]:
         """Load all messages from memory asynchronously.
         
         If a conversation summary exists, it is prepended as a SystemMessage.
+        
+        If there are buffered evicted messages not yet summarized, they are
+        also prepended so the LLM never loses visibility of recent evictions.
         """
         msgs = [m for chat in self.chat_memory for m in chat]
+        prefix = []
         if self._summary:
-            summary_msg = SystemMessage(content=f"Summary of earlier conversation:\n{self._summary}")
-            return [summary_msg] + msgs
-        return msgs
+            prefix.append(SystemMessage(content=f"Summary of earlier conversation:\n{self._summary}"))
+        if self._eviction_buffer:
+            buffer_text = _format_messages_for_summary(self._eviction_buffer)
+            prefix.append(SystemMessage(content=f"Recent conversation not yet in summary:\n{buffer_text}"))
+        return prefix + msgs
     
     def get_summary(self) -> str:
         """Return the current conversation summary text."""

@@ -11,6 +11,7 @@ from cortex.LLM import LLM
 from cortex.agent_memory import (
     AgentMemory, AsyncAgentMemory, AgentMemoryBank, AsyncAgentMemoryBank,
     _build_default_summary_fn_sync, _build_default_summary_fn_async,
+    _format_messages_for_summary,
 )
 from cortex.message import Message, SystemMessage
 
@@ -59,6 +60,7 @@ class RedisAgentMemory(AgentMemory):
         self.summarize_every_n = summarize_every_n
         # Transient in-memory state
         self._eviction_counter: int = 0
+        self._eviction_buffer: List[Message] = []
         self._summary_fn_resolved: Optional[Callable] = None
 
     @property
@@ -79,12 +81,12 @@ class RedisAgentMemory(AgentMemory):
             self._summary_fn_resolved = _build_default_summary_fn_sync(llm)
         return self._summary_fn_resolved
 
-    def _run_summarization(self, evicted_msgs: List[Message]) -> None:
-        """Run the summarization function on evicted messages."""
+    def _run_summarization(self, buffered_msgs: List[Message]) -> None:
+        """Run the summarization function on buffered evicted messages."""
         try:
             fn = self._get_summary_fn()
             current = self.get_summary()
-            new_summary = fn(current, evicted_msgs)
+            new_summary = fn(current, buffered_msgs)
             self.set_summary(new_summary)
             logger.debug("Redis conversation summary updated (%d chars)", len(new_summary))
         except Exception as e:
@@ -111,10 +113,11 @@ class RedisAgentMemory(AgentMemory):
             self.redis_client.ltrim(self.key, -self.k, -1)
 
             if self.enable_summary and evicted_data is not None:
+                self._eviction_buffer.extend(pickle.loads(evicted_data))
                 self._eviction_counter += 1
                 if self._eviction_counter >= self.summarize_every_n:
-                    evicted_msgs = pickle.loads(evicted_data)
-                    self._run_summarization(evicted_msgs)
+                    self._run_summarization(self._eviction_buffer)
+                    self._eviction_buffer = []
                     self._eviction_counter = 0
     
     def load_memory(self) -> List[Message]:
@@ -124,6 +127,9 @@ class RedisAgentMemory(AgentMemory):
         If a conversation summary exists in Redis, it is prepended as a
         SystemMessage so the agent has access to important earlier context.
         
+        If there are buffered evicted messages not yet summarized, they are
+        also prepended so the LLM never loses visibility of recent evictions.
+        
         Returns:
             List of messages
         """
@@ -131,11 +137,15 @@ class RedisAgentMemory(AgentMemory):
         # Get all elements from the list
         message_groups = self.redis_client.lrange(self.key, 0, -1)
         
-        result = []
+        prefix = []
         summary = self.get_summary()
         if summary:
-            result.append(SystemMessage(content=f"Summary of earlier conversation:\n{summary}"))
+            prefix.append(SystemMessage(content=f"Summary of earlier conversation:\n{summary}"))
+        if self._eviction_buffer:
+            buffer_text = _format_messages_for_summary(self._eviction_buffer)
+            prefix.append(SystemMessage(content=f"Recent conversation not yet in summary:\n{buffer_text}"))
         
+        result = list(prefix)
         if message_groups:
             for serialized_group in message_groups:
                 group = pickle.loads(serialized_group)
@@ -204,6 +214,7 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
         self.summarize_every_n = summarize_every_n
         # Transient in-memory state
         self._eviction_counter: int = 0
+        self._eviction_buffer: List[Message] = []
         self._summary_fn_resolved: Optional[Callable] = None
 
     @property
@@ -224,12 +235,12 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
             self._summary_fn_resolved = _build_default_summary_fn_async(llm)
         return self._summary_fn_resolved
 
-    async def _run_summarization(self, evicted_msgs: List[Message]) -> None:
-        """Run the async summarization function on evicted messages."""
+    async def _run_summarization(self, buffered_msgs: List[Message]) -> None:
+        """Run the async summarization function on buffered evicted messages."""
         try:
             fn = self._get_summary_fn()
             current = await self.get_summary()
-            new_summary = await fn(current, evicted_msgs)
+            new_summary = await fn(current, buffered_msgs)
             await self.set_summary(new_summary)
             logger.debug("Redis async conversation summary updated (%d chars)", len(new_summary))
         except Exception as e:
@@ -256,10 +267,11 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
             await self.async_redis_client.ltrim(self.key, -self.k, -1)
 
             if self.enable_summary and evicted_data is not None:
+                self._eviction_buffer.extend(pickle.loads(evicted_data))
                 self._eviction_counter += 1
                 if self._eviction_counter >= self.summarize_every_n:
-                    evicted_msgs = pickle.loads(evicted_data)
-                    await self._run_summarization(evicted_msgs)
+                    await self._run_summarization(self._eviction_buffer)
+                    self._eviction_buffer = []
                     self._eviction_counter = 0
     
     async def load_memory(self) -> List[Message]:
@@ -269,17 +281,24 @@ class AsyncRedisAgentMemory(AsyncAgentMemory):
         If a conversation summary exists in Redis, it is prepended as a
         SystemMessage so the agent has access to important earlier context.
         
+        If there are buffered evicted messages not yet summarized, they are
+        also prepended so the LLM never loses visibility of recent evictions.
+        
         Returns:
             List of messages
         """
         
         message_groups = await self.async_redis_client.lrange(self.key, 0, -1)
         
-        result = []
+        prefix = []
         summary = await self.get_summary()
         if summary:
-            result.append(SystemMessage(content=f"Summary of earlier conversation:\n{summary}"))
+            prefix.append(SystemMessage(content=f"Summary of earlier conversation:\n{summary}"))
+        if self._eviction_buffer:
+            buffer_text = _format_messages_for_summary(self._eviction_buffer)
+            prefix.append(SystemMessage(content=f"Recent conversation not yet in summary:\n{buffer_text}"))
         
+        result = list(prefix)
         if message_groups:
             for serialized_group in message_groups:
                 group = pickle.loads(serialized_group)

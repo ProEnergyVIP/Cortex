@@ -272,7 +272,14 @@ from cortex import AgentMemory
 memory = AgentMemory(k=5, enable_summary=True)
 ```
 
-That's it. Every 3 evictions (default), the memory will call a small LLM to update the running summary. The summary is automatically included when the agent loads its history.
+That's it. Every 3 evictions (default), the memory will call a small LLM to update the running summary.
+
+When the agent loads its history, `load_memory()` prepends up to two `SystemMessage` entries before the conversation window:
+
+1. **Summary** — compressed context from earlier rounds (if any).
+2. **Eviction buffer** — raw text of recently evicted messages that haven't been summarized yet (if any).
+
+This two-layer approach ensures the LLM **never loses visibility** of evicted information, even between summarization runs. The periodic LLM call merely compresses the buffer into the summary for token efficiency.
 
 #### Control summarization frequency
 
@@ -285,6 +292,8 @@ memory = AgentMemory(k=5, enable_summary=True, summarize_every_n=1)
 # Summarize every 5th eviction (fewer calls, slightly staler summary)
 memory = AgentMemory(k=5, enable_summary=True, summarize_every_n=5)
 ```
+
+> **Note:** Even with `summarize_every_n=5`, no information is lost between summarization runs — the eviction buffer keeps all evicted messages visible to the LLM until they are compressed into the summary.
 
 #### Use a custom LLM for summarization
 

@@ -260,10 +260,14 @@ Agent memory supports an optional **conversation summary** that retains importan
 
 #### How it works
 
-1. When `enable_summary=True`, evicted message rounds are counted.
-2. Every `summarize_every_n` evictions, the summarization function is called with `(current_summary, evicted_messages)`.
+1. When `enable_summary=True`, evicted message rounds are accumulated in an **eviction buffer**.
+2. Every `summarize_every_n` evictions, the summarization function is called with `(current_summary, all_buffered_messages)` and the buffer is cleared.
 3. The returned string replaces the stored summary.
-4. On `load_memory()`, if a summary exists, it is prepended as a `SystemMessage` before the conversation rounds.
+4. On `load_memory()`, up to two `SystemMessage` prefixes are prepended before the conversation rounds:
+   - The **summary** (if any) — compressed context from earlier rounds.
+   - The **eviction buffer** (if non-empty) — raw text of recently evicted messages not yet summarized.
+
+This two-layer approach ensures the LLM **never loses visibility** of evicted information, even between summarization runs. The periodic LLM call merely compresses the buffer into the summary for token efficiency.
 
 #### Summarization function resolution
 

@@ -138,7 +138,48 @@ class TestAgentMemorySummaryEnabled:
 
         # Eviction 3 should trigger
         mem.add_messages(_make_round("r3", "a3"))  # eviction 3
-        assert mem.get_summary() != ""
+        summary = mem.get_summary()
+        assert summary != ""
+        # All 3 evicted rounds should be in the summary (buffered)
+        assert "r0" in summary
+        assert "r1" in summary
+        assert "r2" in summary
+
+    def test_eviction_buffer_captures_all_rounds(self):
+        """Verify that evicted rounds between summarization runs are buffered,
+        so no information is silently dropped."""
+        mem = AgentMemory(k=1, enable_summary=True, summary_fn=_custom_summary_fn, summarize_every_n=3)
+
+        mem.add_messages(_make_round("important_fact_A", "ack_A"))
+        mem.add_messages(_make_round("important_fact_B", "ack_B"))  # eviction 1
+        mem.add_messages(_make_round("important_fact_C", "ack_C"))  # eviction 2
+        # Neither eviction 1 nor 2 triggers summarization, but messages are buffered
+        assert mem.get_summary() == ""
+        assert len(mem._eviction_buffer) == 4  # 2 rounds × 2 msgs each
+
+        mem.add_messages(_make_round("important_fact_D", "ack_D"))  # eviction 3 → summarize
+        summary = mem.get_summary()
+        # All three evicted rounds should appear in the summary
+        assert "important_fact_A" in summary
+        assert "important_fact_B" in summary
+        assert "important_fact_C" in summary
+        # Buffer should be cleared after summarization
+        assert len(mem._eviction_buffer) == 0
+
+    def test_buffered_messages_visible_in_load_memory(self):
+        """Verify that not-yet-summarized buffered messages are included in
+        load_memory() so the LLM never loses visibility of evicted info."""
+        mem = AgentMemory(k=1, enable_summary=True, summary_fn=_custom_summary_fn, summarize_every_n=3)
+
+        mem.add_messages(_make_round("secret_code_42", "ack"))
+        mem.add_messages(_make_round("q1", "a1"))  # eviction 1 — no summarization yet
+        assert mem.get_summary() == ""
+        assert len(mem._eviction_buffer) == 2
+
+        loaded = mem.load_memory()
+        # Should contain: buffer SystemMessage + current window (2 msgs)
+        assert any("secret_code_42" in m.content for m in loaded)
+        assert any(isinstance(m, SystemMessage) and "Recent conversation not yet in summary" in m.content for m in loaded)
 
     def test_summarization_failure_is_graceful(self):
         def _failing_fn(current_summary, messages):
@@ -243,6 +284,35 @@ class TestAsyncAgentMemorySummary:
         assert await mem.is_empty()
         mem.set_summary("something")
         assert not await mem.is_empty()
+
+    @pytest.mark.asyncio
+    async def test_eviction_buffer_captures_all_rounds(self):
+        mem = AsyncAgentMemory(k=1, enable_summary=True, summary_fn=_async_custom_summary_fn, summarize_every_n=3)
+
+        await mem.add_messages(_make_round("fact_A", "ack_A"))
+        await mem.add_messages(_make_round("fact_B", "ack_B"))  # eviction 1
+        await mem.add_messages(_make_round("fact_C", "ack_C"))  # eviction 2
+        assert mem.get_summary() == ""
+        assert len(mem._eviction_buffer) == 4
+
+        await mem.add_messages(_make_round("fact_D", "ack_D"))  # eviction 3 → summarize
+        summary = mem.get_summary()
+        assert "fact_A" in summary
+        assert "fact_B" in summary
+        assert "fact_C" in summary
+        assert len(mem._eviction_buffer) == 0
+
+    @pytest.mark.asyncio
+    async def test_buffered_messages_visible_in_load_memory(self):
+        mem = AsyncAgentMemory(k=1, enable_summary=True, summary_fn=_async_custom_summary_fn, summarize_every_n=3)
+
+        await mem.add_messages(_make_round("secret_code_42", "ack"))
+        await mem.add_messages(_make_round("q1", "a1"))  # eviction 1
+        assert mem.get_summary() == ""
+
+        loaded = await mem.load_memory()
+        assert any("secret_code_42" in m.content for m in loaded)
+        assert any(isinstance(m, SystemMessage) and "Recent conversation not yet in summary" in m.content for m in loaded)
 
     @pytest.mark.asyncio
     async def test_summarization_failure_is_graceful(self):

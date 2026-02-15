@@ -280,7 +280,45 @@ class TestRedisAgentMemorySummaryEnabled:
         mem.add_messages(_make_round("r2", "a2"))  # eviction 2
         assert mem.get_summary() == ""
         mem.add_messages(_make_round("r3", "a3"))  # eviction 3 → summarize
-        assert mem.get_summary() != ""
+        summary = mem.get_summary()
+        assert summary != ""
+        # All 3 evicted rounds should be in the summary (buffered)
+        assert "r0" in summary
+        assert "r1" in summary
+        assert "r2" in summary
+
+    def test_eviction_buffer_captures_all_rounds(self):
+        r = FakeRedis()
+        mem = RedisAgentMemory(
+            k=1, redis_client=r, key="test:agent",
+            enable_summary=True, summary_fn=_custom_summary_fn, summarize_every_n=3,
+        )
+        mem.add_messages(_make_round("fact_A", "ack_A"))
+        mem.add_messages(_make_round("fact_B", "ack_B"))  # eviction 1
+        mem.add_messages(_make_round("fact_C", "ack_C"))  # eviction 2
+        assert mem.get_summary() == ""
+        assert len(mem._eviction_buffer) == 4  # 2 rounds × 2 msgs
+
+        mem.add_messages(_make_round("fact_D", "ack_D"))  # eviction 3 → summarize
+        summary = mem.get_summary()
+        assert "fact_A" in summary
+        assert "fact_B" in summary
+        assert "fact_C" in summary
+        assert len(mem._eviction_buffer) == 0
+
+    def test_buffered_messages_visible_in_load_memory(self):
+        r = FakeRedis()
+        mem = RedisAgentMemory(
+            k=1, redis_client=r, key="test:agent",
+            enable_summary=True, summary_fn=_custom_summary_fn, summarize_every_n=3,
+        )
+        mem.add_messages(_make_round("secret_code_42", "ack"))
+        mem.add_messages(_make_round("q1", "a1"))  # eviction 1
+        assert mem.get_summary() == ""
+
+        loaded = mem.load_memory()
+        assert any("secret_code_42" in m.content for m in loaded)
+        assert any(isinstance(m, SystemMessage) and "Recent conversation not yet in summary" in m.content for m in loaded)
 
     def test_summarization_failure_is_graceful(self):
         def _failing_fn(current_summary, messages):
@@ -381,6 +419,41 @@ class TestAsyncRedisAgentMemorySummary:
         assert await mem.is_empty()
         await mem.set_summary("something")
         assert not await mem.is_empty()
+
+    @pytest.mark.asyncio
+    async def test_eviction_buffer_captures_all_rounds(self):
+        r = FakeAsyncRedis()
+        mem = AsyncRedisAgentMemory(
+            k=1, async_redis_client=r, key="test:agent",
+            enable_summary=True, summary_fn=_async_custom_summary_fn, summarize_every_n=3,
+        )
+        await mem.add_messages(_make_round("fact_A", "ack_A"))
+        await mem.add_messages(_make_round("fact_B", "ack_B"))  # eviction 1
+        await mem.add_messages(_make_round("fact_C", "ack_C"))  # eviction 2
+        assert await mem.get_summary() == ""
+        assert len(mem._eviction_buffer) == 4
+
+        await mem.add_messages(_make_round("fact_D", "ack_D"))  # eviction 3 → summarize
+        summary = await mem.get_summary()
+        assert "fact_A" in summary
+        assert "fact_B" in summary
+        assert "fact_C" in summary
+        assert len(mem._eviction_buffer) == 0
+
+    @pytest.mark.asyncio
+    async def test_buffered_messages_visible_in_load_memory(self):
+        r = FakeAsyncRedis()
+        mem = AsyncRedisAgentMemory(
+            k=1, async_redis_client=r, key="test:agent",
+            enable_summary=True, summary_fn=_async_custom_summary_fn, summarize_every_n=3,
+        )
+        await mem.add_messages(_make_round("secret_code_42", "ack"))
+        await mem.add_messages(_make_round("q1", "a1"))  # eviction 1
+        assert await mem.get_summary() == ""
+
+        loaded = await mem.load_memory()
+        assert any("secret_code_42" in m.content for m in loaded)
+        assert any(isinstance(m, SystemMessage) and "Recent conversation not yet in summary" in m.content for m in loaded)
 
     @pytest.mark.asyncio
     async def test_summarization_failure_is_graceful(self):
