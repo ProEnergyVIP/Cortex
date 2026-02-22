@@ -463,6 +463,10 @@ class CoordinatorAgentBuilder(AgentBuilder):
         tools_builder: Optional callable to load tools for the coordinator.
         memory_k: Optional memory size for the coordinator.
         thinking: If True, enable the coordinator's thought-style prompts (affects downstream formatting).
+        enable_summary: If True, enable periodic conversation summarization for memory.
+        summary_fn: Optional custom summarization function.
+        summary_llm: Optional LLM for default summarizer.
+        summarize_every_n: Run summarization every N evictions (default: 3).
     """
 
     def __init__(
@@ -474,9 +478,17 @@ class CoordinatorAgentBuilder(AgentBuilder):
         tools_builder: Optional[Callable] = None,
         memory_k: Optional[int] = 5,
         thinking: bool = True,
+        enable_summary: bool = False,
+        summary_fn: Optional[Callable] = None,
+        summary_llm: Optional[LLM] = None,
+        summarize_every_n: int = 3,
     ):
         super().__init__(name=name, llm=llm, prompt_builder=prompt_builder, tools_builder=tools_builder, memory_k=memory_k)
         self.thinking = thinking
+        self.enable_summary = enable_summary
+        self.summary_fn = summary_fn
+        self.summary_llm = summary_llm
+        self.summarize_every_n = summarize_every_n
     
     @classmethod
     def compose_prompt(cls, name, task_desc, with_whiteboard: bool):
@@ -510,7 +522,14 @@ class CoordinatorAgentBuilder(AgentBuilder):
             all_tools.extend(tools)
 
         bank = await context.get_memory_bank()
-        memory = await bank.get_agent_memory(self.name_key, k=self.memory_k)
+        memory = await bank.get_agent_memory(
+            self.name_key,
+            k=self.memory_k,
+            enable_summary=self.enable_summary,
+            summary_fn=self.summary_fn,
+            summary_llm=self.summary_llm,
+            summarize_every_n=self.summarize_every_n,
+        )
         
         return Agent(
             name=self.name,

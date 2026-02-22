@@ -172,6 +172,10 @@ class WorkerAgentBuilder(AgentBuilder):
         thinking: If True, use the thought-enabled response format block.
         introduction: introduction for the worker agent to the coordinator.
         before_agent: Optional callable to run before the agent is built.
+        enable_summary: If True, enable periodic conversation summarization for memory.
+        summary_fn: Optional custom summarization function.
+        summary_llm: Optional LLM for default summarizer.
+        summarize_every_n: Run summarization every N evictions (default: 3).
     """
 
     def __init__(
@@ -186,6 +190,10 @@ class WorkerAgentBuilder(AgentBuilder):
         introduction: Optional[str] = None,
         before_agent: Optional[Callable] = None,
         enable_context_suggestions: bool = True,
+        enable_summary: bool = False,
+        summary_fn: Optional[Callable] = None,
+        summary_llm: Optional[LLM] = None,
+        summarize_every_n: int = 3,
     ):
         super().__init__(
             name=name,
@@ -197,6 +205,10 @@ class WorkerAgentBuilder(AgentBuilder):
         # Agent-side settings
         self.thinking = thinking
         self.enable_context_suggestions = enable_context_suggestions
+        self.enable_summary = enable_summary
+        self.summary_fn = summary_fn
+        self.summary_llm = summary_llm
+        self.summarize_every_n = summarize_every_n
         # Tool exposure settings
         self.introduction = introduction
         self.before_agent = before_agent
@@ -264,7 +276,14 @@ class WorkerAgentBuilder(AgentBuilder):
         )
 
         bank = await context.get_memory_bank()
-        memory = await bank.get_agent_memory(self.name_key, k=self.memory_k)
+        memory = await bank.get_agent_memory(
+            self.name_key,
+            k=self.memory_k,
+            enable_summary=self.enable_summary,
+            summary_fn=self.summary_fn,
+            summary_llm=self.summary_llm,
+            summarize_every_n=self.summarize_every_n,
+        )
         
         tools = await self.load_tools(context)
 
