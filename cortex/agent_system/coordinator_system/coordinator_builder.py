@@ -4,6 +4,7 @@ from cortex import LLM, Agent, Tool
 
 from ..core.context import AgentSystemContext
 from ..core.builder import AgentBuilder
+from ..core.whiteboard_tools import create_whiteboard_tools, WHITEBOARD_PROMPT_ADDITION
 
 
 # Generic, product-agnostic coordinator prompts
@@ -131,41 +132,7 @@ Normalization and consistency rules:
 """
 
 # Whiteboard-related prompt segment (included only when a whiteboard is configured)
-COORDINATOR_PROMPT_WHITEBOARD = """
-
-Context Management Tools (topic-aware):
-    - update_mission_func:
-        - Set team mission and current focus for a specific topic.
-        - Optional parameter: "topic" (e.g. "solar", "banking", "general").
-        - If "topic" is provided, the whiteboard switches to that topic
-          before updating mission/focus and logging the decision.
-    - update_progress_func:
-        - Track overall progress for the **current topic**.
-    - manage_blocker_func:
-        - Add/remove blockers for the **current topic**.
-    - log_decision_func:
-        - Log important coordination decisions for the **current topic**.
-    - get_team_status_func:
-        - Get whiteboard status summary for the **current topic**.
-
-Worker Agent Outputs:
-- Worker agents respond with a JSON object that always includes:
-    - "to_user": message for the end user.
-    - "to_coordinator" or "to_(your name)": internal note back to you.
-- Some workers may also include an OPTIONAL field:
-    - "whiteboard_suggestion": structured proposals for updating the whiteboard.
-        - If present, it MUST be a JSON object with these optional keys:
-            - "progress": string summary of overall progress.
-            - "blockers_add": array of strings describing blockers to add.
-            - "blockers_remove": array of strings describing blockers that are resolved.
-            - "decisions": array of objects with keys "decision" (string) and optional "rationale" (string).
-        - Treat this field as suggestions only — you decide whether and how to apply them.
-        - When appropriate, map suggestions to context tools:
-            - Use update_progress_func for "progress".
-            - Use manage_blocker_func with action="add" / "remove" for blockers.
-            - Use log_decision_func for decisions.
-        - Always keep the whiteboard consistent and aligned with the overall mission.
-"""
+# Uses the WHITEBOARD_PROMPT_ADDITION imported from whiteboard_tools
 
 
 def _build_update_mission_tool() -> Tool:
@@ -499,7 +466,7 @@ class CoordinatorAgentBuilder(AgentBuilder):
         """
         prompt = COORDINATOR_PROMPT_BASE
         if with_whiteboard:
-            prompt = prompt + COORDINATOR_PROMPT_WHITEBOARD
+            prompt = prompt + WHITEBOARD_PROMPT_ADDITION
         return prompt.format(name=name, task_desc=task_desc)
 
     async def build_agent(self, *, context: Optional[AgentSystemContext] = None, tools: Optional[List[Tool]] = None) -> Agent:
@@ -513,9 +480,9 @@ class CoordinatorAgentBuilder(AgentBuilder):
 
         all_tools = await self.load_tools(context)
         
-        # Add Whiteboard management tools for the coordinator
+        # Add Whiteboard tools for the coordinator (and workers via their own builders)
         if has_whiteboard:
-            whiteboard_tools = create_coordinator_whiteboard_tools()
+            whiteboard_tools = create_whiteboard_tools()
             all_tools.extend(whiteboard_tools)
         
         if tools is not None:

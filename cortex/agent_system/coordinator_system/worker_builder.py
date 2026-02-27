@@ -1,13 +1,21 @@
+"""
+Worker Agent Builder for the agent system.
+
+This module provides a builder for creating worker agents that collaborate
+with a coordinator agent. Workers can optionally use the whiteboard for
+communication when it's enabled in the context.
+"""
+
 from asyncio import iscoroutine
 from typing import Callable, Optional
 import re
-import json
 from cortex import LLM, Agent, Tool
 from cortex.message import DeveloperMessage, UserMessage
 
 from ..core.context import AgentSystemContext
-from ..core.whiteboard import WhiteboardUpdateType
 from ..core.builder import AgentBuilder
+from ..core.whiteboard_tools import create_whiteboard_tools, WHITEBOARD_PROMPT_ADDITION
+
 
 # A generic worker agent prompt for a worker agent collaborating within a multi-agent team.
 # It intentionally avoids any product- or organization-specific wording.
@@ -18,8 +26,8 @@ the coordinator of your team.
 [CORE RESPONSIBILITIES]
 1. Understand the REAL TASK DESCRIPTION section provided below. It defines your primary objective
    and the tasks you must perform.
-2. Understand the user’s request and optional helpful context as relayed by {coordinator_name}.
-3. Think carefully about the task and the user’s request, make a plan of actions.
+2. Understand the user's request and optional helpful context as relayed by {coordinator_name}.
+3. Think carefully about the task and the user's request, make a plan of actions.
    And perform the actions outlined in the plan, and answer the user at the end.
 4. If information is missing, ambiguous, or contradictory, compose a concise
    clarifying question addressed to the user, but route it through {coordinator_name}.
@@ -95,59 +103,7 @@ Allowed top-level keys:
   - "to_user": the message intended for the end user.
       • Keep it clear, actionable, and relevant.
   - "{coordinator_key}": a short coordination note for {coordinator_name}.
-      • State what was done, what’s needed next, or why the task paused.
-
-Rules:
-- Only include the keys listed above; no additional fields.
-- The response must be valid JSON (parsable by `json.loads()`).
-- Keep both "thought" and "{coordinator_key}" brief (1–3 sentences each).
-"""
-
-NORMAL_FORMAT_WITH_CONTEXT = """
-[OUTPUT FORMAT — STANDARD MODE]
-When you are NOT calling a tool, output a single valid JSON object.
-Do not include code fences, Markdown, or extra text.
-
-Allowed top-level keys:
-  - "to_user": the message intended for the end user.
-      • Keep it clear, actionable, and concise.
-      • Avoid technical jargon unless explicitly requested.
-  - "{coordinator_key}": a short note for {coordinator_name}.
-      • Summarize decisions made, blockers, or the next step.
-  - "whiteboard_suggestion": OPTIONAL structured suggestions for updating the whiteboard.
-      • If present, it MUST be a JSON object with these optional keys:
-          • "progress": string summary of overall progress.
-          • "blockers_add": array of strings describing blockers to add.
-          • "blockers_remove": array of strings describing blockers that are resolved.
-          • "decisions": array of objects with keys "decision" (string) and optional "rationale" (string).
-      • The coordinator decides whether and how to apply these suggestions.
-
-Rules:
-- Only include the keys listed above; no additional fields.
-- The entire response must be directly parsable by `json.loads()`.
-- Keep "{coordinator_key}" short and factual (1–3 sentences).
-"""
-
-THOUGHT_FORMAT_WITH_CONTEXT = """
-[OUTPUT FORMAT — WITH INTERNAL THOUGHT]
-When you are NOT calling a tool, output a single valid JSON object.
-Do not include code fences, Markdown, or extra text.
-
-Allowed top-level keys:
-  - "thought": your brief internal reasoning note.
-      • Use it to outline logic or next actions concisely.
-      • Do not expose private system logic or sensitive data.
-  - "to_user": the message intended for the end user.
-      • Keep it clear, actionable, and relevant.
-  - "{coordinator_key}": a short coordination note for {coordinator_name}.
-      • State what was done, what’s needed next, or why the task paused.
-  - "whiteboard_suggestion": OPTIONAL structured suggestions for updating the whiteboard.
-      • If present, it MUST be a JSON object with these optional keys:
-          • "progress": string summary of overall progress.
-          • "blockers_add": array of strings describing blockers to add.
-          • "blockers_remove": array of strings describing blockers that are resolved.
-          • "decisions": array of objects with keys "decision" (string) and optional "rationale" (string).
-      • The coordinator decides whether and how to apply these suggestions.
+      • State what was done, what's needed next, or why the task paused.
 
 Rules:
 - Only include the keys listed above; no additional fields.
@@ -189,7 +145,6 @@ class WorkerAgentBuilder(AgentBuilder):
         thinking: bool = True,
         introduction: Optional[str] = None,
         before_agent: Optional[Callable] = None,
-        enable_context_suggestions: bool = True,
         enable_summary: bool = False,
         summary_fn: Optional[Callable] = None,
         summary_llm: Optional[LLM] = None,
@@ -204,7 +159,6 @@ class WorkerAgentBuilder(AgentBuilder):
         )
         # Agent-side settings
         self.thinking = thinking
-        self.enable_context_suggestions = enable_context_suggestions
         self.enable_summary = enable_summary
         self.summary_fn = summary_fn
         self.summary_llm = summary_llm
@@ -230,18 +184,27 @@ class WorkerAgentBuilder(AgentBuilder):
         }
     
     @classmethod
-    def compose_prompt(cls, agent_name, task_desc, coordinator_name, coordinator_key, thinking=True, enable_context_suggestions: bool = True):
+    def compose_prompt(cls, agent_name, task_desc, coordinator_name, coordinator_key, thinking=True, with_whiteboard: bool = False):
         """
         Compose the prompt for the worker agent.
         This is a class method to allow for easy reuse of the prompt composition logic.
         Users might just want to use the prompt instead of the builder.
+        
+        Args:
+            agent_name: Name of the worker agent
+            task_desc: Task description for the agent
+            coordinator_name: Name of the coordinator agent
+            coordinator_key: Key for coordinator communication (e.g., "to_coordinator")
+            thinking: Whether to include the "thought" field in output
+            with_whiteboard: Whether to include whiteboard instructions
         """
-        if enable_context_suggestions:
-            format_block = THOUGHT_FORMAT_WITH_CONTEXT if thinking else NORMAL_FORMAT_WITH_CONTEXT
-        else:
-            format_block = THOUGHT_FORMAT if thinking else NORMAL_FORMAT
+        format_block = THOUGHT_FORMAT if thinking else NORMAL_FORMAT
 
         prompt_parts = [WORKER_PROMPT, format_block]
+        
+        # Add whiteboard instructions if enabled
+        if with_whiteboard:
+            prompt_parts.append(WHITEBOARD_PROMPT_ADDITION)
         
         prompt = "".join(prompt_parts)
         
@@ -265,14 +228,16 @@ class WorkerAgentBuilder(AgentBuilder):
         
         task_desc = await self.build_prompt(context)
 
-        enable_suggestions = self.enable_context_suggestions and bool(getattr(context, "whiteboard", None))
+        # Check if whiteboard is enabled
+        has_whiteboard = hasattr(context, "whiteboard") and context.whiteboard is not None
+        
         sys_prompt = self.compose_prompt(
             self.name,
             task_desc,
             display_name,
             coordinator_key,
             self.thinking,
-            enable_suggestions,
+            with_whiteboard=has_whiteboard,
         )
 
         bank = await context.get_memory_bank()
@@ -285,7 +250,11 @@ class WorkerAgentBuilder(AgentBuilder):
             summarize_every_n=self.summarize_every_n,
         )
         
+        # Load tools and add whiteboard tools if enabled
         tools = await self.load_tools(context)
+        if has_whiteboard:
+            whiteboard_tools = create_whiteboard_tools()
+            tools.extend(whiteboard_tools)
 
         return Agent(
             name=self.name,
@@ -328,81 +297,12 @@ class WorkerAgentBuilder(AgentBuilder):
             user_input = args["user_input"]
             ctx_instructions = args.get("context_instructions")
             
-            # STEP 1: Get agent-specific view of the whiteboard before routing (if available)
-            if getattr(context, "whiteboard", None):
-                agent_view = await context.whiteboard.get_agent_view(self.name)
-            else:
-                agent_view = {}
-            
-            # STEP 2: Build context summary to include in message
-            context_parts = []
-            if agent_view.get("mission"):
-                context_parts.append(f"Mission: {agent_view['mission']}")
-            if agent_view.get("current_focus"):
-                context_parts.append(f"Current Focus: {agent_view['current_focus']}")
-            if agent_view.get("my_role"):
-                context_parts.append(f"Your Role: {agent_view['my_role']}")
-            if agent_view.get("active_blockers"):
-                context_parts.append(f"Active Blockers: {', '.join(agent_view['active_blockers'])}")
-            
-            # Include recent updates from other agents
-            if agent_view.get("recent_updates"):
-                recent = agent_view["recent_updates"][:5]  # Last 5 updates
-                if recent:
-                    updates_summary = "\n".join([
-                        f"  - [{u['type']}] {u['agent_name']}: {str(u['content'])[:100]}"
-                        for u in recent
-                    ])
-                    context_parts.append(f"Recent Team Updates:\n{updates_summary}")
-            
-            # Combine with existing context_instructions
-            whiteboard_info = "\n\n".join(context_parts) if context_parts else None
-
-            if whiteboard_info:
-                if ctx_instructions:
-                    combined_context = f"{ctx_instructions}\n\n[Whiteboard]\n{whiteboard_info}"
-                else:
-                    combined_context = f"[Whiteboard]\n{whiteboard_info}"
-            else:
-                combined_context = ctx_instructions
-
             msgs = [UserMessage(content=user_input)]
-            if combined_context:
-                msgs.append(DeveloperMessage(content=combined_context))
+            if ctx_instructions:
+                msgs.append(DeveloperMessage(content=ctx_instructions))
 
-            # STEP 3: Execute worker agent
+            # Execute worker agent
             response = await agent.async_ask(msgs, usage=getattr(context, "usage", None))
-
-            # STEP 3.5: Apply any whiteboard suggestions from the worker
-            suggestion = None
-            if isinstance(response, str):
-                try:
-                    parsed = json.loads(response)
-                    if isinstance(parsed, dict):
-                        suggestion = parsed.get("whiteboard_suggestion")
-                except Exception:
-                    suggestion = None
-            elif isinstance(response, dict):
-                suggestion = response.get("whiteboard_suggestion")
-
-            if suggestion and getattr(context, "whiteboard", None):
-                await context.whiteboard.apply_suggestion(
-                    suggestion, source_agent=self.name
-                )
-            
-            # STEP 4: Log worker's response to the whiteboard and persist if store attached
-            if getattr(context, "whiteboard", None):
-                await context.whiteboard.add_update(
-                    agent_name=self.name,
-                    update_type=WhiteboardUpdateType.FINDING,
-                    content={
-                        "task": user_input[:200],  # Truncate long inputs
-                        "response_summary": response[:500] if isinstance(response, str) else str(response)[:500],
-                        "status": "completed"
-                    },
-                    tags=["worker_response", self.name_key]
-                )
-            # Do not auto-save here; user or coordinator controls persistence policy
             
             return response
 

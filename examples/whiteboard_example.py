@@ -1,259 +1,357 @@
 """
-Example demonstrating the Whiteboard capabilities of AgentSystemContext.
+Example: Whiteboard Usage in Agent System - Channel-Based Messaging
 
-This shows how agents can coordinate through Whiteboard fields:
-- mission, current_focus, progress
-- team_roles, protocols, updates
-- artifacts, active_blockers
+This example demonstrates how to use the new channel-based whiteboard feature
+for multi-agent collaboration. The whiteboard enables asynchronous communication
+between the coordinator and worker agents through channels.
+
+Key Concepts:
+- Channels: String identifiers for organizing messages (e.g., "project:demo")
+- Messages: JSON content with metadata (sender, timestamp, thread, reply_to)
+- Storage: InMemory (default) or Redis (persistent)
+- Tools: whiteboard_post, whiteboard_read, whiteboard_subscribe
 """
 
 import asyncio
-from datetime import datetime, timedelta
-from cortex import (
-    LLM,
-    GPTModels,
+from cortex import LLM, GPTModels, AgentSystemContext, AsyncAgentMemoryBank
+from cortex.agent_system import (
     CoordinatorAgentBuilder,
     WorkerAgentBuilder,
     CoordinatorSystem,
-    AgentSystemContext,
-    AsyncAgentMemoryBank,
-    Tool,
-    Whiteboard,
-    WhiteboardUpdateType,
 )
+from cortex.agent_system.core.whiteboard import Whiteboard, RedisStorage
 
 
-# Example 1: Basic Whiteboard Usage
 async def basic_whiteboard_example():
-    """Demonstrate basic Whiteboard fields."""
+    """Demonstrate basic whiteboard operations."""
     
-    # Create context with a Whiteboard, shared roles, and protocols
-    memory_bank = AsyncAgentMemoryBank()
-    whiteboard = Whiteboard(
-        team_roles={
-            "data_analyst": "Data Analysis Expert",
-            "report_writer": "Report Generation Specialist",
-        },
-        protocols=[
-            "Always cite data sources",
-            "Flag any anomalies immediately",
-            "Update progress after each major step",
-        ],
-    )
-    # Set mission/focus on the current topic
-    whiteboard.set_mission_focus(
-        mission="Analyze customer feedback and generate insights",
-        focus="Processing Q4 2024 feedback",
-    )
-    context = AgentSystemContext(memory_bank=memory_bank, whiteboard=whiteboard)
+    print("\n" + "=" * 60)
+    print("Example 1: Basic Whiteboard Operations")
+    print("=" * 60)
     
-    # Workers can access the Whiteboard
-    def analyst_prompt_builder(ctx: AgentSystemContext):
-        wb = ctx.whiteboard
-        view = wb.get_agent_view("data_analyst") if wb else {}
-        return f"""You are a {view.get('my_role', 'Data Analyst')}.
-
-Mission: {view.get('mission', '')}
-Current Focus: {view.get('current_focus', '')}
-
-Protocols:
-{chr(10).join(f"- {p}" for p in (wb.protocols if wb else []))}
-
-Analyze data and update the Whiteboard with your findings."""
+    # Create a whiteboard with default in-memory storage
+    wb = Whiteboard()
     
-    # Tool to update the Whiteboard
-    async def log_finding_func(args, ctx: AgentSystemContext):
-        """Log a finding to the Whiteboard."""
-        finding = args.get("finding", "")
-        if ctx.whiteboard:
-            ctx.whiteboard.add_update(
-                agent_name="data_analyst",
-                update_type=WhiteboardUpdateType.FINDING,
-                content={"finding": finding},
-                tags=["analysis", "q4"],
-            )
-        return f"Finding logged: {finding}"
-    
-    log_finding_tool = Tool(
-        name="log_finding",
-        func=log_finding_func,
-        description="Log an important finding to the Whiteboard",
-        parameters={
-            "type": "object",
-            "properties": {
-                "finding": {"type": "string", "description": "The finding to log"},
-            },
-            "required": ["finding"],
-        },
+    # Post messages to different channels
+    await wb.post(
+        sender="Coordinator",
+        channel="project:acme-merger",
+        content={"type": "goal", "description": "Analyze merger risks"}
     )
     
-    def analyst_tools_builder(ctx):
-        return [log_finding_tool]
+    await wb.post(
+        sender="RiskAnalyst",
+        channel="project:acme-merger",
+        content={"type": "finding", "risk": "High debt-to-equity ratio"},
+        thread="financial-analysis"
+    )
     
-    analyst_worker = WorkerAgentBuilder(
-        name="Data Analyst",
+    await wb.post(
+        sender="LegalAnalyst",
+        channel="project:acme-merger",
+        content={"type": "finding", "risk": "Antitrust review required"},
+        thread="regulatory-analysis"
+    )
+    
+    # Read all messages from the channel
+    messages = await wb.read(channel="project:acme-merger")
+    print(f"Posted and read {len(messages)} messages")
+    
+    # Read only messages from a specific thread
+    financial_msgs = await wb.read(
+        channel="project:acme-merger",
+        thread="financial-analysis"
+    )
+    print(f"Financial analysis thread: {len(financial_msgs)} messages")
+    
+    # List all channels
+    channels = wb.list_channels()
+    print(f"Active channels: {channels}")
+    
+    await wb.close()
+
+
+async def redis_whiteboard_example():
+    """Demonstrate Redis-backed whiteboard (skipped if Redis unavailable)."""
+    
+    print("\n" + "=" * 60)
+    print("Example 2: Redis Persistence")
+    print("=" * 60)
+    
+    try:
+        from redis.asyncio import Redis
+        
+        redis_client = Redis(host='localhost', port=6379)
+        await redis_client.ping()  # Test connection
+        
+        # Create whiteboard with Redis storage
+        wb = Whiteboard(storage=RedisStorage(
+            redis_client=redis_client,
+            key_prefix="demo:whiteboard"
+        ))
+        
+        await wb.post(
+            sender="System",
+            channel="demo:redis",
+            content={"message": "This will persist in Redis"}
+        )
+        
+        messages = await wb.read(channel="demo:redis")
+        print(f"✓ Redis-backed whiteboard working: {len(messages)} messages")
+        
+        await wb.close()
+        
+    except Exception as e:
+        print(f"(Skipped - Redis not available: {e})")
+
+
+async def agent_system_with_whiteboard():
+    """Demonstrate agent system with whiteboard integration."""
+    
+    print("\n" + "=" * 60)
+    print("Example 3: Agent System with Whiteboard")
+    print("=" * 60)
+    
+    # Create context with whiteboard enabled
+    context = AgentSystemContext.create(
+        memory_bank=AsyncAgentMemoryBank(),
+        enable_whiteboard=True,
+    )
+    
+    # Create worker builders
+    math_worker = WorkerAgentBuilder(
+        name="Math Expert",
         llm=LLM(model=GPTModels.GPT_4O_MINI),
-        prompt_builder=analyst_prompt_builder,
-        tools_builder=analyst_tools_builder,
-        introduction="Analyzes data and logs findings",
+        prompt_builder=lambda ctx: "You are a math expert. Show your work.",
+        introduction="Expert in mathematical calculations.",
     )
     
-    def coordinator_prompt_builder(ctx):
-        return "You coordinate the analysis team."
-    
+    # Create coordinator
     coordinator = CoordinatorAgentBuilder(
         name="Coordinator",
         llm=LLM(model=GPTModels.GPT_4O_MINI),
-        prompt_builder=coordinator_prompt_builder,
+        prompt_builder=lambda ctx: "You coordinate workers using the whiteboard.",
     )
     
+    # Build the system
     system = CoordinatorSystem(
         coordinator_builder=coordinator,
-        workers=[analyst_worker],
+        workers=[math_worker],
         context=context,
     )
     
-    # Make a request
-    response = await system.async_ask("Analyze the customer satisfaction trends")
-    print("Response:", response)
+    print("✓ Agent system created with whiteboard integration")
+    print("  - Agents can use whiteboard_post to share information")
+    print("  - Agents can use whiteboard_read to get context")
+    print("  - Messages persist across the conversation")
     
-    # Check Whiteboard updates
-    print("\n=== Whiteboard Updates ===")
-    wb = context.whiteboard
-    state = wb._state() if wb else None
-    if state:
-        print(f"Mission: {state.mission}")
-        print(f"Progress: {state.progress}")
-        print(f"Updates: {len(state.updates)}")
-        for update in state.updates:
-            print(f"  - [{update.type}] {update.agent_name}: {update.content}")
+    # Demonstrate that whiteboard tools are available
+    has_whiteboard = context.whiteboard is not None
+    print(f"  - Whiteboard enabled: {has_whiteboard}")
 
 
-# Example 2: Agent View and Recent Updates
-async def agent_view_example():
-    """Demonstrate get_agent_view and get_recent_updates methods."""
+async def custom_whiteboard_extension():
+    """Demonstrate extending the whiteboard for custom needs."""
     
-    memory_bank = AsyncAgentMemoryBank()
-    whiteboard = Whiteboard(
-        team_roles={
-            "ml_engineer": "ML Engineer",
-            "data_engineer": "Data Engineer",
+    print("\n" + "=" * 60)
+    print("Example 4: Custom Whiteboard Extension")
+    print("=" * 60)
+    
+    class LoggingWhiteboard(Whiteboard):
+        """Whiteboard that logs all operations."""
+        
+        def __init__(self, storage=None):
+            super().__init__(storage)
+            self.operations = []
+        
+        async def _after_post(self, message):
+            self.operations.append({
+                "action": "post",
+                "sender": message.sender,
+                "channel": message.channel,
+                "time": message.timestamp.isoformat(),
+            })
+        
+        async def _after_read(self, channel, messages):
+            self.operations.append({
+                "action": "read",
+                "channel": channel,
+                "count": len(messages),
+            })
+    
+    # Create custom whiteboard
+    wb = LoggingWhiteboard()
+    
+    # Perform operations
+    await wb.post(sender="A", channel="test", content={"msg": 1})
+    await wb.post(sender="B", channel="test", content={"msg": 2})
+    await wb.read(channel="test")
+    
+    print("✓ Custom whiteboard with logging created")
+    print(f"  - Logged operations: {len(wb.operations)}")
+    print(f"  - Posts: {sum(1 for op in wb.operations if op['action'] == 'post')}")
+    print(f"  - Reads: {sum(1 for op in wb.operations if op['action'] == 'read')}")
+    
+    await wb.close()
+
+
+async def workflow_example():
+    """Demonstrate a typical multi-agent workflow."""
+    
+    print("\n" + "=" * 60)
+    print("Example 5: Multi-Agent Workflow")
+    print("=" * 60)
+    
+    wb = Whiteboard()
+    
+    # Phase 1: Coordinator posts goal
+    await wb.post(
+        sender="Coordinator",
+        channel="project:research",
+        content={
+            "type": "goal",
+            "title": "Research renewable energy trends",
+            "deadline": "2024-03-01"
         }
     )
-    whiteboard.set_mission_focus(
-        mission="Build a recommendation system",
-        focus="Feature engineering phase",
-    )
-    whiteboard.update_progress(progress="Completed data collection, starting feature extraction")
-    context = AgentSystemContext(memory_bank=memory_bank, whiteboard=whiteboard)
     
-    # Simulate some updates
-    context.whiteboard.add_update(
-        agent_name="data_engineer",
-        update_type=WhiteboardUpdateType.PROGRESS,
-        content={"status": "Data pipeline deployed successfully"},
-        tags=["infrastructure", "completed"],
-    )
+    # Phase 2: Workers read goal and post updates
+    goal_msg = (await wb.read(channel="project:research"))[0]
     
-    context.whiteboard.add_update(
-        agent_name="ml_engineer",
-        update_type=WhiteboardUpdateType.DECISION,
-        content={"decision": "Choosing gradient boosting for initial model"},
-        tags=["modeling", "decision"],
+    await wb.post(
+        sender="Researcher",
+        channel="project:research",
+        content={
+            "type": "progress",
+            "task": "Gather market data",
+            "status": "in_progress"
+        },
+        thread="data-collection"
     )
     
-    context.whiteboard.add_update(
-        agent_name="data_engineer",
-        update_type=WhiteboardUpdateType.BLOCKER,
-        content={"blocker": "API rate limit reached, need to implement backoff"},
-        tags=["infrastructure", "blocker"],
+    await wb.post(
+        sender="Analyst",
+        channel="project:research",
+        content={
+            "type": "progress",
+            "task": "Analyze trends",
+            "status": "pending"
+        },
+        thread="analysis"
     )
     
-    # Get agent-specific view
-    print("=== ML Engineer's View ===")
-    ml_view = context.whiteboard.get_agent_view("ml_engineer")
-    print(f"My Role: {ml_view['my_role']}")
-    print(f"Mission: {ml_view['mission']}")
-    print(f"Progress: {ml_view['progress']}")
-    print("\nRecent Updates:")
-    for update in ml_view['recent_updates']:
-        print(f"  - [{update['update_type']}] {update['agent_name']}: {update['content']}")
+    # Phase 3: Workers complete tasks and post results
+    await wb.post(
+        sender="Researcher",
+        channel="project:research",
+        content={
+            "type": "result",
+            "task": "Gather market data",
+            "findings": ["Solar up 25%", "Wind up 18%"],
+            "status": "completed"
+        },
+        thread="data-collection"
+    )
     
-    # Get filtered updates
-    print("\n=== Recent Status Updates ===")
-    status_updates = context.whiteboard.get_recent_updates(update_type=WhiteboardUpdateType.PROGRESS)
-    for update in status_updates:
-        print(f"  - {update.agent_name}: {update.content}")
+    # Phase 4: Coordinator aggregates results
+    all_messages = await wb.read(channel="project:research")
+    results = [m for m in all_messages if m.content.get("type") == "result"]
     
-    # Get updates since a specific time
-    print("\n=== Updates in Last Hour ===")
-    one_hour_ago = datetime.now() - timedelta(hours=1)
-    recent = context.whiteboard.get_recent_updates(since=one_hour_ago)
-    print(f"Found {len(recent)} updates in the last hour")
+    await wb.post(
+        sender="Coordinator",
+        channel="project:research",
+        content={
+            "type": "summary",
+            "completed_tasks": len(results),
+            "overall_status": "on_track"
+        }
+    )
+    
+    # Show final state
+    final_messages = await wb.read(channel="project:research")
+    print(f"✓ Workflow completed with {len(final_messages)} messages")
+    
+    message_types = {}
+    for m in final_messages:
+        t = m.content.get("type", "unknown")
+        message_types[t] = message_types.get(t, 0) + 1
+    
+    print(f"  - Message types: {message_types}")
+    
+    await wb.close()
 
 
-# Example 3: Artifacts and Blockers
-async def artifacts_and_blockers_example():
-    """Demonstrate artifacts and active_blockers fields."""
+async def main():
+    """Run all examples."""
     
-    memory_bank = AsyncAgentMemoryBank()
-    whiteboard = Whiteboard()
-    whiteboard.set_mission_focus(mission="Deploy new API version", focus=None)
-    # Seed artifacts and blockers on the current topic
-    state = whiteboard._state()
-    state.artifacts = {
-        "code": [
-            {"name": "api_v2.py", "status": "completed", "url": "/repo/api_v2.py"},
-            {"name": "tests.py", "status": "in_progress", "url": "/repo/tests.py"},
-        ],
-        "docs": [
-            {"name": "API_SPEC.md", "status": "completed", "url": "/docs/API_SPEC.md"},
-        ],
-    }
-    whiteboard.add_blocker(blocker="Waiting for security review approval")
-    whiteboard.add_blocker(blocker="Database migration script needs testing")
-    context = AgentSystemContext(memory_bank=memory_bank, whiteboard=whiteboard)
-    
-    print("=== Project Artifacts ===")
-    for artifact_type, items in state.artifacts.items():
-        print(f"\n{artifact_type.upper()}:")
-        for item in items:
-            print(f"  - {item['name']} ({item['status']})")
-    
-    print("\n=== Active Blockers ===")
-    for blocker in state.active_blockers:
-        print(f"  - {blocker}")
-    
-    # Update blockers
-    context.whiteboard.remove_blocker(blocker="Waiting for security review approval")
-    context.whiteboard.add_update(
-        agent_name="devops",
-        update_type=WhiteboardUpdateType.PROGRESS,
-        content={"status": "Security review approved, blocker removed"},
-        tags=["security", "unblocked"],
-    )
-    
-    print("\n=== Updated Blockers ===")
-    for blocker in state.active_blockers:
-        print(f"  - {blocker}")
+    print("=" * 60)
+    print("Whiteboard System Examples")
+    print("=" * 60)
+    print("""
+The new whiteboard system provides channel-based messaging for
+multi-agent coordination. Unlike the old topic-based system with
+predefined fields (mission, progress, blockers), the new system
+uses flexible channels and JSON messages.
 
+Benefits:
+- Simple, flexible message format
+- No imposed business logic
+- Storage agnostic (in-memory or Redis)
+- Extensible via subclassing
+- Optional - works without modifying agent code
+    """)
+    
+    await basic_whiteboard_example()
+    await redis_whiteboard_example()
+    await agent_system_with_whiteboard()
+    await custom_whiteboard_extension()
+    await workflow_example()
+    
+    print("\n" + "=" * 60)
+    print("Summary")
+    print("=" * 60)
+    print("""
+Key APIs:
 
+1. Creating a whiteboard:
+   wb = Whiteboard()  # In-memory
+   wb = Whiteboard(storage=RedisStorage(redis_client))  # Persistent
+
+2. Posting messages:
+   await wb.post(
+       sender="Agent",
+       channel="project:abc",
+       content={"any": "json", "data": True},
+       thread="optional-thread",
+       reply_to="optional-parent-msg-id"
+   )
+
+3. Reading messages:
+   messages = await wb.read(
+       channel="project:abc",
+       since=datetime_obj,
+       limit=100,
+       thread="optional-filter"
+   )
+
+4. Integration with agent system:
+   context = AgentSystemContext.create(
+       memory_bank=AsyncAgentMemoryBank(),
+       enable_whiteboard=True,
+       whiteboard_storage=optional_storage
+   )
+
+5. Custom extensions:
+   class MyWhiteboard(Whiteboard):
+       async def _before_post(self, sender, channel, content):
+           # Add validation or enrichment
+           pass
+       
+       async def _after_read(self, channel, messages):
+           # Add filtering or logging
+           pass
+    """)
 
 
 if __name__ == "__main__":
-    print("=" * 80)
-    print("Example 1: Basic Whiteboard Usage")
-    print("=" * 80)
-    # asyncio.run(basic_whiteboard_example())
-    
-    print("\n" + "=" * 80)
-    print("Example 2: Agent View and Recent Updates")
-    print("=" * 80)
-    asyncio.run(agent_view_example())
-    
-    print("\n" + "=" * 80)
-    print("Example 3: Artifacts and Blockers")
-    print("=" * 80)
-    asyncio.run(artifacts_and_blockers_example())
-    
-    print("\nUncomment the examples you want to run!")
+    asyncio.run(main())

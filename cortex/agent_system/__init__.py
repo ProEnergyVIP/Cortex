@@ -2,12 +2,10 @@ from .core import AgentBuilder, AgentSystem
 from .core.context import AgentSystemContext
 from .core.whiteboard import (
     Whiteboard,
-    WhiteboardTopic,
-    WhiteboardUpdate,
-    WhiteboardUpdateType,
-    RedisWhiteboard,
-    AsyncWhiteboard,
-    AsyncRedisWhiteboard,
+    WhiteboardStorage,
+    InMemoryStorage,
+    RedisStorage,
+    Message,
 )
 from .coordinator_system import (
     CoordinatorAgentBuilder,
@@ -20,12 +18,10 @@ __all__ = [
     "AgentBuilder",
     "AgentSystemContext",
     "Whiteboard",
-    "WhiteboardTopic",
-    "WhiteboardUpdate",
-    "WhiteboardUpdateType",
-    "RedisWhiteboard",
-    "AsyncWhiteboard",
-    "AsyncRedisWhiteboard",
+    "WhiteboardStorage",
+    "InMemoryStorage",
+    "RedisStorage",
+    "Message",
     "CoordinatorAgentBuilder",
     "WorkerAgentBuilder",
     "CoordinatorSystem",

@@ -3,12 +3,10 @@ from .system import AgentSystem
 from .context import AgentSystemContext
 from .whiteboard import (
     Whiteboard,
-    WhiteboardTopic,
-    WhiteboardUpdate,
-    WhiteboardUpdateType,
-    RedisWhiteboard,
-    AsyncWhiteboard,
-    AsyncRedisWhiteboard,
+    WhiteboardStorage,
+    InMemoryStorage,
+    RedisStorage,
+    Message,
 )
 
 __all__ = [
@@ -16,10 +14,8 @@ __all__ = [
     "AgentSystem",
     "AgentSystemContext",
     "Whiteboard",
-    "WhiteboardTopic",
-    "WhiteboardUpdate",
-    "WhiteboardUpdateType",
-    "RedisWhiteboard",
-    "AsyncWhiteboard",
-    "AsyncRedisWhiteboard",
+    "WhiteboardStorage",
+    "InMemoryStorage",
+    "RedisStorage",
+    "Message",
 ]
