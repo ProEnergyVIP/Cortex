@@ -20,7 +20,10 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import uuid
 import json
+import logging
 from pydantic import BaseModel, Field, PrivateAttr
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -104,6 +107,7 @@ class InMemoryStorage(WhiteboardStorage):
     async def save(self, message: Message) -> None:
         """Store a message in memory."""
         self._messages[message.channel].append(message)
+        logger.debug(f"InMemoryStorage: Saved message to '{message.channel}' (total: {len(self._messages[message.channel])})")
     
     async def query(
         self, 
@@ -122,7 +126,9 @@ class InMemoryStorage(WhiteboardStorage):
             messages = [m for m in messages if m.thread == thread]
         
         # Return most recent messages, limited
-        return messages[-limit:] if limit < len(messages) else messages
+        result = messages[-limit:] if limit < len(messages) else messages
+        logger.debug(f"InMemoryStorage: Queried '{channel}' - returned {len(result)} of {len(self._messages.get(channel, []))} messages")
+        return result
 
 
 class RedisStorage(WhiteboardStorage):
@@ -149,6 +155,7 @@ class RedisStorage(WhiteboardStorage):
         key = self._channel_key(message.channel)
         payload = message.model_dump_json()
         await self._redis.rpush(key, payload)
+        logger.debug(f"RedisStorage: Saved message to '{key}'")
     
     async def query(
         self, 
@@ -184,11 +191,13 @@ class RedisStorage(WhiteboardStorage):
         
         # Sort by timestamp
         messages.sort(key=lambda m: m.timestamp)
+        logger.debug(f"RedisStorage: Queried '{key}' - returned {len(messages)} messages (fetched {len(raw_messages)} from Redis)")
         return messages
     
     async def close(self) -> None:
         """Close the Redis connection."""
         if hasattr(self._redis, 'close'):
+            logger.debug("RedisStorage: Closing Redis connection")
             await self._redis.close()
 
 
@@ -233,6 +242,7 @@ class Whiteboard:
         self._storage = storage or InMemoryStorage()
         self._subscribers = defaultdict(list)
         self._channels = set()
+        logger.debug(f"Whiteboard initialized with {type(self._storage).__name__}")
     
     # ---- Core Public API ----
     
@@ -277,6 +287,8 @@ class Whiteboard:
         await self._storage.save(message)
         self._channels.add(channel)
         
+        logger.debug(f"Message posted to '{channel}' by '{sender}': {content}")
+        
         # Notify subscribers asynchronously (don't block on errors)
         await self._notify_subscribers(channel, message)
         
@@ -304,6 +316,7 @@ class Whiteboard:
         await self._before_read(channel, since, limit, thread)
         messages = await self._storage.query(channel, since, limit, thread)
         await self._after_read(channel, messages)
+        logger.debug(f"Read {len(messages)} messages from '{channel}' (since={since}, limit={limit}, thread={thread})")
         return messages
     
     async def subscribe(
@@ -321,6 +334,7 @@ class Whiteboard:
             callback: Function to call when a new message arrives
         """
         self._subscribers[channel].append(callback)
+        logger.debug(f"Subscribed to channel '{channel}' ({len(self._subscribers[channel])} subscribers total)")
     
     async def unsubscribe(
         self, 
@@ -336,6 +350,7 @@ class Whiteboard:
         if channel in self._subscribers:
             try:
                 self._subscribers[channel].remove(callback)
+                logger.debug(f"Unsubscribed from channel '{channel}'")
             except ValueError:
                 pass
     
@@ -345,7 +360,9 @@ class Whiteboard:
         Returns:
             Sorted list of channel names
         """
-        return sorted(self._channels)
+        channels = sorted(self._channels)
+        logger.debug(f"Listing {len(channels)} channels: {channels}")
+        return channels
     
     # ---- Extension Hooks ----
     
@@ -448,6 +465,7 @@ class Whiteboard:
         
         Call this when the whiteboard is no longer needed.
         """
+        logger.debug("Closing whiteboard")
         await self._storage.close()
 
 
