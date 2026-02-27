@@ -577,6 +577,80 @@ await system.async_ask("Hello")
 print(usage.format())
 ```
 
+### 7.4 Whiteboard (agent communication)
+
+The whiteboard provides a channel-based messaging system for agents to communicate asynchronously. Enable it to let agents share context, post updates, and coordinate across conversation turns.
+
+**Basic usage:**
+
+```python
+from cortex import AgentSystemContext, AsyncAgentMemoryBank
+
+# Enable whiteboard (uses in-memory storage by default)
+context = AgentSystemContext.create(
+    memory_bank=AsyncAgentMemoryBank(),
+    enable_whiteboard=True,
+)
+
+# With Redis persistence
+from cortex.agent_system.core.whiteboard import RedisStorage
+from redis.asyncio import Redis
+
+redis_client = Redis(host='localhost', port=6379)
+context = AgentSystemContext.create(
+    memory_bank=AsyncAgentMemoryBank(),
+    enable_whiteboard=True,
+    whiteboard_storage=RedisStorage(redis_client),
+)
+```
+
+When enabled, agents automatically get these tools:
+- `whiteboard_post` - Send messages to channels
+- `whiteboard_read` - Retrieve messages from channels
+- `whiteboard_subscribe` - Subscribe to channel updates
+- `whiteboard_list_channels` - Discover available channels
+
+**Example workflow:**
+
+```python
+# Coordinator posts a goal
+await context.whiteboard.post(
+    sender="Coordinator",
+    channel="project:acme-merger",
+    content={"type": "goal", "description": "Analyze merger risks"}
+)
+
+# Workers read and post updates
+messages = await context.whiteboard.read(channel="project:acme-merger")
+
+await context.whiteboard.post(
+    sender="RiskAnalyst",
+    channel="project:acme-merger",
+    content={"type": "finding", "risk": "High debt ratio"},
+    thread="financial-analysis"
+)
+```
+
+**Direct whiteboard access:**
+
+```python
+from cortex.agent_system.core.whiteboard import Whiteboard, InMemoryStorage, RedisStorage
+
+# In-memory (development/testing)
+wb = Whiteboard()
+
+# Redis-backed (production)
+wb = Whiteboard(storage=RedisStorage(redis_client))
+
+# Post and read
+msg = await wb.post(
+    sender="Agent",
+    channel="alerts",
+    content={"severity": "high", "message": "System overload"}
+)
+messages = await wb.read(channel="alerts", limit=50)
+```
+
 ---
 
 ## 8) Parallel tool execution
