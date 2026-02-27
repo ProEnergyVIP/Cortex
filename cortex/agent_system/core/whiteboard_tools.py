@@ -15,16 +15,16 @@ from ..core.whiteboard import Whiteboard
 
 # System prompt addition when whiteboard is enabled (for workers)
 WHITEBOARD_PROMPT_ADDITION = """
-You have access to a shared whiteboard for agent coordination. Use it to share
-information, track progress, and coordinate with other agents. Channels are simple
-strings (e.g., "project:acme-merger", "task:analysis-123").
+You have access to a shared channel-based whiteboard system for agent coordination.
+Use it to share information, track progress, and coordinate with other agents.
+Channels are simple strings (e.g., "project:acme-merger", "task:analysis-123").
 """
 
 # Coordinator-specific prompt addition with cleanup capability
 COORDINATOR_WHITEBOARD_PROMPT_ADDITION = """
-You have access to a shared whiteboard for agent coordination. Use it to share
-information, track progress, and coordinate with other agents. Channels are simple
-strings (e.g., "project:acme-merger", "task:analysis-123").
+You have access to a shared channel-based whiteboard system for agent coordination.
+Use it to share information, track progress, and coordinate with other agents.
+Channels are simple strings (e.g., "project:acme-merger", "task:analysis-123").
 
 Note: Automatic cleanup handles oversized channels. Use explicit cleanup only for
 age-based removal or when deleting completed task channels.
