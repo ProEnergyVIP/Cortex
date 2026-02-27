@@ -15,72 +15,19 @@ from ..core.whiteboard import Whiteboard
 
 # System prompt addition when whiteboard is enabled (for workers)
 WHITEBOARD_PROMPT_ADDITION = """
-You have access to a shared whiteboard where agents can post and read messages.
-Use it to share information, track progress, and coordinate with other agents.
-
-Channels are simple strings - use them to organize communication:
-- Use project-specific channels for ongoing work (e.g., "project:acme-merger")
-- Use task-specific channels for one-off activities (e.g., "task:analysis-123")
-- Read relevant channels before starting new tasks to understand context
-- Post updates and results as you complete work
-- Use threads to keep conversations organized (e.g., thread="regulatory-analysis")
-
-Available whiteboard tools:
-- whiteboard_post: Post a message to a channel
-- whiteboard_read: Read messages from a channel
-- whiteboard_subscribe: Subscribe to channel notifications (for persistent monitoring)
-- whiteboard_list_channels: List all available channels
-
-Note: Cleanup is managed by the coordinator. Workers should not attempt to clean up.
-
-Example workflow:
-1. Coordinator posts goal to "project:xyz" channel
-2. Workers read from "project:xyz" to understand context
-3. Workers post results to relevant channels
-4. Coordinator aggregates results and responds to user
+You have access to a shared whiteboard for agent coordination. Use it to share
+information, track progress, and coordinate with other agents. Channels are simple
+strings (e.g., "project:acme-merger", "task:analysis-123").
 """
 
 # Coordinator-specific prompt addition with cleanup capability
 COORDINATOR_WHITEBOARD_PROMPT_ADDITION = """
-You have access to a shared whiteboard where agents can post and read messages.
-Use it to share information, track progress, and coordinate with other agents.
+You have access to a shared whiteboard for agent coordination. Use it to share
+information, track progress, and coordinate with other agents. Channels are simple
+strings (e.g., "project:acme-merger", "task:analysis-123").
 
-Channels are simple strings - use them to organize communication:
-- Use project-specific channels for ongoing work (e.g., "project:acme-merger")
-- Use task-specific channels for one-off activities (e.g., "task:analysis-123")
-- Read relevant channels before starting new tasks to understand context
-- Post updates and results as you complete work
-- Use threads to keep conversations organized (e.g., thread="regulatory-analysis")
-
-Available whiteboard tools:
-- whiteboard_post: Post a message to a channel
-- whiteboard_read: Read messages from a channel
-- whiteboard_subscribe: Subscribe to channel notifications (for persistent monitoring)
-- whiteboard_list_channels: List all available channels
-- whiteboard_cleanup: Explicit cleanup (coordinator only - use for age-based or partial cleanup)
-- whiteboard_delete_channel: Delete entire channel (coordinator only - use when task/project done)
-
-AUTOMATIC CLEANUP:
-The system automatically cleans up oversized channels (keeping last 100 messages).
-You don't need to manage channel size manually.
-
-WHEN TO USE EXPLICIT CLEANUP:
-- At end of a project/task to clear old channels
-- When switching contexts and old messages are no longer relevant
-- To remove messages older than a specific age (e.g., cleanup daily)
-- When you see stale/irrelevant messages affecting context quality
-
-Explicit cleanup examples:
-- Cleanup messages older than 24 hours: max_age_hours=24, max_count=null
-- Keep only last 50 messages: max_count=50
-- Clear a specific completed channel: channel="project:done", max_count=0, keep_min=0
-
-Example workflow:
-1. Coordinator posts goal to "project:xyz" channel
-2. Workers read from "project:xyz" to understand context
-3. Workers post results to relevant channels
-4. Coordinator aggregates results and responds to user
-5. Call whiteboard_cleanup at task end to clear stale channels
+Note: Automatic cleanup handles oversized channels. Use explicit cleanup only for
+age-based removal or when deleting completed task channels.
 """
 
 
