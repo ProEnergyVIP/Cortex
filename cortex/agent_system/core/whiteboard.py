@@ -382,17 +382,29 @@ class Whiteboard:
     _storage: WhiteboardStorage
     _subscribers: Dict[str, List[Callable[[Message], None]]]
     _channels: Set[str]
+    _auto_cleanup_max_size: int
+    _auto_cleanup_keep_min: int
     
-    def __init__(self, storage: Optional[WhiteboardStorage] = None):
+    def __init__(
+        self, 
+        storage: Optional[WhiteboardStorage] = None,
+        auto_cleanup_max_size: int = 100,
+        auto_cleanup_keep_min: int = 20
+    ):
         """Initialize the whiteboard.
         
         Args:
             storage: Storage backend. If None, uses InMemoryStorage.
+            auto_cleanup_max_size: Trigger auto-cleanup when channel exceeds this size
+            auto_cleanup_keep_min: Keep at least this many messages during auto-cleanup
         """
         self._storage = storage or InMemoryStorage()
         self._subscribers = defaultdict(list)
         self._channels = set()
-        logger.debug(f"Whiteboard initialized with {type(self._storage).__name__}")
+        self._auto_cleanup_max_size = auto_cleanup_max_size
+        self._auto_cleanup_keep_min = auto_cleanup_keep_min
+        logger.debug(f"Whiteboard initialized with {type(self._storage).__name__} "
+                    f"(auto_cleanup_max_size={auto_cleanup_max_size}, auto_cleanup_keep_min={auto_cleanup_keep_min})")
     
     # ---- Core Public API ----
     
@@ -549,7 +561,38 @@ class Whiteboard:
         Args:
             message: The posted message (immutable)
         """
-        pass
+        # Auto-cleanup oversized channels (size-based only, not age-based)
+        if self._auto_cleanup_max_size > 0:
+            await self._auto_cleanup_if_needed(message.channel)
+    
+    async def _auto_cleanup_if_needed(self, channel: str) -> None:
+        """Automatically clean up channel if it exceeds max size.
+        
+        This is automatic size-based cleanup that triggers transparently
+        when a channel gets too large. It only uses max_count (not age).
+        
+        Args:
+            channel: The channel to check and potentially clean
+        """
+        try:
+            # Get current channel size (quick count query)
+            all_messages = await self._storage.query(channel, since=None, limit=1000, thread=None)
+            current_size = len(all_messages)
+            
+            if current_size > self._auto_cleanup_max_size:
+                # Auto-cleanup: only use max_count (size-based), not age
+                removed = await self._storage.cleanup(
+                    channel=channel,
+                    max_age=None,  # Don't use age-based cleanup for auto
+                    max_count=self._auto_cleanup_max_size,
+                    keep_min=self._auto_cleanup_keep_min
+                )
+                if removed > 0:
+                    logger.info(f"Auto-cleanup: removed {removed} messages from '{channel}' "
+                               f"(size was {current_size}, now {current_size - removed})")
+        except Exception:
+            # Auto-cleanup errors should not break posting
+            pass
     
     async def _before_read(
         self, 

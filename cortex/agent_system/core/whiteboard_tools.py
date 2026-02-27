@@ -57,14 +57,29 @@ Available whiteboard tools:
 - whiteboard_read: Read messages from a channel
 - whiteboard_subscribe: Subscribe to channel notifications (for persistent monitoring)
 - whiteboard_list_channels: List all available channels
-- whiteboard_cleanup: Clean up old messages (coordinator only - use periodically to manage size)
+- whiteboard_cleanup: Explicit cleanup (coordinator only - use for age-based or specific channel cleanup)
+
+AUTOMATIC CLEANUP:
+The system automatically cleans up oversized channels (keeping last 100 messages).
+You don't need to manage channel size manually.
+
+WHEN TO USE EXPLICIT CLEANUP:
+- At end of a project/task to clear old channels
+- When switching contexts and old messages are no longer relevant
+- To remove messages older than a specific age (e.g., cleanup daily)
+- When you see stale/irrelevant messages affecting context quality
+
+Explicit cleanup examples:
+- Cleanup messages older than 24 hours: max_age_hours=24, max_count=null
+- Keep only last 50 messages: max_count=50
+- Clear a specific completed channel: channel="project:done", max_count=0, keep_min=0
 
 Example workflow:
 1. Coordinator posts goal to "project:xyz" channel
 2. Workers read from "project:xyz" to understand context
 3. Workers post results to relevant channels
 4. Coordinator aggregates results and responds to user
-5. Periodically use whiteboard_cleanup to remove stale messages
+5. Call whiteboard_cleanup at task end to clear stale channels
 """
 
 
