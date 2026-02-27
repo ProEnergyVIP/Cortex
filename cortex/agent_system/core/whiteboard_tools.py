@@ -213,7 +213,7 @@ def create_whiteboard_tools() -> List[Tool]:
                         "description": "Optional message ID this is replying to (use short 8-char ID from whiteboard_read)"
                     }
                 },
-                "required": ["channel", "content"],
+                "required": ["channel", "content", "thread", "reply_to"],
                 "additionalProperties": False
             }
         ),
@@ -241,7 +241,7 @@ def create_whiteboard_tools() -> List[Tool]:
                         "description": "Optional thread identifier to filter messages"
                     }
                 },
-                "required": ["channel"],
+                "required": ["channel", "since", "limit", "thread"],
                 "additionalProperties": False
             }
         ),
