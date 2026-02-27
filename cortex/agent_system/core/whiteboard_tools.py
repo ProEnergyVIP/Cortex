@@ -13,7 +13,7 @@ from ..core.context import AgentSystemContext
 from ..core.whiteboard import Whiteboard
 
 
-# System prompt addition when whiteboard is enabled
+# System prompt addition when whiteboard is enabled (for workers)
 WHITEBOARD_PROMPT_ADDITION = """
 You have access to a shared whiteboard where agents can post and read messages.
 Use it to share information, track progress, and coordinate with other agents.
@@ -29,12 +29,42 @@ Available whiteboard tools:
 - whiteboard_post: Post a message to a channel
 - whiteboard_read: Read messages from a channel
 - whiteboard_subscribe: Subscribe to channel notifications (for persistent monitoring)
+- whiteboard_list_channels: List all available channels
+
+Note: Cleanup is managed by the coordinator. Workers should not attempt to clean up.
 
 Example workflow:
 1. Coordinator posts goal to "project:xyz" channel
 2. Workers read from "project:xyz" to understand context
 3. Workers post results to relevant channels
 4. Coordinator aggregates results and responds to user
+"""
+
+# Coordinator-specific prompt addition with cleanup capability
+COORDINATOR_WHITEBOARD_PROMPT_ADDITION = """
+You have access to a shared whiteboard where agents can post and read messages.
+Use it to share information, track progress, and coordinate with other agents.
+
+Channels are simple strings - use them to organize communication:
+- Use project-specific channels for ongoing work (e.g., "project:acme-merger")
+- Use task-specific channels for one-off activities (e.g., "task:analysis-123")
+- Read relevant channels before starting new tasks to understand context
+- Post updates and results as you complete work
+- Use threads to keep conversations organized (e.g., thread="regulatory-analysis")
+
+Available whiteboard tools:
+- whiteboard_post: Post a message to a channel
+- whiteboard_read: Read messages from a channel
+- whiteboard_subscribe: Subscribe to channel notifications (for persistent monitoring)
+- whiteboard_list_channels: List all available channels
+- whiteboard_cleanup: Clean up old messages (coordinator only - use periodically to manage size)
+
+Example workflow:
+1. Coordinator posts goal to "project:xyz" channel
+2. Workers read from "project:xyz" to understand context
+3. Workers post results to relevant channels
+4. Coordinator aggregates results and responds to user
+5. Periodically use whiteboard_cleanup to remove stale messages
 """
 
 
@@ -275,10 +305,99 @@ def create_whiteboard_tools() -> List[Tool]:
     ]
 
 
-# Legacy support - keep old function name as alias
-def create_coordinator_whiteboard_tools() -> List[Tool]:
-    """DEPRECATED: Use create_whiteboard_tools() instead.
+# Module-level cleanup function for coordinator access
+async def _whiteboard_cleanup_impl(args: Dict[str, Any], context: AgentSystemContext) -> Dict[str, Any]:
+    """Clean up old messages from the whiteboard (implementation)."""
+    wb: Optional[Whiteboard] = getattr(context, "whiteboard", None)
+    if not wb:
+        return {"error": "Whiteboard not available in this context"}
     
-    This alias exists for backward compatibility during migration.
+    channel = args.get("channel")  # None = all channels
+    max_age_hours = args.get("max_age_hours")
+    max_count = args.get("max_count")
+    keep_min = args.get("keep_min", 10)
+    
+    # Convert to proper types
+    if max_age_hours is not None:
+        try:
+            max_age_hours = int(max_age_hours)
+        except (ValueError, TypeError):
+            return {"error": "max_age_hours must be a number"}
+    
+    if max_count is not None:
+        try:
+            max_count = int(max_count)
+        except (ValueError, TypeError):
+            return {"error": "max_count must be a number"}
+    
+    if keep_min is not None:
+        try:
+            keep_min = int(keep_min)
+            if keep_min < 0:
+                keep_min = 10
+        except (ValueError, TypeError):
+            keep_min = 10
+    
+    try:
+        results = await wb.cleanup(
+            channel=channel,
+            max_age_hours=max_age_hours,
+            max_count=max_count,
+            keep_min=keep_min
+        )
+        
+        total_removed = sum(results.values()) if results else 0
+        
+        return {
+            "success": True,
+            "channels_cleaned": len(results),
+            "total_removed": total_removed,
+            "details": results
+        }
+    except Exception as e:
+        return {"error": f"Error cleaning up whiteboard: {str(e)}"}
+
+
+def create_coordinator_whiteboard_tools() -> List[Tool]:
+    """Create whiteboard tools for the coordinator, including cleanup capability.
+    
+    The coordinator gets all regular whiteboard tools PLUS the cleanup tool,
+    which allows removing old messages to manage whiteboard size.
+    
+    Returns:
+        List of Tool instances including cleanup capability
     """
-    return create_whiteboard_tools()
+    # Get all the base tools
+    base_tools = create_whiteboard_tools()
+    
+    # Add the cleanup tool (coordinator only)
+    cleanup_tool = Tool(
+        name="whiteboard_cleanup",
+        func=_whiteboard_cleanup_impl,
+        description="Clean up old messages from the whiteboard to prevent it from growing too large. Use this periodically to remove stale messages. You can clean by age (hours) or by count (max messages per channel).",
+        parameters={
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": ["string", "null"],
+                    "description": "Specific channel to clean. If null, cleans all channels."
+                },
+                "max_age_hours": {
+                    "type": ["integer", "null"],
+                    "description": "Remove messages older than this many hours (e.g., 24 for messages older than a day)"
+                },
+                "max_count": {
+                    "type": ["integer", "null"],
+                    "description": "Keep only this many most recent messages per channel (e.g., 100)"
+                },
+                "keep_min": {
+                    "type": ["integer", "null"],
+                    "description": "Always keep at least this many messages per channel (safety, default: 10)"
+                }
+            },
+            "required": ["channel", "max_age_hours", "max_count", "keep_min"],
+            "additionalProperties": False
+        }
+    )
+    
+    return base_tools + [cleanup_tool]

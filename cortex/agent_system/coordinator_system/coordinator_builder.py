@@ -4,7 +4,7 @@ from cortex import LLM, Agent, Tool
 
 from ..core.context import AgentSystemContext
 from ..core.builder import AgentBuilder
-from ..core.whiteboard_tools import create_whiteboard_tools, WHITEBOARD_PROMPT_ADDITION
+from ..core.whiteboard_tools import create_coordinator_whiteboard_tools, WHITEBOARD_PROMPT_ADDITION
 
 
 # Generic, product-agnostic coordinator prompts
@@ -392,29 +392,6 @@ def _build_clear_topic_tool() -> Tool:
     )
 
 
-def create_coordinator_whiteboard_tools() -> List[Tool]:
-    """Create Whiteboard management tools for the coordinator.
-
-    These tools allow the coordinator to manage team-wide context:
-    - Set mission and current focus
-    - Track overall progress
-    - Manage active blockers
-    - Log coordination decisions
-
-    Returns:
-        List of Tool instances for context management
-    """
-
-    return [
-        _build_update_mission_tool(),
-        _build_update_progress_tool(),
-        _build_manage_blocker_tool(),
-        _build_log_decision_tool(),
-        _build_get_team_status_tool(),
-        _build_clear_topic_tool(),
-    ]
-
-
 class CoordinatorAgentBuilder(AgentBuilder):
     """Builder for a generic coordinator agent.
 
@@ -480,9 +457,9 @@ class CoordinatorAgentBuilder(AgentBuilder):
 
         all_tools = await self.load_tools(context)
         
-        # Add Whiteboard tools for the coordinator (and workers via their own builders)
+        # Add Whiteboard tools for the coordinator (includes cleanup capability)
         if has_whiteboard:
-            whiteboard_tools = create_whiteboard_tools()
+            whiteboard_tools = create_coordinator_whiteboard_tools()
             all_tools.extend(whiteboard_tools)
         
         if tools is not None:

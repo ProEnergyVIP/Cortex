@@ -87,8 +87,29 @@ class WhiteboardStorage(ABC):
         """
         pass
     
-    async def close(self) -> None:
-        """Close the storage connection (optional, for cleanup)."""
+    @abstractmethod
+    async def cleanup(
+        self,
+        channel: str,
+        max_age: Optional[timedelta] = None,
+        max_count: Optional[int] = None,
+        keep_min: int = 10
+    ) -> int:
+        """Remove old messages from a channel.
+        
+        Args:
+            channel: The channel to clean up
+            max_age: Remove messages older than this (e.g., timedelta(hours=24))
+            max_count: Keep only this many most recent messages
+            keep_min: Always keep at least this many messages (safety)
+            
+        Returns:
+            Number of messages removed
+            
+        Note:
+            If both max_age and max_count are specified, the more restrictive
+            (i.e., the one that removes more messages) is applied.
+        """
         pass
 
 
@@ -129,6 +150,68 @@ class InMemoryStorage(WhiteboardStorage):
         result = messages[-limit:] if limit < len(messages) else messages
         logger.debug(f"InMemoryStorage: Queried '{channel}' - returned {len(result)} of {len(self._messages.get(channel, []))} messages")
         return result
+
+    async def close(self) -> None:
+        """Close the storage connection (optional, for cleanup)."""
+        pass
+
+    async def cleanup(
+        self,
+        channel: str,
+        max_age: Optional[timedelta] = None,
+        max_count: Optional[int] = None,
+        keep_min: int = 10
+    ) -> int:
+        """Remove old messages from a channel.
+        
+        Args:
+            channel: The channel to clean up
+            max_age: Remove messages older than this (e.g., timedelta(hours=24))
+            max_count: Keep only this many most recent messages
+            keep_min: Always keep at least this many messages (safety)
+            
+        Returns:
+            Number of messages removed
+            
+        Note:
+            If both max_age and max_count are specified, the more restrictive
+            (i.e., the one that removes more messages) is applied.
+        """
+        removed = 0
+        messages = self._messages.get(channel, [])
+        if not messages:
+            return 0
+        
+        # Determine which messages to keep
+        keep_indices = set(range(len(messages)))
+        
+        if max_age is not None:
+            cutoff = datetime.now() - max_age
+            for i, msg in enumerate(messages):
+                if msg.timestamp < cutoff:
+                    keep_indices.discard(i)
+        
+        if max_count is not None and len(messages) > max_count:
+            # Keep only the most recent max_count messages
+            keep_indices = set(range(len(messages) - max_count, len(messages)))
+        
+        # Ensure we keep at least keep_min messages
+        if len(keep_indices) < keep_min:
+            # Add back the most recent messages until we hit keep_min
+            for i in range(len(messages) - 1, -1, -1):
+                if len(keep_indices) >= keep_min:
+                    break
+                keep_indices.add(i)
+        
+        # Filter messages
+        new_messages = [messages[i] for i in sorted(keep_indices)]
+        removed = len(messages) - len(new_messages)
+        self._messages[channel] = new_messages
+        
+        if removed > 0:
+            logger.debug(f"InMemoryStorage: Cleaned up {removed} messages from '{channel}' (kept {len(new_messages)})")
+        
+        return removed
 
 
 class RedisStorage(WhiteboardStorage):
@@ -189,16 +272,83 @@ class RedisStorage(WhiteboardStorage):
             
             messages.append(msg)
         
-        # Sort by timestamp
-        messages.sort(key=lambda m: m.timestamp)
         logger.debug(f"RedisStorage: Queried '{key}' - returned {len(messages)} messages (fetched {len(raw_messages)} from Redis)")
         return messages
-    
+
+    async def cleanup(
+        self,
+        channel: str,
+        max_age: Optional[timedelta] = None,
+        max_count: Optional[int] = None,
+        keep_min: int = 10
+    ) -> int:
+        """Remove old messages from a Redis channel.
+        
+        Args:
+            channel: The channel to clean up
+            max_age: Remove messages older than this
+            max_count: Keep only this many most recent messages
+            keep_min: Always keep at least this many messages
+            
+        Returns:
+            Number of messages removed
+        """
+        key = self._channel_key(channel)
+        
+        # Get all messages
+        total = await self._redis.llen(key)
+        if total == 0:
+            return 0
+        
+        raw_messages = await self._redis.lrange(key, 0, -1)
+        
+        # Determine which messages to keep
+        keep_indices = set(range(len(raw_messages)))
+        
+        if max_age is not None:
+            cutoff = datetime.now() - max_age
+            for i, raw in enumerate(raw_messages):
+                if isinstance(raw, bytes):
+                    raw = raw.decode('utf-8')
+                data = json.loads(raw)
+                msg = Message(**data)
+                if msg.timestamp < cutoff:
+                    keep_indices.discard(i)
+        
+        if max_count is not None and len(raw_messages) > max_count:
+            # Keep only the most recent max_count messages
+            keep_indices = set(range(len(raw_messages) - max_count, len(raw_messages)))
+        
+        # Ensure we keep at least keep_min messages
+        if len(keep_indices) < keep_min:
+            for i in range(len(raw_messages) - 1, -1, -1):
+                if len(keep_indices) >= keep_min:
+                    break
+                keep_indices.add(i)
+        
+        # If we need to remove messages, rebuild the list
+        removed = len(raw_messages) - len(keep_indices)
+        if removed > 0:
+            # Keep only the messages we want
+            messages_to_keep = [raw_messages[i] for i in sorted(keep_indices)]
+            
+            # Delete and rebuild the list atomically using a pipeline
+            pipe = self._redis.pipeline()
+            pipe.delete(key)
+            if messages_to_keep:
+                pipe.rpush(key, *messages_to_keep)
+            await pipe.execute()
+            
+            logger.debug(f"RedisStorage: Cleaned up {removed} messages from '{key}' (kept {len(messages_to_keep)})")
+        
+        return removed
+
     async def close(self) -> None:
         """Close the Redis connection."""
         if hasattr(self._redis, 'close'):
             logger.debug("RedisStorage: Closing Redis connection")
             await self._redis.close()
+
 
 
 # =============================================================================
@@ -459,6 +609,63 @@ class Whiteboard:
             except Exception:
                 # Subscriber errors shouldn't break posting
                 pass
+    
+    async def cleanup(
+        self,
+        channel: Optional[str] = None,
+        max_age_hours: Optional[int] = None,
+        max_count: Optional[int] = None,
+        keep_min: int = 10
+    ) -> Dict[str, int]:
+        """Clean up old messages from whiteboard channels.
+        
+        This method can be called periodically to remove stale messages
+        and prevent memory/storage bloat. It's safe to call - it will
+        always keep at least keep_min messages per channel.
+        
+        Args:
+            channel: Specific channel to clean (None = all channels)
+            max_age_hours: Remove messages older than this many hours
+            max_count: Keep only this many most recent messages per channel
+            keep_min: Always keep at least this many messages (safety)
+            
+        Returns:
+            Dict mapping channel name to number of messages removed
+            
+        Example:
+            ```python
+            # Clean up messages older than 24 hours
+            removed = await wb.cleanup(max_age_hours=24)
+            
+            # Keep only last 100 messages per channel
+            removed = await wb.cleanup(max_count=100)
+            
+            # Clean specific channel
+            removed = await wb.cleanup(channel="project:acme", max_age_hours=48)
+            ```
+        """
+        from datetime import timedelta
+        
+        max_age = timedelta(hours=max_age_hours) if max_age_hours else None
+        channels_to_clean = [channel] if channel else self.list_channels()
+        
+        results = {}
+        for ch in channels_to_clean:
+            removed = await self._storage.cleanup(
+                channel=ch,
+                max_age=max_age,
+                max_count=max_count,
+                keep_min=keep_min
+            )
+            if removed > 0:
+                results[ch] = removed
+                logger.debug(f"Cleaned up {removed} messages from channel '{ch}'")
+        
+        if results:
+            total = sum(results.values())
+            logger.info(f"Whiteboard cleanup complete: removed {total} messages from {len(results)} channels")
+        
+        return results
     
     async def close(self) -> None:
         """Close the whiteboard and its storage.
