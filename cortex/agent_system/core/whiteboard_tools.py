@@ -57,7 +57,8 @@ Available whiteboard tools:
 - whiteboard_read: Read messages from a channel
 - whiteboard_subscribe: Subscribe to channel notifications (for persistent monitoring)
 - whiteboard_list_channels: List all available channels
-- whiteboard_cleanup: Explicit cleanup (coordinator only - use for age-based or specific channel cleanup)
+- whiteboard_cleanup: Explicit cleanup (coordinator only - use for age-based or partial cleanup)
+- whiteboard_delete_channel: Delete entire channel (coordinator only - use when task/project done)
 
 AUTOMATIC CLEANUP:
 The system automatically cleans up oversized channels (keeping last 100 messages).
@@ -415,4 +416,49 @@ def create_coordinator_whiteboard_tools() -> List[Tool]:
         }
     )
     
-    return base_tools + [cleanup_tool]
+    # Add the delete channel tool (coordinator only)
+    delete_channel_tool = Tool(
+        name="whiteboard_delete_channel",
+        func=_whiteboard_delete_channel_impl,
+        description="Delete a channel and all its messages completely. Use this when a task or project is finished and the channel is no longer needed. This removes all messages and the channel itself from the whiteboard.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "The channel name to delete (e.g., 'project:acme-merger', 'task:analysis-123')"
+                }
+            },
+            "required": ["channel"],
+            "additionalProperties": False
+        }
+    )
+    
+    return base_tools + [cleanup_tool, delete_channel_tool]
+
+
+# Module-level delete channel function for coordinator access
+async def _whiteboard_delete_channel_impl(args: Dict[str, Any], context: AgentSystemContext) -> Dict[str, Any]:
+    """Delete a channel from the whiteboard (implementation)."""
+    wb: Optional[Whiteboard] = getattr(context, "whiteboard", None)
+    if not wb:
+        return {"error": "Whiteboard not available in this context"}
+    
+    channel = args.get("channel")
+    if not channel:
+        return {"error": "'channel' parameter is required"}
+    
+    try:
+        deleted = await wb.delete_channel(channel)
+        if deleted:
+            return {
+                "success": True,
+                "message": f"Channel '{channel}' deleted successfully"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Channel '{channel}' does not exist"
+            }
+    except Exception as e:
+        return {"error": f"Error deleting channel: {str(e)}"}

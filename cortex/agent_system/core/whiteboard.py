@@ -526,6 +526,47 @@ class Whiteboard:
         logger.debug(f"Listing {len(channels)} channels: {channels}")
         return channels
     
+    async def delete_channel(self, channel: str) -> bool:
+        """Delete a channel and all its messages.
+        
+        Use this when a task/project is complete and the channel
+        is no longer needed. This is more aggressive than cleanup -
+        it removes the entire channel from the whiteboard.
+        
+        Args:
+            channel: The channel name to delete
+            
+        Returns:
+            True if channel was deleted, False if it didn't exist
+            
+        Example:
+            ```python
+            # After project completion
+            deleted = await wb.delete_channel("project:acme-merger")
+            ```
+        """
+        if channel not in self._channels:
+            logger.debug(f"Cannot delete channel '{channel}' - does not exist")
+            return False
+        
+        # Remove from tracking
+        self._channels.discard(channel)
+        
+        # Remove all subscribers for this channel
+        if channel in self._subscribers:
+            del self._subscribers[channel]
+        
+        # Clear all messages via storage cleanup (max_count=0, keep_min=0)
+        removed = await self._storage.cleanup(
+            channel=channel,
+            max_age=None,
+            max_count=0,
+            keep_min=0
+        )
+        
+        logger.info(f"Deleted channel '{channel}' ({removed} messages removed)")
+        return True
+    
     # ---- Extension Hooks ----
     
     async def _before_post(
