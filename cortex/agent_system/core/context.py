@@ -3,7 +3,7 @@ from typing import Optional
 from cortex import LLM, AsyncAgentMemoryBank, GPTModels
 from cortex.message import AgentUsage
 from cortex.backend import ReasoningEffort
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from .whiteboard import Whiteboard, WhiteboardStorage
 
 
@@ -13,6 +13,8 @@ class AgentSystemContext(BaseModel):
     Holds shared resources like memory bank, usage tracking, and whiteboard.
     Use the `create()` factory method for easy setup.
     """
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     
     # Existing fields
     usage: Optional[AgentUsage] = None  # Usage tracking for the agent
