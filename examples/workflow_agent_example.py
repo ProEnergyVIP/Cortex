@@ -1,4 +1,4 @@
-from cortex import GPTModels, LLM, LLMStep, RouterStep, StepResult, WorkflowAgent
+from cortex import FunctionStep, GPTModels, LLM, LLMStep, ParallelStep, RouterStep, StepResult, WorkflowAgent, WorkflowStep
 
 
 def route_request(state, context, workflow):
@@ -32,6 +32,34 @@ def build_refund_response_prompt(state, context, workflow):
     )
 
 
+def summarize_refund_issue(state, context, workflow):
+    extracted = state.require("refund_request")
+    return f"Refund summary: {extracted.get('issue_summary', '')}"
+
+
+def detect_order_reference(state, context, workflow):
+    extracted = state.require("refund_request")
+    return extracted.get("order_reference")
+
+
+def finalize_refund_answer(state, context, workflow):
+    analysis = state.require("refund_parallel_analysis")
+    return analysis["compose_refund_subworkflow"]
+
+
+refund_response_workflow = WorkflowAgent(
+    name="Refund Response Workflow",
+    steps=[
+        LLMStep.final(
+            name="compose_refund_response",
+            llm=LLM(model=GPTModels.GPT_4O_MINI),
+            prompt=build_refund_response_prompt,
+            input_builder=lambda state, context, workflow: state.get("refund_request", {}),
+        ),
+    ],
+)
+
+
 workflow = WorkflowAgent(
     name="Support Workflow",
     steps=[
@@ -55,13 +83,31 @@ workflow = WorkflowAgent(
                 "additionalProperties": False,
             },
             output_key="refund_request",
-            next_step="compose_refund_response",
+            next_step="analyze_refund_request",
         ),
-        LLMStep.final(
-            name="compose_refund_response",
-            llm=LLM(model=GPTModels.GPT_4O_MINI),
-            prompt=build_refund_response_prompt,
-            input_builder=lambda state, context, workflow: state.get("refund_request", {}),
+        ParallelStep(
+            name="analyze_refund_request",
+            steps=[
+                WorkflowStep(
+                    name="compose_refund_subworkflow",
+                    workflow_agent=refund_response_workflow,
+                    input_builder=lambda state, context, workflow: state.require("refund_request"),
+                ),
+                FunctionStep(
+                    name="summarize_refund_issue",
+                    func=summarize_refund_issue,
+                ),
+                FunctionStep(
+                    name="detect_order_reference",
+                    func=detect_order_reference,
+                ),
+            ],
+            output_key="refund_parallel_analysis",
+            next_step="finalize_refund_answer",
+        ),
+        FunctionStep.final(
+            name="finalize_refund_answer",
+            func=finalize_refund_answer,
         ),
         LLMStep.final(
             name="compose_direct_answer",
