@@ -30,6 +30,14 @@ class WorkflowState:
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
 
+    def has(self, key: str) -> bool:
+        return key in self.data
+
+    def require(self, key: str) -> Any:
+        if key not in self.data:
+            raise KeyError(f"Workflow state is missing required key: {key}")
+        return self.data[key]
+
     def set(self, key: str, value: Any) -> Any:
         self.data[key] = value
         return value
@@ -37,6 +45,15 @@ class WorkflowState:
     def update(self, values: Optional[dict[str, Any]]) -> None:
         if values:
             self.data.update(values)
+
+    def set_output(self, value: Any) -> Any:
+        self.last_output = value
+        return value
+
+    def set_final_output(self, value: Any) -> Any:
+        self.final_output = value
+        self.last_output = value
+        return value
 
     def to_dict(self) -> dict[str, Any]:
         return {

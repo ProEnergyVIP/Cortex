@@ -24,15 +24,47 @@ class WorkflowAgent:
         self.steps_by_name = {step.name: step for step in self.steps}
         if len(self.steps_by_name) != len(self.steps):
             raise ValueError("WorkflowAgent step names must be unique")
+        self.step_order = [step.name for step in self.steps]
         self.start_step = self.start_step or self.steps[0].name
         if self.start_step not in self.steps_by_name:
             raise ValueError(f"Unknown start_step: {self.start_step}")
+        self._validate_declared_step_references()
 
     def create_state(self, user_input: Any = None, **kwargs) -> WorkflowState:
         state = WorkflowState(input=user_input)
         if kwargs:
             state.update(kwargs)
         return state
+
+    def get_step(self, step_name: str):
+        step = self.steps_by_name.get(step_name)
+        if step is None:
+            raise KeyError(f"Unknown workflow step: {step_name}")
+        return step
+
+    def get_next_step_name(self, current_step_name: str) -> Optional[str]:
+        try:
+            step_index = self.step_order.index(current_step_name)
+        except ValueError as e:
+            raise KeyError(f"Unknown workflow step: {current_step_name}") from e
+        if step_index + 1 < len(self.step_order):
+            return self.step_order[step_index + 1]
+        return None
+
+    def _validate_declared_step_references(self) -> None:
+        known_steps = set(self.step_order)
+        invalid_references: list[tuple[str, str]] = []
+
+        for step in self.steps:
+            for next_step in step.declared_next_steps():
+                if next_step not in known_steps:
+                    invalid_references.append((step.name, next_step))
+
+        if invalid_references:
+            formatted = ", ".join(
+                f"{step_name} -> {next_step}" for step_name, next_step in invalid_references
+            )
+            raise ValueError(f"Workflow contains invalid next_step references: {formatted}")
 
     async def async_run(self, user_input: Any = None, *, state: Optional[WorkflowState] = None, context: Any = None) -> WorkflowRun:
         run = WorkflowRun(workflow_name=self.name, started_at=datetime.now(), status="running")
@@ -51,9 +83,7 @@ class WorkflowAgent:
                 if steps_executed > self.max_steps:
                     raise RuntimeError(f"Workflow exceeded max_steps={self.max_steps}")
 
-                step = self.steps_by_name.get(current_step_name)
-                if step is None:
-                    raise KeyError(f"Unknown workflow step: {current_step_name}")
+                step = self.get_step(current_step_name)
 
                 state.current_step = current_step_name
                 trace = StepTrace(step_name=current_step_name, status="running", started_at=datetime.now())
@@ -74,8 +104,7 @@ class WorkflowAgent:
                         break
 
                     if next_step is None:
-                        step_index = self.steps.index(step)
-                        next_step = self.steps[step_index + 1].name if step_index + 1 < len(self.steps) else None
+                        next_step = self.get_next_step_name(current_step_name)
 
                     trace.status = "completed"
                     trace.output = result.output

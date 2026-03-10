@@ -36,18 +36,57 @@ class StepResult:
     stop: bool = False
     final_output: Any = None
 
+    @classmethod
+    def next(cls, step_name: str, *, output: Any = None, updates: Optional[dict[str, Any]] = None) -> "StepResult":
+        return cls(
+            updates=updates or {},
+            output=output,
+            next_step=step_name,
+        )
+
+    @classmethod
+    def finish(cls, output: Any = None, *, updates: Optional[dict[str, Any]] = None, final_output: Any = None) -> "StepResult":
+        resolved_final_output = output if final_output is None else final_output
+        return cls(
+            updates=updates or {},
+            output=output,
+            stop=True,
+            final_output=resolved_final_output,
+        )
+
+    @classmethod
+    def update_state(
+        cls,
+        updates: dict[str, Any],
+        *,
+        output: Any = None,
+        next_step: Optional[str] = None,
+    ) -> "StepResult":
+        return cls(
+            updates=updates,
+            output=output,
+            next_step=next_step,
+        )
+
     def apply(self, state: WorkflowState) -> None:
         state.update(self.updates)
         if self.output is not None:
-            state.last_output = self.output
+            state.set_output(self.output)
         if self.final_output is not None:
-            state.final_output = self.final_output
+            state.set_final_output(self.final_output)
 
 
 class Step(ABC):
     def __init__(self, name: str, next_step: Optional[str] = None):
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Step name must be a non-empty string")
         self.name = name
         self.next_step = next_step
+
+    def declared_next_steps(self) -> set[str]:
+        if self.next_step is None:
+            return set()
+        return {self.next_step}
 
     @abstractmethod
     async def run(self, state: WorkflowState, *, context: Any = None, workflow: Any = None) -> StepResult:
@@ -59,6 +98,10 @@ class FunctionStep(Step):
         super().__init__(name=name, next_step=next_step)
         self.func = func
         self.output_key = output_key
+
+    @classmethod
+    def final(cls, name: str, func: Callable, output_key: Optional[str] = None) -> "FunctionStep":
+        return cls(name=name, func=func, next_step=None, output_key=output_key)
 
     async def run(self, state: WorkflowState, *, context: Any = None, workflow: Any = None) -> StepResult:
         result = self.func(state, context, workflow)
@@ -78,6 +121,20 @@ class FunctionStep(Step):
 
 
 class RouterStep(FunctionStep):
+    def __init__(
+        self,
+        name: str,
+        func: Callable,
+        next_step: Optional[str] = None,
+        output_key: Optional[str] = None,
+        possible_next_steps: Optional[list[str]] = None,
+    ):
+        super().__init__(name=name, func=func, next_step=next_step, output_key=output_key)
+        self.possible_next_steps = set(possible_next_steps or [])
+
+    def declared_next_steps(self) -> set[str]:
+        return super().declared_next_steps().union(self.possible_next_steps)
+
     async def run(self, state: WorkflowState, *, context: Any = None, workflow: Any = None) -> StepResult:
         result = self.func(state, context, workflow)
         if iscoroutine(result):
@@ -125,6 +182,39 @@ class LLMStep(Step):
 
         if self.tools and (self.result_shape or self.check_func):
             raise ValueError("LLMStep with tools does not support result_shape or check_func in this version")
+        if self.is_final and self.next_step is not None:
+            raise ValueError("Final LLMSteps cannot declare next_step")
+
+    @classmethod
+    def final(
+        cls,
+        name: str,
+        *,
+        llm,
+        prompt: str | Callable,
+        tools: Optional[list[BaseTool]] = None,
+        input_builder: Optional[Callable] = None,
+        output_key: Optional[str] = None,
+        result_shape: Optional[dict] = None,
+        check_func: Optional[Callable[[Any], CheckResult]] = None,
+        max_attempts: int = 3,
+        llm_args: Optional[dict[str, Any]] = None,
+        response_key: Optional[str] = None,
+    ) -> "LLMStep":
+        return cls(
+            name=name,
+            llm=llm,
+            prompt=prompt,
+            tools=tools,
+            input_builder=input_builder,
+            output_key=output_key,
+            result_shape=result_shape,
+            check_func=check_func,
+            max_attempts=max_attempts,
+            llm_args=llm_args,
+            response_key=response_key,
+            is_final=True,
+        )
 
     async def _build_prompt(self, state: WorkflowState, context: Any = None, workflow: Any = None) -> str:
         return await _resolve_callable(self.prompt, state, context, workflow)

@@ -1,11 +1,11 @@
-from cortex import GPTModels, LLM, LLMStep, RouterStep, WorkflowAgent
+from cortex import GPTModels, LLM, LLMStep, RouterStep, StepResult, WorkflowAgent
 
 
 def route_request(state, context, workflow):
     text = str(state.input or "").lower()
     if "refund" in text or "return" in text:
-        return "extract_refund_request"
-    return "compose_direct_answer"
+        return StepResult.next("extract_refund_request")
+    return StepResult.next("compose_direct_answer")
 
 
 def build_refund_prompt(state, context, workflow):
@@ -23,7 +23,7 @@ def build_direct_answer_prompt(state, context, workflow):
 
 
 def build_refund_response_prompt(state, context, workflow):
-    extracted = state.get("refund_request", {})
+    extracted = state.require("refund_request")
     return (
         "You are preparing a support response for a refund workflow.\n"
         f"Structured request data: {extracted}\n"
@@ -35,7 +35,11 @@ def build_refund_response_prompt(state, context, workflow):
 workflow = WorkflowAgent(
     name="Support Workflow",
     steps=[
-        RouterStep(name="route_request", func=route_request),
+        RouterStep(
+            name="route_request",
+            func=route_request,
+            possible_next_steps=["extract_refund_request", "compose_direct_answer"],
+        ),
         LLMStep(
             name="extract_refund_request",
             llm=LLM(model=GPTModels.GPT_4O_MINI),
@@ -53,18 +57,16 @@ workflow = WorkflowAgent(
             output_key="refund_request",
             next_step="compose_refund_response",
         ),
-        LLMStep(
+        LLMStep.final(
             name="compose_refund_response",
             llm=LLM(model=GPTModels.GPT_4O_MINI),
             prompt=build_refund_response_prompt,
             input_builder=lambda state, context, workflow: state.get("refund_request", {}),
-            is_final=True,
         ),
-        LLMStep(
+        LLMStep.final(
             name="compose_direct_answer",
             llm=LLM(model=GPTModels.GPT_4O_MINI),
             prompt=build_direct_answer_prompt,
-            is_final=True,
         ),
     ],
     start_step="route_request",
