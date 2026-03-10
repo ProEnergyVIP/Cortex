@@ -1,6 +1,17 @@
 from cortex.LLM import LLM
 from cortex.agent import Agent, Tool
 from cortex.LLMFunc import llmfunc, CheckResult
+from cortex.workflow import (
+    WorkflowAgent,
+    WorkflowRun,
+    WorkflowState,
+    StepTrace,
+    Step,
+    StepResult,
+    LLMStep,
+    FunctionStep,
+    RouterStep,
+)
 from cortex.backends.openai import GPTModels
 from cortex.backends.anthropic import AnthropicModels
 from cortex.logging_config import LoggingConfig, set_default_logging_config, get_default_logging_config
@@ -95,6 +106,9 @@ __all__ = [
     'AgentBuilder', 'AgentSystem',
     'CoordinatorAgentBuilder', 'WorkerAgentBuilder', 'CoordinatorSystem',
     'AgentSystemContext',
+    # Workflow Agent - Composed workflow-oriented API
+    'WorkflowAgent', 'WorkflowRun', 'WorkflowState', 'StepTrace',
+    'Step', 'StepResult', 'LLMStep', 'FunctionStep', 'RouterStep',
     # Whiteboard models
     'Whiteboard', 'WhiteboardStorage', 'InMemoryStorage', 'RedisStorage',
 
