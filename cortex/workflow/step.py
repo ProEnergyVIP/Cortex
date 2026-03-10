@@ -18,6 +18,7 @@ from .types import InputBuilder, PromptBuilder, RouterFunction, StepFunction
 
 
 async def _resolve_callable(value, *args):
+    """Resolve a literal or callable workflow configuration value."""
     if callable(value):
         sig = signature(value)
         count = len(sig.parameters)
@@ -32,6 +33,8 @@ async def _resolve_callable(value, *args):
 
 
 class WorkflowStepError(Exception):
+    """Workflow execution error that carries structured trace metadata."""
+
     def __init__(self, message: str, *, trace_data: Optional[dict[str, Any]] = None):
         super().__init__(message)
         self.trace_data = trace_data or {}
@@ -39,6 +42,8 @@ class WorkflowStepError(Exception):
 
 @dataclass
 class StepResult:
+    """Result returned by a workflow step."""
+
     updates: dict[str, Any] = field(default_factory=dict)
     output: Any = None
     next_step: Optional[str] = None
@@ -48,6 +53,7 @@ class StepResult:
 
     @classmethod
     def next(cls, step_name: str, *, output: Any = None, updates: Optional[dict[str, Any]] = None) -> "StepResult":
+        """Return a result that explicitly routes to another step."""
         return cls(
             updates=updates or {},
             output=output,
@@ -56,6 +62,7 @@ class StepResult:
 
     @classmethod
     def finish(cls, output: Any = None, *, updates: Optional[dict[str, Any]] = None, final_output: Any = None) -> "StepResult":
+        """Return a result that stops workflow execution."""
         resolved_final_output = output if final_output is None else final_output
         return cls(
             updates=updates or {},
@@ -72,6 +79,7 @@ class StepResult:
         output: Any = None,
         next_step: Optional[str] = None,
     ) -> "StepResult":
+        """Return a result that only updates state and optionally routes."""
         return cls(
             updates=updates,
             output=output,
@@ -79,6 +87,7 @@ class StepResult:
         )
 
     def apply(self, state: WorkflowState) -> None:
+        """Apply the result to a workflow state object."""
         state.update(self.updates)
         if self.output is not None:
             state.set_output(self.output)
@@ -87,6 +96,8 @@ class StepResult:
 
 
 class Step(ABC):
+    """Abstract base class for all workflow steps."""
+
     def __init__(self, name: str, next_step: Optional[str] = None, policy: Optional[StepPolicy] = None):
         if not isinstance(name, str) or not name.strip():
             raise ValueError("Step name must be a non-empty string")
@@ -95,11 +106,13 @@ class Step(ABC):
         self.policy = policy or StepPolicy()
 
     def declared_next_steps(self) -> set[str]:
+        """Return statically declared next-step references for validation."""
         if self.next_step is None:
             return set()
         return {self.next_step}
 
     def is_terminal(self) -> bool:
+        """Return whether this step is intended to stop the workflow."""
         return False
 
     @abstractmethod
@@ -108,6 +121,8 @@ class Step(ABC):
 
 
 class FunctionStep(Step):
+    """Run a Python function as a workflow step."""
+
     def __init__(
         self,
         name: str,
@@ -115,10 +130,15 @@ class FunctionStep(Step):
         next_step: Optional[str] = None,
         output_key: Optional[str] = None,
         policy: Optional[StepPolicy] = None,
+        is_final: bool = False,
     ):
         super().__init__(name=name, next_step=next_step, policy=policy)
         self.func = func
         self.output_key = output_key
+        self.is_final = is_final
+
+        if self.is_final and self.next_step is not None:
+            raise ValueError("Final FunctionSteps cannot declare next_step")
 
     @classmethod
     def final(
@@ -128,9 +148,15 @@ class FunctionStep(Step):
         output_key: Optional[str] = None,
         policy: Optional[StepPolicy] = None,
     ) -> "FunctionStep":
-        return cls(name=name, func=func, next_step=None, output_key=output_key, policy=policy)
+        """Construct a terminal function step."""
+        return cls(name=name, func=func, next_step=None, output_key=output_key, policy=policy, is_final=True)
+
+    def is_terminal(self) -> bool:
+        """Return whether this function step stops workflow execution."""
+        return self.is_final
 
     async def run(self, state: WorkflowState, *, context: Any = None, workflow: Any = None) -> StepResult:
+        """Execute the function step and normalize its return value."""
         result = self.func(state, context, workflow)
         if iscoroutine(result):
             result = await result
@@ -138,16 +164,29 @@ class FunctionStep(Step):
         if isinstance(result, StepResult):
             if result.next_step is None:
                 result.next_step = self.next_step
+            if self.is_final and not result.stop:
+                result.stop = True
+                if result.final_output is None:
+                    result.final_output = result.output
             return result
 
         updates = {}
         if self.output_key is not None:
             updates[self.output_key] = result
 
-        return StepResult(updates=updates, output=result, next_step=self.next_step)
+        final_output = result if self.is_final else None
+        return StepResult(
+            updates=updates,
+            output=result,
+            next_step=self.next_step,
+            stop=self.is_final,
+            final_output=final_output,
+        )
 
 
 class RouterStep(FunctionStep):
+    """Run a router function that decides the next step."""
+
     def __init__(
         self,
         name: str,
@@ -161,9 +200,11 @@ class RouterStep(FunctionStep):
         self.possible_next_steps = set(possible_next_steps or [])
 
     def declared_next_steps(self) -> set[str]:
+        """Return all statically known router targets."""
         return super().declared_next_steps().union(self.possible_next_steps)
 
     async def run(self, state: WorkflowState, *, context: Any = None, workflow: Any = None) -> StepResult:
+        """Execute the router and normalize routing output."""
         result = self.func(state, context, workflow)
         if iscoroutine(result):
             result = await result
@@ -178,6 +219,8 @@ class RouterStep(FunctionStep):
 
 
 class WorkflowStep(Step):
+    """Execute another WorkflowAgent as a nested step."""
+
     def __init__(
         self,
         name: str,
@@ -201,6 +244,7 @@ class WorkflowStep(Step):
             raise ValueError("WorkflowStep requires workflow_agent to define async_run")
 
     def is_terminal(self) -> bool:
+        """Return whether this nested workflow step is terminal."""
         return self.is_final
 
     @classmethod
@@ -213,6 +257,7 @@ class WorkflowStep(Step):
         output_key: Optional[str] = None,
         policy: Optional[StepPolicy] = None,
     ) -> "WorkflowStep":
+        """Construct a terminal nested-workflow step."""
         return cls(
             name=name,
             workflow_agent=workflow_agent,
@@ -223,6 +268,7 @@ class WorkflowStep(Step):
         )
 
     async def run(self, state: WorkflowState, *, context: Any = None, workflow: Any = None) -> StepResult:
+        """Run the nested workflow and map its result back into the parent workflow."""
         if self.input_builder is not None:
             child_input = await _resolve_callable(self.input_builder, state, context, workflow)
         else:
@@ -250,6 +296,8 @@ class WorkflowStep(Step):
 
 
 class ParallelStep(Step):
+    """Execute a set of child steps concurrently and merge their outputs."""
+
     def __init__(
         self,
         name: str,
@@ -294,6 +342,7 @@ class ParallelStep(Step):
         merge_strategy: str = "error",
         policy: Optional[StepPolicy] = None,
     ) -> "ParallelStep":
+        """Construct a terminal parallel step."""
         return cls(
             name=name,
             steps=steps,
@@ -304,9 +353,11 @@ class ParallelStep(Step):
         )
 
     def is_terminal(self) -> bool:
+        """Return whether this parallel step is terminal."""
         return self.is_final
 
     async def run(self, state: WorkflowState, *, context: Any = None, workflow: Any = None) -> StepResult:
+        """Run child steps concurrently and merge their results."""
         async def _run_child(step: Step):
             branch_state = WorkflowState(
                 input=state.input,
@@ -373,6 +424,8 @@ class ParallelStep(Step):
 
 
 class LLMStep(Step):
+    """Execute a prompt-driven LLM call as a workflow step."""
+
     def __init__(
         self,
         name: str,
@@ -410,6 +463,7 @@ class LLMStep(Step):
             raise ValueError("Final LLMSteps cannot declare next_step")
 
     def is_terminal(self) -> bool:
+        """Return whether this LLM step is terminal."""
         return self.is_final
 
     @classmethod
@@ -429,6 +483,7 @@ class LLMStep(Step):
         response_key: Optional[str] = None,
         policy: Optional[StepPolicy] = None,
     ) -> "LLMStep":
+        """Construct a terminal LLM step."""
         return cls(
             name=name,
             llm=llm,
@@ -446,9 +501,11 @@ class LLMStep(Step):
         )
 
     async def _build_prompt(self, state: WorkflowState, context: Any = None, workflow: Any = None) -> str:
+        """Resolve the prompt template for this step."""
         return await _resolve_callable(self.prompt, state, context, workflow)
 
     async def _build_input(self, state: WorkflowState, context: Any = None, workflow: Any = None) -> list[Message]:
+        """Resolve the input messages for this step."""
         if self.input_builder is not None:
             built = await _resolve_callable(self.input_builder, state, context, workflow)
         else:
@@ -461,6 +518,7 @@ class LLMStep(Step):
         return [UserMessage(content=str(built))]
 
     async def run(self, state: WorkflowState, *, context: Any = None, workflow: Any = None) -> StepResult:
+        """Execute the underlying LLM request and normalize the result."""
         prompt = await self._build_prompt(state, context=context, workflow=workflow)
         messages = await self._build_input(state, context=context, workflow=workflow)
 

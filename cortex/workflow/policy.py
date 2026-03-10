@@ -8,12 +8,15 @@ FailureStrategy = Literal["raise", "fallback"]
 
 @dataclass(frozen=True)
 class StepPolicy:
+    """Runtime policy controlling retries, fallback behavior, and timeouts."""
+
     max_retries: int = 0
     failure_strategy: FailureStrategy = "raise"
     fallback_step: Optional[str] = None
     timeout_seconds: Optional[float] = None
 
     def __post_init__(self):
+        """Validate the internal consistency of the configured policy."""
         if self.max_retries < 0:
             raise ValueError("StepPolicy.max_retries must be >= 0")
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:

@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 
 def _serialize_value(value: Any) -> Any:
+    """Recursively normalize workflow objects into dictionary-friendly values."""
     if isinstance(value, WorkflowRun):
         return value.to_dict()
     if isinstance(value, WorkflowState):
@@ -21,6 +22,8 @@ def _serialize_value(value: Any) -> Any:
 
 @dataclass
 class StepTrace:
+    """Execution trace entry for a single workflow step attempt sequence."""
+
     step_name: str
     status: str = "pending"
     attempt_count: int = 0
@@ -36,6 +39,7 @@ class StepTrace:
     error: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the trace into plain Python data."""
         return {
             "step_name": self.step_name,
             "status": self.status,
@@ -55,6 +59,8 @@ class StepTrace:
 
 @dataclass
 class WorkflowState:
+    """Mutable state object shared across workflow steps."""
+
     input: Any = None
     data: dict[str, Any] = field(default_factory=dict)
     last_output: Any = None
@@ -64,34 +70,42 @@ class WorkflowState:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
+        """Read a state value with an optional default."""
         return self.data.get(key, default)
 
     def has(self, key: str) -> bool:
+        """Return whether a state key exists."""
         return key in self.data
 
     def require(self, key: str) -> Any:
+        """Read a state value or raise if it is missing."""
         if key not in self.data:
             raise KeyError(f"Workflow state is missing required key: {key}")
         return self.data[key]
 
     def set(self, key: str, value: Any) -> Any:
+        """Set a state value and return it."""
         self.data[key] = value
         return value
 
     def update(self, values: Optional[dict[str, Any]]) -> None:
+        """Merge a mapping of updates into the workflow state."""
         if values:
             self.data.update(values)
 
     def set_output(self, value: Any) -> Any:
+        """Record the most recent step output."""
         self.last_output = value
         return value
 
     def set_final_output(self, value: Any) -> Any:
+        """Record the final workflow output and mirror it into last output."""
         self.final_output = value
         self.last_output = value
         return value
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the workflow state into plain Python data."""
         return {
             "input": _serialize_value(self.input),
             "data": _serialize_value(dict(self.data)),
@@ -105,6 +119,8 @@ class WorkflowState:
 
 @dataclass
 class WorkflowRun:
+    """Full execution record for a workflow invocation."""
+
     workflow_name: str
     traces: list[StepTrace] = field(default_factory=list)
     state: Optional[WorkflowState] = None
@@ -115,26 +131,31 @@ class WorkflowRun:
     finished_at: Optional[datetime] = None
 
     def add_trace(self, trace: StepTrace) -> None:
+        """Append a step trace to this run."""
         self.traces.append(trace)
 
     @property
     def duration_ms(self) -> Optional[float]:
+        """Return the total run duration in milliseconds, if complete."""
         if self.started_at is None or self.finished_at is None:
             return None
         return (self.finished_at - self.started_at).total_seconds() * 1000
 
     def last_trace(self) -> Optional[StepTrace]:
+        """Return the most recent trace entry, if any."""
         if not self.traces:
             return None
         return self.traces[-1]
 
     def failed_trace(self) -> Optional[StepTrace]:
+        """Return the most recent failed trace entry, if any."""
         for trace in reversed(self.traces):
             if trace.status == "failed":
                 return trace
         return None
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the workflow run into plain Python data."""
         return {
             "workflow_name": self.workflow_name,
             "traces": [trace.to_dict() for trace in self.traces],

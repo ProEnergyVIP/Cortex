@@ -340,7 +340,205 @@ A worker builder’s `install(...)` method returns a `Tool` (async `FunctionTool
 
 ---
 
-## 8) Whiteboard: shared multi-agent state (optional)
+## 8) WorkflowAgent: explicit workflow orchestration
+
+The workflow runtime lives in `cortex/workflow/` and provides a higher-level orchestration primitive for multi-step agentic flows that need **explicit state, explicit routing, runtime policies, and durable observability**.
+
+At a high level, `WorkflowAgent` is designed for tasks where a single `Agent` loop is too implicit. Instead of letting the model drive all control flow, the library exposes a named-step workflow model:
+
+- `WorkflowAgent`
+- `WorkflowState`
+- `WorkflowRun`
+- `StepTrace`
+- `StepPolicy`
+- `FunctionStep`
+- `RouterStep`
+- `LLMStep`
+- `WorkflowStep`
+- `ParallelStep`
+
+### 8.1 Mental model
+
+A workflow run proceeds like this:
+
+1. A `WorkflowAgent` is created with named steps and an optional `start_step`.
+2. `async_run(...)` creates or reuses a `WorkflowState`.
+3. The agent resolves the current step by name.
+4. The step returns a `StepResult`, which may update state, emit output, route to another step, or stop execution.
+5. The agent records a `StepTrace` for each executed step.
+6. Runtime policy may retry, time out, or fallback to another step.
+7. The final result is returned as a `WorkflowRun`; `async_ask(...)` returns only `final_output`.
+
+This makes control flow explicit while still allowing LLM-powered steps inside the graph.
+
+### 8.2 Core abstractions
+
+#### `WorkflowState`
+
+`WorkflowState` is the mutable state container shared by all steps. It stores:
+
+- `input`
+- arbitrary step data in `data`
+- `last_output`
+- `final_output`
+- `current_step`
+- `completed_steps`
+- `metadata`
+
+Helper methods such as `get`, `has`, `require`, `set`, `update`, `set_output`, and `set_final_output` keep step code compact and explicit.
+
+#### `StepResult`
+
+`StepResult` is the normalized return type for the runtime. It encapsulates:
+
+- state updates
+- step output
+- optional `next_step`
+- stop/final-output signals
+- trace metadata
+
+Ergonomic constructors are provided:
+
+- `StepResult.next(...)`
+- `StepResult.finish(...)`
+- `StepResult.update_state(...)`
+
+#### `StepPolicy`
+
+`StepPolicy` lets a step opt into runtime behavior:
+
+- `max_retries`
+- `failure_strategy`
+- `fallback_step`
+- `timeout_seconds`
+
+Timeouts are enforced in `WorkflowAgent.async_run(...)` with `asyncio.wait_for(...)`, and timeouts participate in the same retry/fallback machinery as other failures.
+
+### 8.3 Step types
+
+#### `FunctionStep`
+
+Runs a Python callable against `(state, context, workflow)`. It is useful for deterministic orchestration logic, validation, state shaping, and lightweight transforms.
+
+`FunctionStep.final(...)` constructs a terminal step. A review-time bug in final function-step handling was fixed so that plain return values now correctly terminate the workflow instead of falling through to the next ordered step.
+
+#### `RouterStep`
+
+`RouterStep` is a specialized function step for routing decisions. It can declare `possible_next_steps` so construction-time validation can verify the workflow graph even when routing is dynamic at runtime.
+
+#### `LLMStep`
+
+`LLMStep` wraps prompt-driven LLM execution. It supports:
+
+- prompt builders
+- input builders
+- structured outputs via `result_shape`
+- validation via `check_func`
+- tool-enabled agent execution
+- terminal usage via `LLMStep.final(...)`
+
+#### `WorkflowStep`
+
+`WorkflowStep` composes one workflow inside another. It allows a parent workflow to map parent state into child input, run a nested `WorkflowAgent`, store the child result back into parent state, and expose child-run metadata in traces.
+
+#### `ParallelStep`
+
+`ParallelStep` executes child steps concurrently and merges their results. It is intentionally conservative in this version:
+
+- child step names must be unique
+- child steps cannot declare their own `next_step`
+- child steps cannot be terminal
+- merge behavior is explicit via `merge_strategy`
+
+Supported merge strategies:
+
+- `error`
+- `last_write_wins`
+
+Parallel execution records branch outputs and merge metadata in the trace surface, and branch failures are wrapped with explicit branch-level error context.
+
+### 8.4 Validation and graph safety
+
+`WorkflowAgent` performs construction-time validation to catch workflow graph issues early:
+
+- unknown `next_step` references
+- unknown fallback targets
+- obvious non-terminal dead ends
+
+The agent also exposes graph introspection helpers:
+
+- `get_declared_graph()`
+- `describe_graph()`
+
+These helpers surface step order, declared successors, terminal steps, and fallback targets for tooling, debugging, and future visualization support.
+
+### 8.5 Observability model
+
+Workflow execution is designed to be inspectable by default.
+
+#### `StepTrace`
+
+Each executed step records:
+
+- step name
+- status
+- attempt count
+- timing
+- next step / fallback step
+- state before / after
+- output
+- error
+- arbitrary metadata
+
+#### `WorkflowRun`
+
+The full run record captures:
+
+- workflow name
+- trace list
+- final state
+- final output
+- overall status / error
+- timing
+
+Helper APIs include:
+
+- `duration_ms`
+- `last_trace()`
+- `failed_trace()`
+- `to_dict()`
+
+Serialization helpers normalize nested workflow runs and trace metadata into plain Python data, which is especially important for nested workflows and parallel branches.
+
+### 8.6 Design constraints
+
+Current workflow constraints are deliberate:
+
+- `ParallelStep` branch control flow is intentionally restricted to keep parent orchestration explicit.
+- Subworkflows are sequential composition primitives; they do not yet expose full nested graph visualization or resumability.
+- Runtime validation is strongest for statically declared graph edges; fully dynamic router behavior still depends on user correctness at runtime.
+
+### 8.7 Why this feature matters
+
+`WorkflowAgent` fills an important gap between:
+
+- a single conversational `Agent`, which is flexible but implicit
+- a full multi-agent system, which is powerful but heavier-weight
+
+It provides a production-oriented middle layer for:
+
+- deterministic orchestration around LLM calls
+- structured state transitions
+- policy-driven reliability
+- nested composition
+- controlled parallelism
+- rich tracing and inspection
+
+In practice, this makes Cortex better suited for pipelines such as intake flows, classification-and-enrichment chains, review/approval graphs, and other agentic workloads where explicit control flow matters.
+
+---
+
+## 9) Whiteboard: shared multi-agent state (optional)
 
 The whiteboard lives under `cortex/agent_system/core/whiteboard.py` and is wired via `AgentSystemContext.whiteboard`.
 
@@ -362,9 +560,9 @@ Workers (when enabled) may emit suggestions which can be auto-applied by `Worker
 
 ---
 
-## 9) Extension points
+## 10) Extension points
 
-### 9.1 Add or modify provider backends
+### 10.1 Add or modify provider backends
 
 To add a new LLM provider:
 
@@ -373,14 +571,14 @@ To add a new LLM provider:
 3. Register tool encoders for the tool types you want to support.
 4. Register your backend for model keys via `LLMBackend.register_backend(model_key_or_pattern, BackendClass)`.
 
-### 9.2 Add new hosted tool types
+### 10.2 Add new hosted tool types
 
 To add a new hosted tool type:
 
 1. Create a new `BaseTool` dataclass.
 2. Add a tool encoder in each backend that supports it.
 
-### 9.3 Add agent-system patterns
+### 10.3 Add agent-system patterns
 
 To add a new multi-agent topology:
 
@@ -389,13 +587,14 @@ To add a new multi-agent topology:
 
 ---
 
-## 10) Design constraints & gotchas
+## 11) Design constraints & gotchas
 
 - **Streaming and tools do not mix** in the current `LLM`/`Agent` APIs.
 - `Agent(mode=...)` requires tool functions to match the mode (sync vs async).
 - Only `FunctionTool` is executed locally by the core `Agent`.
 - Worker outputs are expected to be valid JSON when `json_reply=True`.
 - `AgentSystemContext.get_memory_bank()` raises if `memory_bank` is not initialized.
+- `WorkflowAgent` is the right abstraction when you need explicit, inspectable orchestration across multiple steps.
 
 ---
 
@@ -406,4 +605,5 @@ To add a new multi-agent topology:
 - Tools: `cortex/tool.py`
 - LLM-powered functions: `cortex/LLMFunc.py`
 - Agent System: `cortex/agent_system/*`
+- Workflow runtime: `cortex/workflow/*`
 - Examples: `examples/`

@@ -13,6 +13,8 @@ from .step import Step
 
 @dataclass
 class WorkflowAgent:
+    """Execute a named sequence or graph of workflow steps against shared state."""
+
     name: str
     steps: list[Step]
     start_step: Optional[str] = None
@@ -21,6 +23,7 @@ class WorkflowAgent:
     max_steps: int = 50
 
     def __post_init__(self):
+        """Validate workflow construction and precompute step lookup structures."""
         if not self.steps:
             raise ValueError("WorkflowAgent requires at least one step")
         self.steps_by_name = {step.name: step for step in self.steps}
@@ -33,18 +36,21 @@ class WorkflowAgent:
         self._validate_declared_step_references()
 
     def create_state(self, user_input: Any = None, **kwargs) -> WorkflowState:
+        """Create a new workflow state initialized with user input and extra values."""
         state = WorkflowState(input=user_input)
         if kwargs:
             state.update(kwargs)
         return state
 
     def get_step(self, step_name: str):
+        """Return a step by name or raise if the step is unknown."""
         step = self.steps_by_name.get(step_name)
         if step is None:
             raise KeyError(f"Unknown workflow step: {step_name}")
         return step
 
     def get_next_step_name(self, current_step_name: str) -> Optional[str]:
+        """Return the default ordered successor for a step, if any."""
         try:
             step_index = self.step_order.index(current_step_name)
         except ValueError as e:
@@ -54,6 +60,7 @@ class WorkflowAgent:
         return None
 
     def get_declared_graph(self) -> dict[str, dict[str, Any]]:
+        """Return a structured view of the statically declared workflow graph."""
         graph: dict[str, dict[str, Any]] = {}
         for index, step in enumerate(self.steps):
             graph[step.name] = {
@@ -65,6 +72,7 @@ class WorkflowAgent:
         return graph
 
     def describe_graph(self) -> dict[str, Any]:
+        """Return a high-level graph description suitable for inspection or tooling."""
         return {
             "name": self.name,
             "start_step": self.start_step,
@@ -74,6 +82,7 @@ class WorkflowAgent:
         }
 
     def _validate_declared_step_references(self) -> None:
+        """Validate statically declared step references and obvious dead ends."""
         known_steps = set(self.step_order)
         invalid_references: list[tuple[str, str]] = []
         dead_end_steps: list[str] = []
@@ -99,6 +108,7 @@ class WorkflowAgent:
             raise ValueError(f"Workflow contains non-terminal dead-end steps: {formatted}")
 
     async def async_run(self, user_input: Any = None, *, state: Optional[WorkflowState] = None, context: Any = None) -> WorkflowRun:
+        """Run the workflow and return the full workflow run record."""
         run = WorkflowRun(workflow_name=self.name, started_at=datetime.now(), status="running")
         state = state or self.create_state(user_input)
         if user_input is not None and state.input is None:
@@ -201,5 +211,6 @@ class WorkflowAgent:
             run.finished_at = datetime.now()
 
     async def async_ask(self, user_input: Any = None, *, state: Optional[WorkflowState] = None, context: Any = None) -> Any:
+        """Run the workflow and return only the final output."""
         run = await self.async_run(user_input, state=state, context=context)
         return run.final_output
