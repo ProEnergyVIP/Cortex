@@ -7,24 +7,20 @@ from typing import Any, Callable, Iterable, Optional
 from cortex.agent import Agent, Tool
 from cortex.workflow import WorkflowAgent
 
-from .hierarchical_system.adapters import AgentNodeAdapter, WorkflowNodeAdapter, normalize_node_result
-from .hierarchical_system.builders import NodeBuilder
-from .hierarchical_system.models import DelegationBrief, NodeResult
-from .hierarchical_system.node import BuiltNode, ExecutionNode
-from .hierarchical_system.orchestration import should_escalate, synthesize_results
+from .task_adapters import AgentTaskRunnerAdapter, WorkflowTaskRunnerAdapter, normalize_task_result as _normalize_task_result
+from .task_builders import RuntimeFactory, TaskRunnerBuilderBase
+from .task_node import BuiltTaskRunner, TaskRunner
+from .task_orchestration import should_escalate, synthesize_task_results
+from .task_types import TaskBrief, TaskResult
 
-TaskBrief = DelegationBrief
-TaskResult = NodeResult
-TaskRunner = ExecutionNode
-BuiltTaskRunner = BuiltNode
-
-RuntimeFactory = Callable[[Any], Any]
 ChildBriefBuilder = Callable[..., TaskBrief]
 ResultSynthesizer = Callable[..., TaskResult]
+TaskTextBuilder = str | Callable[[str], str]
+TaskMetadataBuilder = dict[str, Any] | Callable[[str], dict[str, Any]]
 
 
 @dataclass(slots=True)
-class TaskRunnerBuilder(NodeBuilder):
+class TaskRunnerBuilder(TaskRunnerBuilderBase):
     @classmethod
     def create_agent(
         cls,
@@ -86,7 +82,7 @@ class TaskRunnerBuilder(NodeBuilder):
         runtime: Any,
         description: Optional[str] = None,
     ) -> "TaskRunnerBuilder":
-        if callable(runtime) and not isinstance(runtime, (Agent, WorkflowAgent, BuiltNode)):
+        if callable(runtime) and not isinstance(runtime, (Agent, WorkflowAgent, BuiltTaskRunner)):
             runtime_factory = runtime
         else:
             def runtime_factory(*, context: Any, installed_tools: list[Tool]) -> Any:
@@ -219,6 +215,7 @@ def task_runner_tool(
     *,
     name: str,
     role: str,
+    tool_name: Optional[str] = None,
     description: Optional[str] = None,
     installed_tools: Optional[list[Tool]] = None,
 ) -> Tool:
@@ -236,7 +233,7 @@ def task_runner_tool(
         return result.to_dict()
 
     return Tool(
-        name=name.lower().replace(" ", "_") + "_node",
+        name=tool_name or name.lower().replace(" ", "_") + "_node",
         func=func,
         description=description or f"Delegates work to {name}",
         parameters={
@@ -260,7 +257,7 @@ def normalize_task_result(
     role: str,
     fallback_name: str,
 ) -> TaskResult:
-    return normalize_node_result(value, brief=brief, role=role, fallback_name=fallback_name)
+    return _normalize_task_result(value, brief=brief, role=role, fallback_name=fallback_name)
 
 
 async def run_task_tools(
@@ -269,10 +266,10 @@ async def run_task_tools(
     parent_brief: TaskBrief,
     context: Any,
     handoff_kind: str,
-    assigned_task_builder: Callable[[str], str],
-    understanding_builder: Callable[[str], str],
+    assigned_task_builder: TaskTextBuilder,
+    understanding_builder: TaskTextBuilder,
     expected_output: Optional[dict[str, Any]] = None,
-    metadata_builder: Optional[Callable[[str], dict[str, Any]]] = None,
+    metadata_builder: Optional[TaskMetadataBuilder] = None,
     role: str = "worker",
     execute_in_parallel: bool = False,
     tool_name_to_runner_name: Optional[Callable[[Tool], str]] = None,
@@ -289,13 +286,13 @@ async def run_task_tools(
             parent_brief=parent_brief,
             child_name=child_name,
             handoff_kind=handoff_kind,
-            assigned_task=assigned_task_builder(child_name),
-            current_understanding=understanding_builder(child_name),
+            assigned_task=_resolve_text_builder(assigned_task_builder, child_name),
+            current_understanding=_resolve_text_builder(understanding_builder, child_name),
             expected_output=expected_output,
-            metadata=metadata_builder(child_name) if metadata_builder else None,
+            metadata=_resolve_metadata_builder(metadata_builder, child_name),
         )
         raw_result = await tool.async_run({"brief": child_brief.to_dict()}, context, None)
-        return normalize_node_result(raw_result, brief=child_brief, role=role, fallback_name=child_name)
+        return normalize_task_result(raw_result, brief=child_brief, role=role, fallback_name=child_name)
 
     if execute_in_parallel:
         return list(await asyncio.gather(*[_run_tool(tool) for tool in active_tools]))
@@ -311,7 +308,7 @@ def summarize_task_results(
     summary: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> TaskResult:
-    return synthesize_results(
+    return synthesize_task_results(
         brief=brief,
         role=role,
         from_node=from_runner,
@@ -341,7 +338,7 @@ async def _build_task_runner(
         return BuiltTaskRunner(
             name=runner_name,
             role=runner_role,
-            runtime=AgentNodeAdapter(name=runner_name, role=runner_role, agent=runner),
+            runtime=AgentTaskRunnerAdapter(name=runner_name, role=runner_role, agent=runner),
         )
     if isinstance(runner, WorkflowAgent):
         runner_name = name or runner.name
@@ -349,11 +346,24 @@ async def _build_task_runner(
         return BuiltTaskRunner(
             name=runner_name,
             role=runner_role,
-            runtime=WorkflowNodeAdapter(name=runner_name, role=runner_role, workflow=runner),
+            runtime=WorkflowTaskRunnerAdapter(name=runner_name, role=runner_role, workflow=runner),
         )
     raise TypeError(
         f"Unsupported runner type: {type(runner)!r}. Expected TaskRunnerBuilder, BuiltTaskRunner, Agent, WorkflowAgent, or a run_brief-compatible runtime."
     )
+
+
+def _resolve_text_builder(value: TaskTextBuilder, child_name: str) -> str:
+    return value(child_name) if callable(value) else value
+
+
+def _resolve_metadata_builder(
+    value: Optional[TaskMetadataBuilder],
+    child_name: str,
+) -> Optional[dict[str, Any]]:
+    if value is None:
+        return None
+    return value(child_name) if callable(value) else dict(value)
 
 
 __all__ = [
@@ -365,6 +375,8 @@ __all__ = [
     "RuntimeFactory",
     "ChildBriefBuilder",
     "ResultSynthesizer",
+    "TaskTextBuilder",
+    "TaskMetadataBuilder",
     "build_task_brief",
     "build_child_task_brief",
     "build_task_runner",

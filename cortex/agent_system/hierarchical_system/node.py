@@ -1,29 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
+from typing import Any, Awaitable, Callable
 
+from ..task_node import BuiltTaskRunner as BuiltNode
+from ..task_node import TaskRunner as ExecutionNode
 from .models import DelegationBrief, NodeResult
-
-
-@runtime_checkable
-class ExecutionNode(Protocol):
-    name: str
-    role: str
-
-    async def run_brief(self, brief: DelegationBrief, *, context: Any) -> NodeResult:
-        ...
-
 
 NodeFactory = Callable[[Any], Awaitable[ExecutionNode] | ExecutionNode]
 ResultNormalizer = Callable[[Any, DelegationBrief, str], NodeResult]
 
-
-@dataclass(slots=True)
-class BuiltNode:
-    name: str
-    role: str
-    runtime: ExecutionNode
-
-    async def run_brief(self, brief: DelegationBrief, *, context: Any) -> NodeResult:
-        return await self.runtime.run_brief(brief, context=context)
+__all__ = [
+    "ExecutionNode",
+    "NodeFactory",
+    "ResultNormalizer",
+    "BuiltNode",
+]

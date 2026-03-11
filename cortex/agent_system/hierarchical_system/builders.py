@@ -1,133 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from inspect import signature
-from inspect import iscoroutine
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from cortex.agent import Agent, Tool
 from cortex.workflow import WorkflowAgent
 
-from .adapters import AgentNodeAdapter, WorkflowNodeAdapter
+from ..task_builders import TaskRunnerBuilderBase
 from .defaults import DefaultGatewayNode, DefaultManagerNode
-from .models import DelegationBrief
 from .node import BuiltNode
 
 
-RuntimeFactory = Callable[[Any], Any]
-
-
 @dataclass(slots=True)
-class NodeBuilder:
-    name: str
-    role: str
-    runtime_factory: RuntimeFactory
-    description: Optional[str] = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
+class NodeBuilder(TaskRunnerBuilderBase):
     async def build_node(self, *, context: Any, installed_tools: Optional[list[Tool]] = None) -> BuiltNode:
-        runtime = self._invoke_runtime_factory(context=context, installed_tools=installed_tools or [])
-        if iscoroutine(runtime):
-            runtime = await runtime
-
-        if isinstance(runtime, BuiltNode):
-            return runtime
-        if hasattr(runtime, "run_brief"):
-            return BuiltNode(name=self.name, role=self.role, runtime=runtime)
-        if isinstance(runtime, Agent):
-            return BuiltNode(
-                name=self.name,
-                role=self.role,
-                runtime=AgentNodeAdapter(name=self.name, role=self.role, agent=runtime),
-            )
-        if isinstance(runtime, WorkflowAgent):
-            return BuiltNode(
-                name=self.name,
-                role=self.role,
-                runtime=WorkflowNodeAdapter(name=self.name, role=self.role, workflow=runtime),
-            )
-        raise TypeError(
-            f"Unsupported runtime for node '{self.name}': {type(runtime)!r}. "
-            "Expected Agent, WorkflowAgent, BuiltNode, or an ExecutionNode-compatible object."
-        )
-
-    async def build(self, *, context: Any, installed_tools: Optional[list[Tool]] = None) -> BuiltNode:
-        return await self.build_node(context=context, installed_tools=installed_tools)
-
-    def _invoke_runtime_factory(self, *, context: Any, installed_tools: list[Tool]) -> Any:
-        sig = signature(self.runtime_factory)
-        kwargs: dict[str, Any] = {}
-        if "context" in sig.parameters:
-            kwargs["context"] = context
-        elif sig.parameters:
-            return self.runtime_factory(context)
-        if "installed_tools" in sig.parameters:
-            kwargs["installed_tools"] = installed_tools
-        if "child_tools" in sig.parameters:
-            kwargs["child_tools"] = installed_tools
-        return self.runtime_factory(**kwargs)
-
-    def install(self) -> Tool:
-        async def func(args: dict[str, Any], context: Any):
-            brief_value = args["brief"]
-            brief = brief_value if isinstance(brief_value, DelegationBrief) else DelegationBrief.from_dict(brief_value)
-            node = await self.build_node(context=context)
-            result = await node.run_brief(brief, context=context)
-            return result.to_dict()
-
-        return Tool(
-            name=self.tool_name,
-            func=func,
-            description=self.description or f"Delegates work to {self.name}",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "brief": {
-                        "type": "object",
-                        "description": "Structured delegation brief for the target node",
-                    }
-                },
-                "required": ["brief"],
-                "additionalProperties": False,
-            },
-        )
-
-    def as_tool(self) -> Tool:
-        return self.install()
-
-    def with_metadata(self, **metadata: Any) -> "NodeBuilder":
-        self.metadata.update(metadata)
-        return self
-
-    @property
-    def tool_name(self) -> str:
-        return self.name.lower().replace(" ", "_") + "_node"
-
-    @staticmethod
-    def _as_tool_list(tools: Optional[list[Tool]]) -> list[Tool]:
-        return list(tools or [])
-
-    @staticmethod
-    def _resolve_workflow_runtime(
-        workflow: WorkflowAgent | Callable[..., WorkflowAgent],
-        *,
-        context: Any,
-        installed_tools: Optional[list[Tool]] = None,
-    ) -> WorkflowAgent | Any:
-        if not callable(workflow) or isinstance(workflow, WorkflowAgent):
-            return workflow
-
-        sig = signature(workflow)
-        kwargs: dict[str, Any] = {}
-        if "context" in sig.parameters:
-            kwargs["context"] = context
-        elif sig.parameters:
-            return workflow(context)
-        if "installed_tools" in sig.parameters:
-            kwargs["installed_tools"] = installed_tools or []
-        if "child_tools" in sig.parameters:
-            kwargs["child_tools"] = installed_tools or []
-        return workflow(**kwargs)
+        return await self.build_task_runner(context=context, installed_tools=installed_tools)
 
 
 @dataclass(slots=True)

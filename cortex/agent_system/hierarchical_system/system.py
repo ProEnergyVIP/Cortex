@@ -45,7 +45,13 @@ class HierarchicalAgentSystem(AgentSystem):
             return self._gateway_node
 
         installed_tools = [await self._build_department_tool(department) for department in self._departments]
-        self._gateway_node = await self._gateway_builder.build_node(context=self._context, installed_tools=installed_tools)
+        self._gateway_node = await build_task_runner(
+            self._gateway_builder,
+            context=self._context,
+            installed_tools=installed_tools,
+            role=self._gateway_builder.role,
+            name=self._gateway_builder.name,
+        )
         return self._gateway_node
 
     async def async_ask(self, messages: Any) -> Any:
@@ -119,9 +125,9 @@ class HierarchicalAgentSystem(AgentSystem):
             LoggedDepartmentRunner(),
             name=manager.name,
             role=manager.role,
+            tool_name=manager.tool_name,
             description=manager.description or department.description,
         )
-        tool.name = manager.tool_name
         return tool
 
     def department_names(self) -> list[str]:

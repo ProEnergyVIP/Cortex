@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
+from ..task_orchestration import (
+    build_routing_decision,
+    should_escalate,
+    synthesize_task_results,
+)
+from ..task_types import child_task_id
 from .models import DelegationBrief, NodeResult, RoutingDecision
 
 
@@ -76,106 +82,18 @@ def synthesize_results(
     brief: DelegationBrief,
     role: str,
     from_node: Optional[str],
-    child_results: Iterable[NodeResult],
+    child_results: list[NodeResult],
     summary: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> NodeResult:
-    items = list(child_results)
-    if not items:
-        return NodeResult.escalate(
-            brief=brief,
-            role=role,  # type: ignore[arg-type]
-            from_node=from_node,
-            summary="No child results were available to synthesize.",
-            confidence=0.0,
-            escalation_reason="missing child results",
-            metadata=metadata or {},
-        )
-
-    confidence = min(item.confidence for item in items)
-    blockers = [blocker for item in items for blocker in item.blockers]
-    assumptions = [assumption for item in items for assumption in item.assumptions]
-    child_summaries = [
-        {
-            "from_node": item.from_node,
-            "status": item.status,
-            "summary": item.summary,
-            "confidence": item.confidence,
-        }
-        for item in items
-    ]
-
-    if any(item.status in {"needs_escalation", "failed"} for item in items) or confidence < brief.escalation_if_below:
-        return NodeResult.escalate(
-            brief=brief,
-            role=role,  # type: ignore[arg-type]
-            from_node=from_node,
-            summary=summary or _default_escalation_summary(items),
-            confidence=confidence,
-            blockers=blockers,
-            escalation_reason="one or more child results require escalation",
-            metadata={**(metadata or {}), "child_summaries": child_summaries},
-            output={"child_results": [item.to_dict() for item in items]},
-        )
-
-    combined_output = {
-        "child_results": [item.to_dict() for item in items],
-        "synthesized_output": {item.from_node: item.output for item in items},
-    }
-    return NodeResult.complete(
+    return synthesize_task_results(
         brief=brief,
-        role=role,  # type: ignore[arg-type]
+        role=role,
         from_node=from_node,
-        summary=summary or _default_summary(items),
-        output=combined_output,
-        confidence=confidence,
-        assumptions=assumptions,
-        blockers=blockers,
-        child_summaries=child_summaries,
-        metadata=metadata or {},
+        child_results=child_results,
+        summary=summary,
+        metadata=metadata,
     )
-
-
-
-def build_routing_decision(
-    *,
-    brief: DelegationBrief,
-    departments: list[str],
-    rationale: str,
-    confidence: float,
-    clarification_question: Optional[str] = None,
-) -> RoutingDecision:
-    mode = "direct"
-    if len(departments) == 1:
-        mode = "single_department"
-    elif len(departments) > 1:
-        mode = "multi_department"
-    return RoutingDecision(
-        conversation_id=brief.conversation_id,
-        task_id=brief.task_id,
-        mode=mode,
-        departments=departments,
-        rationale=rationale,
-        confidence=confidence,
-        clarification_question=clarification_question,
-    )
-
-
-
-def should_escalate(result: NodeResult, *, threshold: float = 0.6) -> bool:
-    return result.status in {"needs_escalation", "failed"} or result.confidence < threshold
-
-
-
-def _default_summary(items: list[NodeResult]) -> str:
-    joined = "; ".join(f"{item.from_node}: {item.summary}" for item in items)
-    return f"Synthesized child results: {joined}"
-
-
-
-def _default_escalation_summary(items: list[NodeResult]) -> str:
-    joined = "; ".join(f"{item.from_node}: {item.escalation_reason or item.summary}" for item in items)
-    return f"Escalation required after child review: {joined}"
 
 
 
@@ -189,5 +107,14 @@ def _merge_constraints(*constraint_sets: Optional[dict[str, Any]]) -> dict[str, 
 
 
 def _child_task_id(parent_task_id: str, node_name: str) -> str:
-    normalized = node_name.lower().replace(" ", "_")
-    return f"{parent_task_id}.{normalized}"
+    return child_task_id(parent_task_id, node_name)
+
+
+__all__ = [
+    "build_manager_brief",
+    "build_specialist_brief",
+    "build_routing_decision",
+    "should_escalate",
+    "synthesize_results",
+    "RoutingDecision",
+]
