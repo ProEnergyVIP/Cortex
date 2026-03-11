@@ -370,7 +370,7 @@ Core helper APIs:
 
 Key invariants:
 
-- the layer normalizes `Agent`, `WorkflowAgent`, and custom `run_brief(...)` runtimes behind a shared executor surface
+- the layer normalizes `Agent`, `WorkflowAgent`, and custom `run_task(...)` runtimes behind a shared executor surface
 - child executors are exposed as tools using a structured `{"desc": ...}` payload
 - `TaskExecutorBuilder.create_agent(...)` requests structured JSON replies so task results normalize reliably
 - `resolve_task_executor(...)` accepts `TaskExecutorBuilderBase` subclasses as well as already-built executors and raw runtimes

@@ -12,6 +12,13 @@ from .coordinator_system import (
     WorkerAgentBuilder,
     CoordinatorSystem,
 )
+from .task_coordinator_system import (
+    TaskCoordinatorBuilder,
+    TaskCoordinatorSpec,
+    TaskCoordinatorSystem,
+    TaskWorkerBuilder,
+    TaskWorkerSpec,
+)
 from .task_executor_builders import TaskExecutorBuilderBase
 from .hierarchical_system import (
     AgentNodeAdapter,
@@ -72,6 +79,11 @@ __all__ = [
     "CoordinatorAgentBuilder",
     "WorkerAgentBuilder",
     "CoordinatorSystem",
+    "TaskCoordinatorBuilder",
+    "TaskWorkerBuilder",
+    "TaskCoordinatorSpec",
+    "TaskWorkerSpec",
+    "TaskCoordinatorSystem",
     "ExecutionNode",
     "BuiltNode",
     "AgentNodeAdapter",

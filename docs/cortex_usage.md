@@ -73,7 +73,7 @@ Use `WorkflowAgent` when:
 Use the composition helpers when:
 
 - You want structured handoffs between multiple runtimes.
-- You want a shared surface for `Agent`, `WorkflowAgent`, and custom `run_brief(...)` runtimes.
+- You want a shared surface for `Agent`, `WorkflowAgent`, and custom `run_task(...)` runtimes.
 - You want reusable building blocks instead of a preset topology.
 - You want to expose child executors as tools and synthesize their results.
 
@@ -83,7 +83,8 @@ This is the recommended layer for custom multi-agent systems.
 
 Use a preset system when you want a ready-made multi-agent shape:
 
-- Use `CoordinatorSystem` for a flat coordinator-worker pattern.
+- Use `CoordinatorSystem` for a flat coordinator-worker pattern with legacy verbatim worker forwarding.
+- Use `TaskCoordinatorSystem` for a flat coordinator-worker pattern built on `TaskDesc` / `TaskResult`.
 - Use `HierarchicalAgentSystem` for gateway → manager → specialist orchestration.
 
 Use these when:

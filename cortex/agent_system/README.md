@@ -8,7 +8,7 @@ Cortex now exposes three useful layers:
 
 - **Runtime primitives**: `Agent` and `WorkflowAgent`
 - **Composable helper layer**: shared task/executor/tool orchestration helpers in `cortex.agent_system`
-- **Preset systems**: `CoordinatorSystem` and `HierarchicalAgentSystem`
+- **Preset systems**: `CoordinatorSystem`, `TaskCoordinatorSystem`, and `HierarchicalAgentSystem`
 
 This layering lets you choose the lightest abstraction that matches your topology instead of forcing everything into one framework.
 
@@ -43,6 +43,7 @@ This is the recommended layer when you want reusable building blocks without com
 Use a preset when the topology already matches your problem:
 
 - `CoordinatorSystem` for a flat coordinator-worker shape
+- `TaskCoordinatorSystem` for a flat coordinator-worker shape built on the `TaskDesc` / `TaskExecutor` composition layer
 - `HierarchicalAgentSystem` for gateway → manager → specialist orchestration with reinterpretation and synthesis at each layer
 
 ## What the agent-system package provides
@@ -218,6 +219,28 @@ Use this preset when:
 - a single coordinator delegates to workers
 - workers mostly act as specialized assistants
 - you do not need structured multi-layer reinterpretation between each hop
+
+### Task Coordinator System
+
+#### `TaskCoordinatorBuilder`
+Builder for a coordinator runtime that delegates through structured `TaskDesc` handoffs. The coordinator can be backed by either an `Agent` or a `WorkflowAgent`.
+
+#### `TaskWorkerBuilder`
+Builder for worker runtimes that consume `TaskDesc` inputs and return normalized `TaskResult` outputs. Workers can also be backed by either an `Agent` or a `WorkflowAgent`.
+
+#### `TaskCoordinatorSystem`
+Composition-native coordinator preset that:
+- creates a root `TaskDesc` from the user request
+- exposes workers to the coordinator as `desc`-driven task tools
+- supports `Agent` and `WorkflowAgent` runtimes for both coordinator and workers
+- expects the coordinator to rewrite requests into clear worker-facing `TaskDesc` handoffs
+
+Use this preset when:
+
+- you want the flat coordinator-worker topology
+- you want structured delegation instead of verbatim message forwarding
+- you want the coordinator and workers to share the `TaskDesc` / `TaskResult` contract
+- you want to mix `Agent` and `WorkflowAgent` runtimes inside the same preset
 
 ### Hierarchical Agent System
 
