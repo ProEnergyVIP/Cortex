@@ -5,11 +5,11 @@ A higher-level API for building multi-agent systems on top of the core `Agent`, 
 ## Overview
 
 The Agent System provides a structured way to build complex multi-agent applications with:
-
 - **Separation of concerns**: Builders define agent structure, Systems manage runtime
 - **Memory management**: Built-in support for conversation history via `AgentMemoryBank`
 - **Usage tracking**: Optional tracking of API calls and token usage
 - **Coordinator-Worker pattern**: Pre-built implementation for orchestrating specialized agents
+- **Hierarchical agent system**: Gateway, department managers, and specialists with structured handoffs
 
 ## Core Components
 
@@ -55,6 +55,76 @@ Complete system implementation that:
 - Exposes workers as tools to the coordinator
 - Handles agent construction and caching
 - Provides simple `async_ask()` interface
+
+### Hierarchical Agent System
+
+The hierarchical system is for multi-layer orchestration where nodes reinterpret and synthesize work instead of forwarding raw messages verbatim.
+
+Core types:
+
+- `GatewayNodeBuilder`
+- `DepartmentManagerBuilder`
+- `SpecialistNodeBuilder`
+- `DepartmentSpec`
+- `HierarchicalAgentSystem`
+
+Hierarchy shape:
+
+- user
+- gateway
+- department managers
+- specialists
+
+Each handoff uses a structured `DelegationBrief`, and each node responds with a `NodeResult`.
+
+#### Runtime-symmetric builder API
+
+Every role can be backed by either `Agent` or `WorkflowAgent`.
+
+Gateway:
+
+- `GatewayNodeBuilder.create_agent(...)`
+- `GatewayNodeBuilder.create_workflow(...)`
+- `GatewayNodeBuilder.create_default(...)`
+
+Manager:
+
+- `DepartmentManagerBuilder.create_agent(...)`
+- `DepartmentManagerBuilder.create_workflow(...)`
+- `DepartmentManagerBuilder.create_default(...)`
+
+Specialist:
+
+- `SpecialistNodeBuilder.create_agent(...)`
+- `SpecialistNodeBuilder.create_workflow(...)`
+
+Workflow-backed gateway and manager factories can accept:
+
+- `context`
+- `installed_tools`
+- `child_tools`
+
+This lets workflow-based orchestrators call their child department or specialist tools directly.
+
+#### Fluent hierarchy construction
+
+Use:
+
+- `DepartmentSpec.create(...)`
+- `add_specialist(...)`
+- `add_specialists(...)`
+
+to build department trees cleanly.
+
+#### Recommended system entrypoint
+
+Use `HierarchicalAgentSystem.create(...)` to assemble the full hierarchy.
+
+#### Example
+
+See:
+
+- `examples/hierarchical_agent_system_example.py`
 
 ## Quick Start
 

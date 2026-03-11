@@ -651,6 +651,189 @@ msg = await wb.post(
 messages = await wb.read(channel="alerts", limit=50)
 ```
 
+### 7.5 Hierarchical agent system
+
+Use `HierarchicalAgentSystem` when you want a multi-layer topology instead of a flat coordinator-worker pattern.
+
+The hierarchy has four layers:
+
+- user
+- gateway
+- department managers
+- specialist workers
+
+Each handoff is structured with a `DelegationBrief`, and each node returns a `NodeResult`. The system is designed around these rules:
+
+- enrich requests when delegating downward
+- synthesize findings when reporting upward
+- escalate when confidence is too low
+- preserve task and conversation threading
+- optionally log handoffs to the whiteboard
+
+### 7.6 Mental model
+
+- `GatewayNodeBuilder` builds the top-level routing node
+- `DepartmentManagerBuilder` builds department supervisors
+- `SpecialistNodeBuilder` builds specialist workers
+- `DepartmentSpec` defines one department and its children
+- `HierarchicalAgentSystem.create(...)` assembles the full tree
+
+### 7.7 Every role can be either `Agent` or `WorkflowAgent`
+
+The public API is runtime-symmetric.
+
+For gateway nodes:
+
+- `GatewayNodeBuilder.create_agent(...)`
+- `GatewayNodeBuilder.create_workflow(...)`
+- `GatewayNodeBuilder.create_default(...)`
+
+For manager nodes:
+
+- `DepartmentManagerBuilder.create_agent(...)`
+- `DepartmentManagerBuilder.create_workflow(...)`
+- `DepartmentManagerBuilder.create_default(...)`
+
+For specialist nodes:
+
+- `SpecialistNodeBuilder.create_agent(...)`
+- `SpecialistNodeBuilder.create_workflow(...)`
+
+This means you can choose the runtime per role:
+
+- use `Agent` for prompt-and-tool-driven behavior
+- use `WorkflowAgent` for explicit step orchestration
+- use `create_default(...)` for the built-in routing and synthesis runtime
+
+### 7.8 Minimal hierarchical setup
+
+```python
+from cortex import (
+    AgentSystemContext,
+    AsyncAgentMemoryBank,
+    DepartmentManagerBuilder,
+    DepartmentSpec,
+    GatewayNodeBuilder,
+    GPTModels,
+    HierarchicalAgentSystem,
+    LLM,
+    SpecialistNodeBuilder,
+    Tool,
+    build_gateway_prompt,
+    build_manager_prompt,
+    build_specialist_prompt,
+)
+
+memory_bank = AsyncAgentMemoryBank()
+context = AgentSystemContext(memory_bank=memory_bank)
+
+lookup_vendor = Tool(
+    name="lookup_vendor",
+    func=lookup_vendor_func,
+    description="Look up vendor information",
+    parameters={
+        "type": "object",
+        "properties": {"company": {"type": "string"}},
+        "required": ["company"],
+        "additionalProperties": False,
+    },
+)
+
+gateway = GatewayNodeBuilder.create_agent(
+    name="Gateway",
+    llm=LLM(model=GPTModels.GPT_4O_MINI),
+    prompt=build_gateway_prompt(
+        organization_context="You route user requests across business departments."
+    ),
+)
+
+finance_manager = DepartmentManagerBuilder.create_agent(
+    name="Finance Manager",
+    department="Finance",
+    llm=LLM(model=GPTModels.GPT_4O_MINI),
+    prompt=build_manager_prompt(
+        department_name="Finance",
+        department_description="Owns procurement, spend, and vendor onboarding decisions.",
+    ),
+)
+
+vendor_specialist = SpecialistNodeBuilder.create_agent(
+    name="Vendor Risk Specialist",
+    specialty="Vendor Risk",
+    llm=LLM(model=GPTModels.GPT_4O_MINI),
+    prompt=build_specialist_prompt(
+        specialty_name="Vendor Risk",
+        specialty_description="Assesses third-party vendor risk.",
+    ),
+    tools=[lookup_vendor],
+)
+
+finance_department = DepartmentSpec.create(
+    name="Finance",
+    description="Handles procurement and vendor onboarding reviews.",
+    manager=finance_manager,
+).add_specialist(vendor_specialist)
+
+system = HierarchicalAgentSystem.create(
+    gateway_builder=gateway,
+    departments=[finance_department],
+    context=context,
+)
+
+response = await system.async_ask("Should we approve Acme Power Services for onboarding?")
+```
+
+### 7.9 Mixed runtime hierarchy
+
+You can mix runtimes freely in one tree.
+
+Typical examples:
+
+- gateway as `Agent`, manager as `WorkflowAgent`, specialists mixed
+- gateway as default runtime, managers as `Agent`
+- gateway as `WorkflowAgent`, managers as default runtimes, specialists mixed
+
+Workflow-backed gateway and manager factories can accept:
+
+- `context`
+- `installed_tools`
+- `child_tools`
+
+That allows workflow nodes to orchestrate their child department or specialist tools directly.
+
+### 7.10 Default low-boilerplate path
+
+If you want built-in orchestration behavior:
+
+```python
+gateway = GatewayNodeBuilder.create_default()
+
+finance_manager = DepartmentManagerBuilder.create_default(
+    name="Finance Manager",
+    department="Finance",
+)
+```
+
+These defaults provide:
+
+- department routing
+- specialist fan-out
+- synthesis
+- confidence-based escalation
+
+### 7.11 Recommended usage guidance
+
+- use `create_default(...)` when you want the framework to handle orchestration
+- use `create_agent(...)` when the node behavior is primarily prompt/tool driven
+- use `create_workflow(...)` when the node needs explicit steps, routing, or parallel control
+- use `DepartmentSpec.create(...).add_specialists(...)` to build larger hierarchies fluently
+
+### 7.12 Example reference
+
+See:
+
+- `examples/hierarchical_agent_system_example.py`
+
 ---
 
 ## 8) Parallel tool execution
