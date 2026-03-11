@@ -21,6 +21,21 @@ class HierarchicalAgentSystem(AgentSystem):
         self._departments = departments
         self._gateway_node = None
 
+    @classmethod
+    def create(
+        cls,
+        *,
+        departments: list[DepartmentSpec],
+        context: Optional[Any] = None,
+        gateway_builder: Optional[GatewayNodeBuilder] = None,
+        gateway_name: str = "Gateway",
+    ) -> "HierarchicalAgentSystem":
+        return cls(
+            gateway_builder=gateway_builder or GatewayNodeBuilder.create_default(name=gateway_name),
+            departments=departments,
+            context=context,
+        )
+
     async def get_agent(self):
         return await self.get_gateway_node()
 

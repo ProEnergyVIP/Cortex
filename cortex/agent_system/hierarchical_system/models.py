@@ -228,6 +228,18 @@ class DepartmentSpec:
     manager: Any
     specialists: list[Any] = field(default_factory=list)
 
+    @classmethod
+    def create(cls, *, name: str, description: str, manager: Any) -> "DepartmentSpec":
+        return cls(name=name, description=description, manager=manager)
+
+    def add_specialist(self, specialist: Any) -> "DepartmentSpec":
+        self.specialists.append(specialist)
+        return self
+
+    def add_specialists(self, *specialists: Any) -> "DepartmentSpec":
+        self.specialists.extend(specialists)
+        return self
+
 
 def new_conversation_id() -> str:
     return f"conv_{uuid4().hex}"

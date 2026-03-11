@@ -93,10 +93,41 @@ class NodeBuilder:
     def tool_name(self) -> str:
         return self.name.lower().replace(" ", "_") + "_node"
 
+    @staticmethod
+    def _as_tool_list(tools: Optional[list[Tool]]) -> list[Tool]:
+        return list(tools or [])
+
 
 @dataclass(slots=True)
 class GatewayNodeBuilder(NodeBuilder):
     role: str = "gateway"
+
+    @classmethod
+    def create_agent(
+        cls,
+        *,
+        name: str,
+        llm: Any,
+        prompt: str,
+        tools: Optional[list[Tool]] = None,
+        description: Optional[str] = None,
+    ) -> "GatewayNodeBuilder":
+        own_tools = cls._as_tool_list(tools)
+
+        def runtime_factory(*, context: Any, installed_tools: list[Tool]) -> Agent:
+            return Agent(
+                llm=llm,
+                tools=[*own_tools, *installed_tools],
+                sys_prompt=prompt,
+                context=context,
+                mode="async",
+            )
+
+        return cls(
+            name=name,
+            runtime_factory=runtime_factory,
+            description=description or f"Gateway node '{name}'",
+        )
 
     @classmethod
     def create_default(
@@ -132,6 +163,35 @@ class GatewayNodeBuilder(NodeBuilder):
 class DepartmentManagerBuilder(NodeBuilder):
     role: str = "manager"
     department: Optional[str] = None
+
+    @classmethod
+    def create_agent(
+        cls,
+        *,
+        name: str,
+        department: str,
+        llm: Any,
+        prompt: str,
+        tools: Optional[list[Tool]] = None,
+        description: Optional[str] = None,
+    ) -> "DepartmentManagerBuilder":
+        own_tools = cls._as_tool_list(tools)
+
+        def runtime_factory(*, context: Any, installed_tools: list[Tool]) -> Agent:
+            return Agent(
+                llm=llm,
+                tools=[*own_tools, *installed_tools],
+                sys_prompt=prompt,
+                context=context,
+                mode="async",
+            )
+
+        return cls(
+            name=name,
+            runtime_factory=runtime_factory,
+            description=description or f"{department} manager '{name}'",
+            department=department,
+        )
 
     @classmethod
     def create_default(
@@ -171,3 +231,56 @@ class DepartmentManagerBuilder(NodeBuilder):
 class SpecialistNodeBuilder(NodeBuilder):
     role: str = "worker"
     specialty: Optional[str] = None
+
+    @classmethod
+    def create_agent(
+        cls,
+        *,
+        name: str,
+        specialty: str,
+        llm: Any,
+        prompt: str,
+        tools: Optional[list[Tool]] = None,
+        description: Optional[str] = None,
+    ) -> "SpecialistNodeBuilder":
+        own_tools = cls._as_tool_list(tools)
+
+        def runtime_factory(*, context: Any) -> Agent:
+            return Agent(
+                llm=llm,
+                tools=own_tools,
+                sys_prompt=prompt,
+                context=context,
+                mode="async",
+            )
+
+        return cls(
+            name=name,
+            runtime_factory=runtime_factory,
+            description=description or f"{specialty} specialist '{name}'",
+            specialty=specialty,
+        )
+
+    @classmethod
+    def create_workflow(
+        cls,
+        *,
+        name: str,
+        specialty: str,
+        workflow: WorkflowAgent | Callable[[Any], WorkflowAgent],
+        description: Optional[str] = None,
+    ) -> "SpecialistNodeBuilder":
+        def runtime_factory(*, context: Any) -> WorkflowAgent:
+            if callable(workflow) and not isinstance(workflow, WorkflowAgent):
+                built = workflow(context)
+                if iscoroutine(built):
+                    return built
+                return built
+            return workflow
+
+        return cls(
+            name=name,
+            runtime_factory=runtime_factory,
+            description=description or f"{specialty} workflow specialist '{name}'",
+            specialty=specialty,
+        )
