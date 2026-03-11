@@ -519,11 +519,97 @@ for delta in streaming_func("About the ocean"):
 
 ---
 
-## 7) Agent System (Coordinator + Workers)
+## 7) Agent System
 
-The Agent System is the recommended way to build multi-agent apps.
+The recommended approach is:
 
-### 7.1 Minimal coordinator-worker setup
+- use `Agent` and `WorkflowAgent` as the runtime primitives
+- use the composition helpers in `cortex.agent_system` when you want structured handoffs and easy composition
+- use preset systems like `CoordinatorSystem` and `HierarchicalAgentSystem` when they already match your topology
+
+### 7.1 Core composition layer
+
+The composition layer is the reusable foundation for custom agent systems.
+
+Key APIs:
+
+- `TaskBrief`
+- `TaskResult`
+- `TaskRunnerBuilder`
+- `build_task_brief(...)`
+- `build_child_task_brief(...)`
+- `run_task_runner(...)`
+- `task_runner_tool(...)`
+- `run_task_tools(...)`
+- `summarize_task_results(...)`
+
+What each piece does:
+
+- `TaskBrief` is the structured handoff contract
+- `TaskResult` is the normalized result contract
+- `TaskRunnerBuilder` wraps `Agent`, `WorkflowAgent`, or custom runtimes behind one builder surface
+- `task_runner_tool(...)` exposes a runner as a `Tool`
+- `run_task_tools(...)` fans work out to child tools
+- `summarize_task_results(...)` synthesizes child results back upward
+
+Minimal example:
+
+```python
+from cortex import (
+    AgentSystemContext,
+    AsyncAgentMemoryBank,
+    GPTModels,
+    LLM,
+    TaskRunnerBuilder,
+    build_task_brief,
+    run_task_runner,
+)
+
+context = AgentSystemContext(memory_bank=AsyncAgentMemoryBank())
+
+researcher = TaskRunnerBuilder.create_agent(
+    name="Researcher",
+    role="research",
+    llm=LLM(model=GPTModels.GPT_4O_MINI),
+    prompt="You investigate the task and return a structured result.",
+)
+
+reviewer = TaskRunnerBuilder.create_agent(
+    name="Reviewer",
+    role="review",
+    llm=LLM(model=GPTModels.GPT_4O_MINI),
+    prompt="You review the task and return a structured result.",
+)
+
+lead = TaskRunnerBuilder.create_workflow(
+    name="Lead",
+    role="lead",
+    workflow=make_lead_workflow,
+)
+
+brief = build_task_brief(
+    from_runner="user",
+    to_runner="Lead",
+    handoff_kind="user_to_lead",
+    original_request="Should we approve this rollout?",
+    request_summary="Evaluate whether the rollout should be approved.",
+    current_understanding="The lead should coordinate a research and review pass.",
+    assigned_task="Coordinate the review and return a final recommendation.",
+)
+
+result = await run_task_runner(
+    lead,
+    brief=brief,
+    context=context,
+    installed_tools=[researcher.as_tool(), reviewer.as_tool()],
+)
+```
+
+### 7.2 Coordinator-worker preset
+
+Use `CoordinatorSystem` when a flat coordinator-worker topology already matches your needs.
+
+### 7.3 Minimal coordinator-worker setup
 
 ```python
 from cortex import (
@@ -558,11 +644,11 @@ system = CoordinatorSystem(
 reply = await system.async_ask("What is 2 + 2?")
 ```
 
-### 7.2 Workers with tools
+### 7.4 Workers with tools
 
 Workers can have their own toolsets via `tools_builder`.
 
-### 7.3 Usage tracking
+### 7.5 Usage tracking
 
 Provide `usage` in `AgentSystemContext` and it will be passed through:
 
@@ -577,7 +663,7 @@ await system.async_ask("Hello")
 print(usage.format())
 ```
 
-### 7.4 Whiteboard (agent communication)
+### 7.6 Whiteboard (agent communication)
 
 The whiteboard provides a channel-based messaging system for agents to communicate asynchronously. Enable it to let agents share context, post updates, and coordinate across conversation turns.
 
@@ -651,7 +737,7 @@ msg = await wb.post(
 messages = await wb.read(channel="alerts", limit=50)
 ```
 
-### 7.5 Hierarchical agent system
+### 7.7 Hierarchical agent system
 
 Use `HierarchicalAgentSystem` when you want a multi-layer topology instead of a flat coordinator-worker pattern.
 
@@ -670,7 +756,7 @@ Each handoff is structured with a `DelegationBrief`, and each node returns a `No
 - preserve task and conversation threading
 - optionally log handoffs to the whiteboard
 
-### 7.6 Mental model
+### 7.8 Mental model
 
 - `GatewayNodeBuilder` builds the top-level routing node
 - `DepartmentManagerBuilder` builds department supervisors
@@ -678,7 +764,7 @@ Each handoff is structured with a `DelegationBrief`, and each node returns a `No
 - `DepartmentSpec` defines one department and its children
 - `HierarchicalAgentSystem.create(...)` assembles the full tree
 
-### 7.7 Every role can be either `Agent` or `WorkflowAgent`
+### 7.9 Every role can be either `Agent` or `WorkflowAgent`
 
 The public API is runtime-symmetric.
 
@@ -705,7 +791,7 @@ This means you can choose the runtime per role:
 - use `WorkflowAgent` for explicit step orchestration
 - use `create_default(...)` for the built-in routing and synthesis runtime
 
-### 7.8 Minimal hierarchical setup
+### 7.10 Minimal hierarchical setup
 
 ```python
 from cortex import (
@@ -783,7 +869,7 @@ system = HierarchicalAgentSystem.create(
 response = await system.async_ask("Should we approve Acme Power Services for onboarding?")
 ```
 
-### 7.9 Mixed runtime hierarchy
+### 7.11 Mixed runtime hierarchy
 
 You can mix runtimes freely in one tree.
 
@@ -801,7 +887,7 @@ Workflow-backed gateway and manager factories can accept:
 
 That allows workflow nodes to orchestrate their child department or specialist tools directly.
 
-### 7.10 Default low-boilerplate path
+### 7.12 Default low-boilerplate path
 
 If you want built-in orchestration behavior:
 
@@ -821,14 +907,14 @@ These defaults provide:
 - synthesis
 - confidence-based escalation
 
-### 7.11 Recommended usage guidance
+### 7.13 Recommended usage guidance
 
 - use `create_default(...)` when you want the framework to handle orchestration
 - use `create_agent(...)` when the node behavior is primarily prompt/tool driven
 - use `create_workflow(...)` when the node needs explicit steps, routing, or parallel control
 - use `DepartmentSpec.create(...).add_specialists(...)` to build larger hierarchies fluently
 
-### 7.12 Example reference
+### 7.14 Example reference
 
 See:
 

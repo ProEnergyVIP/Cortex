@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 from cortex.agent import Tool
 
+from ..composition import build_task_runner, task_runner_tool
 from ..core.system import AgentSystem
 from .builders import GatewayNodeBuilder
 from .models import DelegationBrief, DepartmentSpec, HandoffRecord, NodeResult
@@ -83,45 +84,45 @@ class HierarchicalAgentSystem(AgentSystem):
     async def _build_department_tool(self, department: DepartmentSpec) -> Tool:
         manager = department.manager
         specialists = [specialist.install() for specialist in department.specialists]
-
-        async def func(args: dict[str, Any], context: Any):
-            brief_value = args["brief"]
-            brief = brief_value if isinstance(brief_value, DelegationBrief) else DelegationBrief.from_dict(brief_value)
-            node = await manager.build_node(context=context, installed_tools=specialists)
-            await self._log_handoff(
-                HandoffRecord(
-                    conversation_id=brief.conversation_id,
-                    task_id=brief.task_id,
-                    parent_task_id=brief.parent_task_id,
-                    from_node=brief.from_node,
-                    to_node=node.name,
-                    direction="downward",
-                    summary=brief.scoped_task,
-                    confidence=brief.confidence,
-                    status="delegated",
-                    metadata={"department": department.name, "handoff_level": brief.handoff_level},
-                )
-            )
-            result = await node.run_brief(brief, context=context)
-            await self._log_result(result)
-            return result.to_dict()
-
-        return Tool(
-            name=manager.tool_name,
-            func=func,
-            description=manager.description or department.description,
-            parameters={
-                "type": "object",
-                "properties": {
-                    "brief": {
-                        "type": "object",
-                        "description": "Structured delegation brief for this department manager",
-                    }
-                },
-                "required": ["brief"],
-                "additionalProperties": False,
-            },
+        built_manager = await build_task_runner(
+            manager,
+            context=self._context,
+            installed_tools=specialists,
+            role=manager.role,
+            name=manager.name,
         )
+
+        class LoggedDepartmentRunner:
+            name = built_manager.name
+            role = built_manager.role
+
+            async def run_brief(inner_self, brief: DelegationBrief, *, context: Any) -> NodeResult:
+                await self._log_handoff(
+                    HandoffRecord(
+                        conversation_id=brief.conversation_id,
+                        task_id=brief.task_id,
+                        parent_task_id=brief.parent_task_id,
+                        from_node=brief.from_node,
+                        to_node=built_manager.name,
+                        direction="downward",
+                        summary=brief.scoped_task,
+                        confidence=brief.confidence,
+                        status="delegated",
+                        metadata={"department": department.name, "handoff_level": brief.handoff_level},
+                    )
+                )
+                result = await built_manager.run_brief(brief, context=context)
+                await self._log_result(result)
+                return result
+
+        tool = task_runner_tool(
+            LoggedDepartmentRunner(),
+            name=manager.name,
+            role=manager.role,
+            description=manager.description or department.description,
+        )
+        tool.name = manager.tool_name
+        return tool
 
     def department_names(self) -> list[str]:
         return [department.name for department in self._departments]

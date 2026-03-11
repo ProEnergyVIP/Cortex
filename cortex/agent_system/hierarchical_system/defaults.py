@@ -1,19 +1,17 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from cortex.agent import Tool
 
-from .adapters import normalize_node_result
+from ..composition import run_task_tools, summarize_task_results
 from .models import DelegationBrief, NodeResult
 from .orchestration import (
     build_manager_brief,
     build_routing_decision,
     build_specialist_brief,
     should_escalate,
-    synthesize_results,
 )
 
 
@@ -61,20 +59,24 @@ class DefaultGatewayNode:
             clarification_question=None,
         )
 
-        child_results: list[NodeResult] = []
+        available_department_tools = [
+            tool
+            for department_name in department_names
+            if (tool := self._find_department_tool(department_name)) is not None
+        ]
+        child_results = await run_task_tools(
+            available_department_tools,
+            parent_brief=brief,
+            context=context,
+            handoff_kind="gateway_to_manager",
+            assigned_task_builder=lambda department_name: self._manager_task(brief, department_name),
+            understanding_builder=lambda department_name: self._manager_understanding(brief, department_name),
+            expected_output={"type": "department_synthesis"},
+            metadata_builder=lambda department_name: {"routing_decision": routing.to_dict(), "department": department_name},
+            role="manager",
+        )
         for department_name in department_names:
-            tool = self._find_department_tool(department_name)
-            if tool is None:
-                child_results.append(
-                    NodeResult.escalate(
-                        brief=brief,
-                        role="gateway",
-                        from_node=self.name,
-                        summary=f"Department '{department_name}' is configured but no executable tool is available.",
-                        confidence=0.0,
-                        escalation_reason="missing department tool",
-                    )
-                )
+            if self._find_department_tool(department_name) is not None:
                 continue
             manager_brief = build_manager_brief(
                 parent_brief=brief,
@@ -85,13 +87,21 @@ class DefaultGatewayNode:
                 expected_output={"type": "department_synthesis"},
                 metadata={"routing_decision": routing.to_dict()},
             )
-            raw_result = await tool.async_run({"brief": manager_brief.to_dict()}, context, None)
-            child_results.append(normalize_node_result(raw_result, brief=manager_brief, role="manager", fallback_name=department_name))
+            child_results.append(
+                NodeResult.escalate(
+                    brief=manager_brief,
+                    role="manager",
+                    from_node=department_name,
+                    summary=f"Department '{department_name}' is configured but no executable tool is available.",
+                    confidence=0.0,
+                    escalation_reason="missing department tool",
+                )
+            )
 
-        synthesized = synthesize_results(
+        synthesized = summarize_task_results(
             brief=brief,
             role="gateway",
-            from_node=self.name,
+            from_runner=self.name,
             child_results=child_results,
             summary=self._gateway_summary(child_results),
             metadata={"routing_decision": routing.to_dict()},
@@ -200,13 +210,47 @@ class DefaultManagerNode:
                 metadata={"available_specialists": [item["name"] for item in self.specialist_catalog]},
             )
 
-        coroutines = [self._run_specialist(name, brief, context) for name in specialist_names]
-        child_results = await asyncio.gather(*coroutines) if self.execute_in_parallel else [await item for item in coroutines]
+        available_specialist_tools = [
+            tool
+            for specialist_name in specialist_names
+            if (tool := self._find_specialist_tool(specialist_name)) is not None
+        ]
+        child_results = await run_task_tools(
+            available_specialist_tools,
+            parent_brief=brief,
+            context=context,
+            handoff_kind="manager_to_worker",
+            assigned_task_builder=lambda specialist_name: self._specialist_task(brief, specialist_name),
+            understanding_builder=lambda specialist_name: self._specialist_understanding(brief, specialist_name),
+            expected_output={"type": "specialist_result"},
+            role="worker",
+            execute_in_parallel=self.execute_in_parallel,
+        )
+        for specialist_name in specialist_names:
+            if self._find_specialist_tool(specialist_name) is not None:
+                continue
+            specialist_brief = build_specialist_brief(
+                parent_brief=brief,
+                specialist_name=specialist_name,
+                scoped_task=self._specialist_task(brief, specialist_name),
+                caller_understanding=self._specialist_understanding(brief, specialist_name),
+                expected_output={"type": "specialist_result"},
+            )
+            child_results.append(
+                NodeResult.escalate(
+                    brief=specialist_brief,
+                    role="worker",
+                    from_node=specialist_name,
+                    summary=f"Specialist '{specialist_name}' is configured but no executable tool is available.",
+                    confidence=0.0,
+                    escalation_reason="missing specialist tool",
+                )
+            )
 
-        synthesized = synthesize_results(
+        synthesized = summarize_task_results(
             brief=brief,
             role="manager",
-            from_node=self.name,
+            from_runner=self.name,
             child_results=child_results,
             summary=self._manager_summary(child_results),
             metadata={"selected_specialists": specialist_names},
@@ -214,27 +258,6 @@ class DefaultManagerNode:
         if should_escalate(synthesized, threshold=self.confidence_threshold):
             synthesized.metadata.setdefault("manager_needs_escalation", True)
         return synthesized
-
-    async def _run_specialist(self, specialist_name: str, brief: DelegationBrief, context: Any) -> NodeResult:
-        tool = self._find_specialist_tool(specialist_name)
-        specialist_brief = build_specialist_brief(
-            parent_brief=brief,
-            specialist_name=specialist_name,
-            scoped_task=self._specialist_task(brief, specialist_name),
-            caller_understanding=self._specialist_understanding(brief, specialist_name),
-            expected_output={"type": "specialist_result"},
-        )
-        if tool is None:
-            return NodeResult.escalate(
-                brief=specialist_brief,
-                role="worker",
-                from_node=specialist_name,
-                summary=f"Specialist '{specialist_name}' is configured but no executable tool is available.",
-                confidence=0.0,
-                escalation_reason="missing specialist tool",
-            )
-        raw_result = await tool.async_run({"brief": specialist_brief.to_dict()}, context, None)
-        return normalize_node_result(raw_result, brief=specialist_brief, role="worker", fallback_name=specialist_name)
 
     def _select_specialists(self, brief: DelegationBrief) -> list[str]:
         if self.selector is not None:

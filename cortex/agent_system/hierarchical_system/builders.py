@@ -51,6 +51,9 @@ class NodeBuilder:
             "Expected Agent, WorkflowAgent, BuiltNode, or an ExecutionNode-compatible object."
         )
 
+    async def build(self, *, context: Any, installed_tools: Optional[list[Tool]] = None) -> BuiltNode:
+        return await self.build_node(context=context, installed_tools=installed_tools)
+
     def _invoke_runtime_factory(self, *, context: Any, installed_tools: list[Tool]) -> Any:
         sig = signature(self.runtime_factory)
         kwargs: dict[str, Any] = {}
@@ -88,6 +91,13 @@ class NodeBuilder:
                 "additionalProperties": False,
             },
         )
+
+    def as_tool(self) -> Tool:
+        return self.install()
+
+    def with_metadata(self, **metadata: Any) -> "NodeBuilder":
+        self.metadata.update(metadata)
+        return self
 
     @property
     def tool_name(self) -> str:

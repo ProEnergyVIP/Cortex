@@ -7,10 +7,10 @@ from uuid import uuid4
 
 
 Priority = Literal["high", "medium", "low"]
-HandoffLevel = Literal["user_to_gateway", "gateway_to_manager", "manager_to_worker"]
-NodeRole = Literal["gateway", "manager", "worker"]
+HandoffLevel = str
+NodeRole = str
 NodeStatus = Literal["completed", "partial", "blocked", "needs_escalation", "failed"]
-RoutingMode = Literal["direct", "single_department", "multi_department"]
+RoutingMode = str
 Direction = Literal["downward", "upward"]
 
 
