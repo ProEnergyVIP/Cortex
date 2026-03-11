@@ -6,8 +6,8 @@ This document describes how Cortex is structured internally and how the major ab
 - Message model (`Message`, `AIMessage`, tool call messages)
 - Tools (`FunctionTool` and hosted tools)
 - `Agent` (conversation loop, tool execution, memory)
-- Agent System (`AgentBuilder`, `AgentSystem`, coordinator/worker)
-- Whiteboard (shared multi-agent state)
+- Agent System (`AgentBuilder`, `AgentSystem`, task composition helpers, presets)
+- Whiteboard (shared multi-agent messaging)
 
 The goal is to help you understand **how requests flow through the library**, where to extend it, and what invariants the core code assumes.
 
@@ -33,11 +33,13 @@ At a high level, Cortex is built around this pipeline:
    - the agent loops and calls the LLM again
 9. When a final natural-language (or JSON) answer is produced, it’s returned and saved to memory.
 
-The Agent System adds a layer above this:
+The agent-system package adds higher layers above this:
 
 - Builders construct agents lazily from a runtime context.
 - Systems own an `async_ask(...)` API and choose the agent(s) used to answer.
 - `CoordinatorSystem` exposes worker agents as tools to a coordinator agent.
+- The task composition layer normalizes structured handoffs across `Agent`, `WorkflowAgent`, and custom runtimes.
+- `HierarchicalAgentSystem` builds a gateway -> manager -> specialist topology on top of those helpers.
 
 ---
 
@@ -297,10 +299,13 @@ Summarization errors are caught and logged as warnings. The agent continues norm
 
 The Agent System lives in `cortex/agent_system/`.
 
-It introduces two key abstractions:
+It exposes multiple layers:
 
 - `AgentBuilder`: builds an agent from context (prompt, tools, memory)
 - `AgentSystem`: owns a context and provides a single `async_ask(...)` entrypoint
+- `TaskDesc` / `TaskResult`: structured handoff and normalized result contracts
+- `TaskExecutorBuilder` / `TaskExecutorBuilderBase`: runtime-symmetric executor builders
+- Preset systems such as `CoordinatorSystem` and `HierarchicalAgentSystem`
 
 ### 7.1 `AgentSystemContext`
 
@@ -337,6 +342,65 @@ A worker builder’s `install(...)` method returns a `Tool` (async `FunctionTool
 - optionally appends `DeveloperMessage(context_instructions)`
 - can enrich context with whiteboard summaries
 - returns the worker agent’s JSON response
+
+### 7.4 Task composition layer
+
+The composition layer is the reusable middle layer between raw runtimes and preset systems.
+
+Core concepts:
+
+- `TaskDesc`
+- `TaskResult`
+- `TaskExecutor`
+- `BuiltTaskExecutor`
+- `TaskExecutorBuilderBase`
+- `TaskExecutorBuilder`
+
+Core helper APIs:
+
+- `create_task_desc(...)`
+- `create_child_task_desc(...)`
+- `resolve_task_executor(...)`
+- `execute_task_executor(...)`
+- `create_task_tool(...)`
+- `coerce_task_result(...)`
+- `execute_task_tools(...)`
+- `synthesize_task_results(...)`
+- `should_escalate(...)`
+
+Key invariants:
+
+- the layer normalizes `Agent`, `WorkflowAgent`, and custom `run_brief(...)` runtimes behind a shared executor surface
+- child executors are exposed as tools using a structured `{"desc": ...}` payload
+- `TaskExecutorBuilder.create_agent(...)` requests structured JSON replies so task results normalize reliably
+- `resolve_task_executor(...)` accepts `TaskExecutorBuilderBase` subclasses as well as already-built executors and raw runtimes
+
+### 7.5 `HierarchicalAgentSystem`: gateway -> manager -> specialist
+
+The hierarchical preset is implemented on top of the task composition layer rather than as a separate incompatible abstraction.
+
+Core pieces:
+
+- `GatewayNodeBuilder`
+- `DepartmentManagerBuilder`
+- `SpecialistNodeBuilder`
+- `DepartmentSpec`
+- `HierarchicalAgentSystem`
+
+The hierarchy exchanges structured `DelegationBrief` / `NodeResult` values, which are aliases over the shared task-model layer.
+
+Design intent:
+
+- gateways route requests across departments
+- managers reinterpret and refine delegated work
+- specialists produce structured child results
+- synthesis happens explicitly at each level
+
+Runtime symmetry:
+
+- gateways can be backed by `Agent`, `WorkflowAgent`, or a default preset runtime
+- managers can be backed by `Agent`, `WorkflowAgent`, or a default preset runtime
+- specialists can be backed by `Agent` or `WorkflowAgent`
 
 ---
 
@@ -538,25 +602,53 @@ In practice, this makes Cortex better suited for pipelines such as intake flows,
 
 ---
 
-## 9) Whiteboard: shared multi-agent state (optional)
+## 9) Whiteboard: shared multi-agent messaging (optional)
 
-The whiteboard lives under `cortex/agent_system/core/whiteboard.py` and is wired via `AgentSystemContext.whiteboard`.
+The whiteboard lives under `cortex/agent_system/core/whiteboard.py` and is wired through `AgentSystemContext.whiteboard`.
 
-Design intent:
+At its core, the whiteboard is a channel-based messaging system.
 
-- Provide a **shared, topic-scoped coordination state**:
-  - mission, focus, progress
-  - blockers
-  - decisions
-  - recent updates/activity
-- Allow workers to suggest updates (`whiteboard_suggestion`) while keeping the coordinator in control.
+Core model:
 
-When a coordinator has a whiteboard:
+- `Message`
+  - `id`
+  - `timestamp`
+  - `sender`
+  - `channel`
+  - `content`
+  - optional `thread`
+  - optional `reply_to`
 
-- `CoordinatorAgentBuilder` injects special management tools such as:
-  - `update_mission_func`, `update_progress_func`, `manage_blocker_func`, `log_decision_func`, `get_team_status_func`, `clear_topic_func`
+Storage model:
 
-Workers (when enabled) may emit suggestions which can be auto-applied by `WorkerAgentBuilder.install()` via `context.whiteboard.apply_suggestion(...)`.
+- `WhiteboardStorage` is the abstract persistence interface
+- `InMemoryStorage` is the default in-process implementation
+- `RedisStorage` provides Redis-backed persistence
+
+Core API:
+
+- `await whiteboard.post(...)`
+- `await whiteboard.read(...)`
+- `await whiteboard.subscribe(...)`
+- `await whiteboard.unsubscribe(...)`
+- `whiteboard.list_channels()`
+- `await whiteboard.delete_channel(...)`
+- `await whiteboard.cleanup(...)`
+
+Current behavior:
+
+- the whiteboard is optional; systems work without it
+- it stores messages, not a separate domain-specific coordinator state object
+- it performs automatic size-based cleanup for oversized channels
+- agents can use injected whiteboard tools such as `whiteboard_post`, `whiteboard_read`, `whiteboard_subscribe`, and `whiteboard_list_channels`
+
+The coordinator preset also exposes whiteboard-oriented management tools such as:
+
+- `update_mission_func`
+- `get_team_status_func`
+- `clear_topic_func`
+
+These higher-level tools build on top of the underlying messaging model rather than replacing it with a different persistence abstraction.
 
 ---
 

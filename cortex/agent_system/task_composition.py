@@ -193,7 +193,7 @@ async def execute_task_executor(
         name=name,
         installed_tools=installed_tools,
     )
-    return await built.run_brief(desc, context=context)
+    return await built.run_task(desc, context=context)
 
 
 async def resolve_task_executor(
@@ -333,7 +333,7 @@ async def _resolve_task_executor(
         return await executor.build(context=context, installed_tools=installed_tools)
     if isinstance(executor, BuiltTaskExecutor):
         return executor
-    if hasattr(executor, "run_brief") and hasattr(executor, "name") and hasattr(executor, "role"):
+    if hasattr(executor, "run_task") and hasattr(executor, "name") and hasattr(executor, "role"):
         return BuiltTaskExecutor(name=getattr(executor, "name"), role=getattr(executor, "role"), runtime=executor)
     if isinstance(executor, Agent):
         executor_name = name or getattr(executor, "name", None) or "Agent Executor"
@@ -353,7 +353,7 @@ async def _resolve_task_executor(
         )
     raise TypeError(
         f"Unsupported executor type: {type(executor)!r}. Expected TaskExecutorBuilderBase, BuiltTaskExecutor, "
-        "Agent, WorkflowAgent, or a run_brief-compatible runtime."
+        "Agent, WorkflowAgent, or a run_task-compatible runtime."
     )
 
 

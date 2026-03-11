@@ -35,7 +35,7 @@ class TaskExecutorBuilderBase:
 
         if isinstance(runtime, BuiltTaskExecutor):
             return runtime
-        if hasattr(runtime, "run_brief"):
+        if hasattr(runtime, "run_task"):
             return BuiltTaskExecutor(name=self.name, role=self.role, runtime=runtime)
         if isinstance(runtime, Agent):
             return BuiltTaskExecutor(
@@ -51,7 +51,7 @@ class TaskExecutorBuilderBase:
             )
         raise TypeError(
             f"Unsupported runtime for task executor '{self.name}': {type(runtime)!r}. "
-            "Expected Agent, WorkflowAgent, BuiltTaskExecutor, or a run_brief-compatible object."
+            "Expected Agent, WorkflowAgent, BuiltTaskExecutor, or a run_task-compatible object."
         )
 
     async def build(self, *, context: Any, installed_tools: Optional[list[Tool]] = None) -> BuiltTaskExecutor:
@@ -62,7 +62,7 @@ class TaskExecutorBuilderBase:
             desc_value = args["desc"]
             desc = desc_value if isinstance(desc_value, TaskDesc) else TaskDesc.from_dict(desc_value)
             task_executor = await self.build_task_executor(context=context)
-            result = await task_executor.run_brief(desc, context=context)
+            result = await task_executor.run_task(desc, context=context)
             return result.to_dict()
 
         return Tool(

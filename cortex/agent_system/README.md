@@ -7,7 +7,7 @@ The agent-system package gives you **building blocks at multiple layers** for co
 Cortex now exposes three useful layers:
 
 - **Runtime primitives**: `Agent` and `WorkflowAgent`
-- **Composable helper layer**: shared task/runner/tool orchestration helpers in `cortex.agent_system`
+- **Composable helper layer**: shared task/executor/tool orchestration helpers in `cortex.agent_system`
 - **Preset systems**: `CoordinatorSystem` and `HierarchicalAgentSystem`
 
 This layering lets you choose the lightest abstraction that matches your topology instead of forcing everything into one framework.
@@ -34,7 +34,7 @@ Use the composition helpers when:
 - you want to build a **custom topology**
 - you want structured handoffs and normalized results
 - you want to mix `Agent`, `WorkflowAgent`, and custom runtimes behind one surface
-- you want to expose child runners as tools and synthesize their results
+- you want to expose child executors as tools and synthesize their results
 
 This is the recommended layer when you want reusable building blocks without committing to a preset topology.
 
@@ -48,7 +48,7 @@ Use a preset when the topology already matches your problem:
 ## What the agent-system package provides
 
 - **Separation of concerns**: builders define structure, systems manage runtime
-- **Composable orchestration**: task briefs, results, runner builders, tool wrappers, and synthesis helpers
+- **Composable orchestration**: task briefs, results, executor builders, tool wrappers, and synthesis helpers
 - **Memory management**: built-in support for conversation history via `AgentMemoryBank`
 - **Usage tracking**: optional tracking of API calls and token usage
 - **Preset systems**: prebuilt coordinator-worker and hierarchical topologies
@@ -132,7 +132,7 @@ The composition helpers are intentionally runtime-symmetric. You can combine:
 
 - `Agent`-backed executors
 - `WorkflowAgent`-backed executors
-- custom runtimes that implement `run_brief(...)`
+- custom runtimes that implement `run_task(...)`
 
 inside the same topology.
 

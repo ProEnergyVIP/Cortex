@@ -81,7 +81,7 @@ class HierarchicalAgentSystem(AgentSystem):
                 metadata={"handoff_level": brief.handoff_level},
             )
         )
-        result = await gateway.run_brief(brief, context=self._context)
+        result = await gateway.run_task(brief, context=self._context)
         await self._log_result(result)
         if result.status == "needs_escalation" and result.confidence < 0.6:
             return result.summary
@@ -102,7 +102,8 @@ class HierarchicalAgentSystem(AgentSystem):
             name = built_manager.name
             role = built_manager.role
 
-            async def run_brief(inner_self, brief: DelegationBrief, *, context: Any) -> NodeResult:
+            async def run_task(inner_self, desc: DelegationBrief, *, context: Any) -> NodeResult:
+                brief = desc
                 await self._log_handoff(
                     HandoffRecord(
                         conversation_id=brief.conversation_id,
@@ -117,7 +118,7 @@ class HierarchicalAgentSystem(AgentSystem):
                         metadata={"department": department.name, "handoff_level": brief.handoff_level},
                     )
                 )
-                result = await built_manager.run_brief(brief, context=context)
+                result = await built_manager.run_task(brief, context=context)
                 await self._log_result(result)
                 return result
 

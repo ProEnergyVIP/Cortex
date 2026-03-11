@@ -75,7 +75,7 @@ Use the composition helpers when:
 - You want structured handoffs between multiple runtimes.
 - You want a shared surface for `Agent`, `WorkflowAgent`, and custom `run_brief(...)` runtimes.
 - You want reusable building blocks instead of a preset topology.
-- You want to expose child runners as tools and synthesize their results.
+- You want to expose child executors as tools and synthesize their results.
 
 This is the recommended layer for custom multi-agent systems.
 

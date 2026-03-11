@@ -11,7 +11,7 @@ class TaskExecutor(Protocol):
     name: str
     role: str
 
-    async def run_brief(self, brief: TaskDesc, *, context: Any) -> TaskResult:
+    async def run_task(self, desc: TaskDesc, *, context: Any) -> TaskResult:
         ...
 
 
@@ -25,5 +25,5 @@ class BuiltTaskExecutor:
     role: str
     runtime: TaskExecutor
 
-    async def run_brief(self, brief: TaskDesc, *, context: Any) -> TaskResult:
-        return await self.runtime.run_brief(brief, context=context)
+    async def run_task(self, desc: TaskDesc, *, context: Any) -> TaskResult:
+        return await self.runtime.run_task(desc, context=context)

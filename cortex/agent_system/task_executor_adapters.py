@@ -19,13 +19,13 @@ class AgentTaskRunnerAdapter:
     agent: Agent
     confidence_threshold: float = 0.6
 
-    async def run_brief(self, brief: TaskDesc, *, context: Any) -> TaskResult:
+    async def run_task(self, desc: TaskDesc, *, context: Any) -> TaskResult:
         messages = [
             DeveloperMessage(content=_agent_protocol_prompt(self.role, self.confidence_threshold)),
-            UserMessage(content=json.dumps(brief.to_dict(), ensure_ascii=False, indent=2)),
+            UserMessage(content=json.dumps(desc.to_dict(), ensure_ascii=False, indent=2)),
         ]
         value = await self.agent.async_ask(messages, usage=getattr(context, "usage", None))
-        return normalize_task_result(value, brief=brief, role=self.role, fallback_name=self.name)
+        return normalize_task_result(value, brief=desc, role=self.role, fallback_name=self.name)
 
 
 @dataclass(slots=True)
@@ -34,10 +34,10 @@ class WorkflowTaskRunnerAdapter:
     role: str
     workflow: WorkflowAgent
 
-    async def run_brief(self, brief: TaskDesc, *, context: Any) -> TaskResult:
-        run = await self.workflow.async_run(user_input=brief.to_dict(), context=context)
+    async def run_task(self, desc: TaskDesc, *, context: Any) -> TaskResult:
+        run = await self.workflow.async_run(user_input=desc.to_dict(), context=context)
         value = run.final_output
-        result = normalize_task_result(value, brief=brief, role=self.role, fallback_name=self.name)
+        result = normalize_task_result(value, brief=desc, role=self.role, fallback_name=self.name)
         result.metadata.setdefault("workflow_status", run.status)
         result.metadata.setdefault("workflow_error", run.error)
         result.metadata.setdefault("workflow_trace_count", len(run.traces))

@@ -31,7 +31,8 @@ class DefaultGatewayNode:
     def role(self) -> str:
         return "gateway"
 
-    async def run_brief(self, brief: DelegationBrief, *, context: Any) -> NodeResult:
+    async def run_task(self, desc: DelegationBrief, *, context: Any) -> NodeResult:
+        brief = desc
         department_names = self._select_departments(brief)
         if not department_names:
             return NodeResult.escalate(
@@ -197,7 +198,8 @@ class DefaultManagerNode:
     def role(self) -> str:
         return "manager"
 
-    async def run_brief(self, brief: DelegationBrief, *, context: Any) -> NodeResult:
+    async def run_task(self, desc: DelegationBrief, *, context: Any) -> NodeResult:
+        brief = desc
         specialist_names = self._select_specialists(brief)
         if not specialist_names:
             return NodeResult.escalate(
