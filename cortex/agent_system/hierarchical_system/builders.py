@@ -97,6 +97,28 @@ class NodeBuilder:
     def _as_tool_list(tools: Optional[list[Tool]]) -> list[Tool]:
         return list(tools or [])
 
+    @staticmethod
+    def _resolve_workflow_runtime(
+        workflow: WorkflowAgent | Callable[..., WorkflowAgent],
+        *,
+        context: Any,
+        installed_tools: Optional[list[Tool]] = None,
+    ) -> WorkflowAgent | Any:
+        if not callable(workflow) or isinstance(workflow, WorkflowAgent):
+            return workflow
+
+        sig = signature(workflow)
+        kwargs: dict[str, Any] = {}
+        if "context" in sig.parameters:
+            kwargs["context"] = context
+        elif sig.parameters:
+            return workflow(context)
+        if "installed_tools" in sig.parameters:
+            kwargs["installed_tools"] = installed_tools or []
+        if "child_tools" in sig.parameters:
+            kwargs["child_tools"] = installed_tools or []
+        return workflow(**kwargs)
+
 
 @dataclass(slots=True)
 class GatewayNodeBuilder(NodeBuilder):
@@ -127,6 +149,27 @@ class GatewayNodeBuilder(NodeBuilder):
             name=name,
             runtime_factory=runtime_factory,
             description=description or f"Gateway node '{name}'",
+        )
+
+    @classmethod
+    def create_workflow(
+        cls,
+        *,
+        name: str,
+        workflow: WorkflowAgent | Callable[..., WorkflowAgent],
+        description: Optional[str] = None,
+    ) -> "GatewayNodeBuilder":
+        def runtime_factory(*, context: Any, installed_tools: list[Tool]) -> WorkflowAgent:
+            return cls._resolve_workflow_runtime(
+                workflow,
+                context=context,
+                installed_tools=installed_tools,
+            )
+
+        return cls(
+            name=name,
+            runtime_factory=runtime_factory,
+            description=description or f"Gateway workflow node '{name}'",
         )
 
     @classmethod
@@ -190,6 +233,29 @@ class DepartmentManagerBuilder(NodeBuilder):
             name=name,
             runtime_factory=runtime_factory,
             description=description or f"{department} manager '{name}'",
+            department=department,
+        )
+
+    @classmethod
+    def create_workflow(
+        cls,
+        *,
+        name: str,
+        department: str,
+        workflow: WorkflowAgent | Callable[..., WorkflowAgent],
+        description: Optional[str] = None,
+    ) -> "DepartmentManagerBuilder":
+        def runtime_factory(*, context: Any, installed_tools: list[Tool]) -> WorkflowAgent:
+            return cls._resolve_workflow_runtime(
+                workflow,
+                context=context,
+                installed_tools=installed_tools,
+            )
+
+        return cls(
+            name=name,
+            runtime_factory=runtime_factory,
+            description=description or f"{department} manager workflow '{name}'",
             department=department,
         )
 
@@ -267,16 +333,15 @@ class SpecialistNodeBuilder(NodeBuilder):
         *,
         name: str,
         specialty: str,
-        workflow: WorkflowAgent | Callable[[Any], WorkflowAgent],
+        workflow: WorkflowAgent | Callable[..., WorkflowAgent],
         description: Optional[str] = None,
     ) -> "SpecialistNodeBuilder":
         def runtime_factory(*, context: Any) -> WorkflowAgent:
-            if callable(workflow) and not isinstance(workflow, WorkflowAgent):
-                built = workflow(context)
-                if iscoroutine(built):
-                    return built
-                return built
-            return workflow
+            return cls._resolve_workflow_runtime(
+                workflow,
+                context=context,
+                installed_tools=None,
+            )
 
         return cls(
             name=name,

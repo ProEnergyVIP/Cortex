@@ -4,18 +4,21 @@ from cortex import (
     AgentSystemContext,
     AsyncAgentMemoryBank,
     DepartmentManagerBuilder,
+    DelegationBrief,
     DepartmentSpec,
     FunctionStep,
     GatewayNodeBuilder,
     GPTModels,
     HierarchicalAgentSystem,
     LLM,
+    NodeResult,
     Tool,
     SpecialistNodeBuilder,
     WorkflowAgent,
+    build_specialist_brief,
     build_gateway_prompt,
-    build_manager_prompt,
     build_specialist_prompt,
+    synthesize_results,
 )
 
 
@@ -73,6 +76,45 @@ compliance_workflow = WorkflowAgent(
         ),
     ],
 )
+
+
+def make_finance_manager_workflow(context, installed_tools):
+    async def synthesize_finance_review(state, context, workflow):
+        brief = DelegationBrief.from_dict(state.input)
+        child_results = []
+
+        for tool in installed_tools:
+            specialist_name = tool.name.removesuffix("_node").replace("_", " ").title()
+            specialist_brief = build_specialist_brief(
+                parent_brief=brief,
+                specialist_name=specialist_name,
+                scoped_task=f"Review the finance request from the perspective of {specialist_name}.",
+                caller_understanding=f"The finance manager wants {specialist_name} analysis for: {brief.original_request_summary}",
+                expected_output={"type": "specialist_result"},
+            )
+            raw_result = await tool.async_run({"brief": specialist_brief.to_dict()}, context, None)
+            child_results.append(NodeResult.from_dict(raw_result))
+
+        return synthesize_results(
+            brief=brief,
+            role="manager",
+            from_node="Finance Manager",
+            child_results=child_results,
+            summary="Finance workflow synthesized specialist reviews into a department recommendation.",
+            metadata={"runtime": "workflow"},
+        ).to_dict()
+
+    return WorkflowAgent(
+        name="Finance Manager Workflow",
+        steps=[
+            FunctionStep.final(
+                name="synthesize_finance_review",
+                func=synthesize_finance_review,
+            ),
+        ],
+    )
+
+
 async def main():
     memory_bank = AsyncAgentMemoryBank()
     context = AgentSystemContext(memory_bank=memory_bank)
@@ -86,14 +128,10 @@ async def main():
         description="Routes user tasks to department managers and synthesizes the final response.",
     )
 
-    finance_manager = DepartmentManagerBuilder.create_agent(
+    finance_manager = DepartmentManagerBuilder.create_workflow(
         name="Finance Manager",
         department="Finance",
-        llm=LLM(model=GPTModels.GPT_4O_MINI),
-        prompt=build_manager_prompt(
-            department_name="Finance",
-            department_description="Owns vendor risk, spend review, and procurement concerns.",
-        ),
+        workflow=make_finance_manager_workflow,
         description="Coordinates finance-domain specialist reviews.",
     )
 
