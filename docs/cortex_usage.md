@@ -59,13 +59,38 @@ Use `Agent` when:
 - You expect multi-turn conversations.
 - You want tool retries, parallel tool execution, and conversation memory.
 
-### 1.4 Use the Agent System for multi-agent applications
+### 1.4 Use `WorkflowAgent` when you want explicit step orchestration
 
-Use the Agent System when:
+Use `WorkflowAgent` when:
 
-- You want a coordinator + specialists.
+- You want explicit steps instead of an open-ended agent loop.
+- You need deterministic routing between stages.
+- You want retries, fallbacks, or parallel branches in one runtime.
+- You want orchestration logic to be part of the runtime itself.
+
+### 1.5 Use the composition helpers for custom multi-agent topologies
+
+Use the composition helpers when:
+
+- You want structured handoffs between multiple runtimes.
+- You want a shared surface for `Agent`, `WorkflowAgent`, and custom `run_brief(...)` runtimes.
+- You want reusable building blocks instead of a preset topology.
+- You want to expose child runners as tools and synthesize their results.
+
+This is the recommended layer for custom multi-agent systems.
+
+### 1.6 Use preset agent systems when the topology already fits
+
+Use a preset system when you want a ready-made multi-agent shape:
+
+- Use `CoordinatorSystem` for a flat coordinator-worker pattern.
+- Use `HierarchicalAgentSystem` for gateway → manager → specialist orchestration.
+
+Use these when:
+
 - You want a single `system.async_ask(...)` entrypoint.
-- You want context-managed memory/usage/whiteboard.
+- You want context-managed memory, usage tracking, and optional whiteboard support.
+- The preset topology already matches your application well.
 
 ---
 
@@ -521,11 +546,41 @@ for delta in streaming_func("About the ocean"):
 
 ## 7) Agent System
 
-The recommended approach is:
+The agent-system package is intentionally layered. The recommended approach is:
 
 - use `Agent` and `WorkflowAgent` as the runtime primitives
 - use the composition helpers in `cortex.agent_system` when you want structured handoffs and easy composition
 - use preset systems like `CoordinatorSystem` and `HierarchicalAgentSystem` when they already match your topology
+
+### 7.0 Which layer should I use?
+
+Use the lightest layer that solves your problem.
+
+#### Runtime primitives: `Agent`, `WorkflowAgent`
+
+Use these directly when:
+
+- you have a single runtime
+- your control flow is simple
+- you do not need structured handoffs between multiple nodes
+
+#### Composition helpers
+
+Use the composition layer when:
+
+- you want to build your own topology
+- you want structured handoffs and normalized results
+- you want one shared surface for `Agent`, `WorkflowAgent`, and custom runtimes
+- you want reusable building blocks instead of a rigid system
+
+This is the recommended layer for custom multi-agent systems.
+
+#### Preset systems
+
+Use a preset when the topology already matches what you need:
+
+- `CoordinatorSystem` for a flat coordinator-worker pattern
+- `HierarchicalAgentSystem` for gateway → manager → specialist orchestration
 
 ### 7.1 Core composition layer
 
@@ -535,11 +590,16 @@ Key APIs:
 
 - `TaskBrief`
 - `TaskResult`
+- `TaskRunnerBuilderBase`
 - `TaskRunnerBuilder`
+- `TaskTextBuilder`
+- `TaskMetadataBuilder`
 - `build_task_brief(...)`
 - `build_child_task_brief(...)`
+- `build_task_runner(...)`
 - `run_task_runner(...)`
 - `task_runner_tool(...)`
+- `normalize_task_result(...)`
 - `run_task_tools(...)`
 - `summarize_task_results(...)`
 
@@ -547,10 +607,18 @@ What each piece does:
 
 - `TaskBrief` is the structured handoff contract
 - `TaskResult` is the normalized result contract
+- `TaskRunnerBuilderBase` is the neutral shared builder foundation
 - `TaskRunnerBuilder` wraps `Agent`, `WorkflowAgent`, or custom runtimes behind one builder surface
 - `task_runner_tool(...)` exposes a runner as a `Tool`
 - `run_task_tools(...)` fans work out to child tools
 - `summarize_task_results(...)` synthesizes child results back upward
+
+The composition layer is designed as **building blocks**, not as a graph framework. You can:
+
+- build your own topology
+- reuse just the normalization and synthesis helpers
+- use the shared builder base for your own presets
+- mix composition helpers with preset systems where it makes sense
 
 Minimal example:
 
@@ -605,9 +673,20 @@ result = await run_task_runner(
 )
 ```
 
+If you are designing your own multi-layer system, start here first and only move to a preset if your topology matches it naturally.
+
 ### 7.2 Coordinator-worker preset
 
 Use `CoordinatorSystem` when a flat coordinator-worker topology already matches your needs.
+
+This preset is best when:
+
+- one coordinator delegates to workers
+- workers behave like specialized assistants
+- you want simple orchestration with minimal structure overhead
+- you do not need explicit structured handoffs between every hop
+
+This preset is primarily `Agent`-builder based.
 
 ### 7.3 Minimal coordinator-worker setup
 
@@ -644,11 +723,38 @@ system = CoordinatorSystem(
 reply = await system.async_ask("What is 2 + 2?")
 ```
 
+Choose this preset when:
+
+- the coordinator mostly delegates to specialists
+- workers do not need to reinterpret messages into deeper structured handoffs
+- you want the simplest prebuilt orchestration pattern
+
 ### 7.4 Workers with tools
 
 Workers can have their own toolsets via `tools_builder`.
 
-### 7.5 Usage tracking
+The coordinator preset is primarily `Agent`-builder based. If you need explicit per-node step graphs or structured multi-layer handoffs, prefer either:
+
+- the composition helpers
+- or the hierarchical preset
+
+### 7.5 WorkflowAgent as a direct runtime
+
+Use `WorkflowAgent` directly when you want explicit orchestration inside a single runtime without introducing a larger multi-agent topology.
+
+Choose it when you need:
+
+- step-by-step control flow
+- retries or fallback logic
+- deterministic routing between stages
+- parallel branches in one workflow
+
+Once you need structured handoffs between multiple runtimes, move up to:
+
+- the composition helpers for a custom topology
+- or `HierarchicalAgentSystem` for the built-in multi-layer preset
+
+### 7.6 Usage tracking
 
 Provide `usage` in `AgentSystemContext` and it will be passed through:
 
@@ -663,7 +769,7 @@ await system.async_ask("Hello")
 print(usage.format())
 ```
 
-### 7.6 Whiteboard (agent communication)
+### 7.7 Whiteboard (agent communication)
 
 The whiteboard provides a channel-based messaging system for agents to communicate asynchronously. Enable it to let agents share context, post updates, and coordinate across conversation turns.
 
@@ -737,9 +843,16 @@ msg = await wb.post(
 messages = await wb.read(channel="alerts", limit=50)
 ```
 
-### 7.7 Hierarchical agent system
+### 7.8 Hierarchical preset
 
-Use `HierarchicalAgentSystem` when you want a multi-layer topology instead of a flat coordinator-worker pattern.
+Use `HierarchicalAgentSystem` when each layer should reinterpret, refine, and synthesize work rather than forwarding it verbatim.
+
+Choose this preset when:
+
+- you want gateway triage
+- managers should transform tasks before delegating
+- specialists should return structured child results
+- synthesis should happen at each level
 
 The hierarchy has four layers:
 
@@ -756,7 +869,21 @@ Each handoff is structured with a `DelegationBrief`, and each node returns a `No
 - preserve task and conversation threading
 - optionally log handoffs to the whiteboard
 
-### 7.8 Mental model
+Core pieces:
+
+- `GatewayNodeBuilder`
+- `DepartmentManagerBuilder`
+- `SpecialistNodeBuilder`
+- `DepartmentSpec`
+- `HierarchicalAgentSystem`
+
+Every node role can be backed by:
+
+- `Agent`
+- `WorkflowAgent`
+- the default preset runtime
+
+### 7.9 Mental model
 
 - `GatewayNodeBuilder` builds the top-level routing node
 - `DepartmentManagerBuilder` builds department supervisors
@@ -764,7 +891,7 @@ Each handoff is structured with a `DelegationBrief`, and each node returns a `No
 - `DepartmentSpec` defines one department and its children
 - `HierarchicalAgentSystem.create(...)` assembles the full tree
 
-### 7.9 Every role can be either `Agent` or `WorkflowAgent`
+### 7.10 Every role can be either `Agent` or `WorkflowAgent`
 
 The public API is runtime-symmetric.
 
@@ -791,7 +918,7 @@ This means you can choose the runtime per role:
 - use `WorkflowAgent` for explicit step orchestration
 - use `create_default(...)` for the built-in routing and synthesis runtime
 
-### 7.10 Minimal hierarchical setup
+### 7.11 Minimal hierarchical setup
 
 ```python
 from cortex import (
@@ -869,7 +996,7 @@ system = HierarchicalAgentSystem.create(
 response = await system.async_ask("Should we approve Acme Power Services for onboarding?")
 ```
 
-### 7.11 Mixed runtime hierarchy
+### 7.12 Mixed runtime hierarchy
 
 You can mix runtimes freely in one tree.
 
@@ -887,7 +1014,7 @@ Workflow-backed gateway and manager factories can accept:
 
 That allows workflow nodes to orchestrate their child department or specialist tools directly.
 
-### 7.12 Default low-boilerplate path
+### 7.13 Default low-boilerplate path
 
 If you want built-in orchestration behavior:
 
@@ -907,14 +1034,14 @@ These defaults provide:
 - synthesis
 - confidence-based escalation
 
-### 7.13 Recommended usage guidance
+### 7.14 Recommended usage guidance
 
 - use `create_default(...)` when you want the framework to handle orchestration
 - use `create_agent(...)` when the node behavior is primarily prompt/tool driven
 - use `create_workflow(...)` when the node needs explicit steps, routing, or parallel control
 - use `DepartmentSpec.create(...).add_specialists(...)` to build larger hierarchies fluently
 
-### 7.14 Example reference
+### 7.15 Example reference
 
 See:
 

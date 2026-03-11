@@ -1,15 +1,57 @@
 # Agent System
 
-A higher-level API for building multi-agent systems on top of the core `Agent`, `LLM`, and `Tool` components.
+The agent-system package gives you **building blocks at multiple layers** for constructing multi-agent applications on top of the core `Agent`, `WorkflowAgent`, `LLM`, and `Tool` primitives.
 
 ## Overview
 
-The Agent System provides a structured way to build complex multi-agent applications with:
-- **Separation of concerns**: Builders define agent structure, Systems manage runtime
-- **Memory management**: Built-in support for conversation history via `AgentMemoryBank`
-- **Usage tracking**: Optional tracking of API calls and token usage
-- **Coordinator-Worker pattern**: Pre-built implementation for orchestrating specialized agents
-- **Hierarchical agent system**: Gateway, department managers, and specialists with structured handoffs
+Cortex now exposes three useful layers:
+
+- **Runtime primitives**: `Agent` and `WorkflowAgent`
+- **Composable helper layer**: shared task/runner/tool orchestration helpers in `cortex.agent_system`
+- **Preset systems**: `CoordinatorSystem` and `HierarchicalAgentSystem`
+
+This layering lets you choose the lightest abstraction that matches your topology instead of forcing everything into one framework.
+
+## Choosing the right layer
+
+### Use runtime primitives directly
+
+Use plain `Agent` or `WorkflowAgent` when:
+
+- you only need one agent
+- your orchestration is simple and local
+- you do not need structured handoffs between multiple nodes
+
+Use:
+
+- `Agent` when prompt + tools are enough
+- `WorkflowAgent` when you want explicit steps, branching, retries, or parallel execution in a single runtime
+
+### Use the composition helpers
+
+Use the composition helpers when:
+
+- you want to build a **custom topology**
+- you want structured handoffs and normalized results
+- you want to mix `Agent`, `WorkflowAgent`, and custom runtimes behind one surface
+- you want to expose child runners as tools and synthesize their results
+
+This is the recommended layer when you want reusable building blocks without committing to a preset topology.
+
+### Use a preset system
+
+Use a preset when the topology already matches your problem:
+
+- `CoordinatorSystem` for a flat coordinator-worker shape
+- `HierarchicalAgentSystem` for gateway → manager → specialist orchestration with reinterpretation and synthesis at each layer
+
+## What the agent-system package provides
+
+- **Separation of concerns**: builders define structure, systems manage runtime
+- **Composable orchestration**: task briefs, results, runner builders, tool wrappers, and synthesis helpers
+- **Memory management**: built-in support for conversation history via `AgentMemoryBank`
+- **Usage tracking**: optional tracking of API calls and token usage
+- **Preset systems**: prebuilt coordinator-worker and hierarchical topologies
 
 ## Core Components
 
@@ -32,6 +74,111 @@ Runtime context passed to agents, containing:
 - `memory_bank`: `AsyncAgentMemoryBank` for conversation history
 - `llm_primary`: Pre-configured primary LLM (GPT-5-MINI, minimal reasoning)
 - `llm_creative`: Pre-configured creative LLM (GPT-5-MINI, medium reasoning)
+
+### Composition layer
+
+The composition layer is the reusable middle layer between raw runtimes and preset systems.
+
+Core concepts:
+
+- `TaskBrief`
+- `TaskResult`
+- `TaskRunner`
+- `BuiltTaskRunner`
+- `TaskRunnerBuilderBase`
+- `TaskRunnerBuilder`
+
+Core helper APIs:
+
+- `build_task_brief(...)`
+- `build_child_task_brief(...)`
+- `build_task_runner(...)`
+- `run_task_runner(...)`
+- `task_runner_tool(...)`
+- `run_task_tools(...)`
+- `summarize_task_results(...)`
+- `normalize_task_result(...)`
+- `should_escalate(...)`
+
+Supporting helper types:
+
+- `TaskTextBuilder`
+- `TaskMetadataBuilder`
+- `ChildBriefBuilder`
+- `ResultSynthesizer`
+
+What each piece does:
+
+- `TaskBrief` is the structured handoff contract
+- `TaskResult` is the normalized result contract
+- `TaskRunnerBuilderBase` is the neutral shared builder foundation
+- `TaskRunnerBuilder` is the ergonomic public builder for composition
+- `TaskRunnerBuilder.create_agent(...)` wraps an `Agent`-backed runtime
+- `TaskRunnerBuilder.create_workflow(...)` wraps a `WorkflowAgent`-backed runtime
+- `task_runner_tool(...)` exposes a runner as a tool
+- `run_task_tools(...)` fans work out to child tools
+- `summarize_task_results(...)` synthesizes child results back upward
+
+The composition helpers are intentionally runtime-symmetric. You can combine:
+
+- `Agent`-backed runners
+- `WorkflowAgent`-backed runners
+- custom runtimes that implement `run_brief(...)`
+
+inside the same topology.
+
+### Minimal composition example
+
+```python
+from cortex import (
+    AgentSystemContext,
+    AsyncAgentMemoryBank,
+    GPTModels,
+    LLM,
+    TaskRunnerBuilder,
+    build_task_brief,
+    run_task_runner,
+)
+
+context = AgentSystemContext(memory_bank=AsyncAgentMemoryBank())
+
+researcher = TaskRunnerBuilder.create_agent(
+    name="Researcher",
+    role="research",
+    llm=LLM(model=GPTModels.GPT_4O_MINI),
+    prompt="You investigate the task and return a structured result.",
+)
+
+reviewer = TaskRunnerBuilder.create_agent(
+    name="Reviewer",
+    role="review",
+    llm=LLM(model=GPTModels.GPT_4O_MINI),
+    prompt="You review the task and return a structured result.",
+)
+
+lead = TaskRunnerBuilder.create_workflow(
+    name="Lead",
+    role="lead",
+    workflow=make_lead_workflow,
+)
+
+brief = build_task_brief(
+    from_runner="user",
+    to_runner="Lead",
+    handoff_kind="user_to_lead",
+    original_request="Should we approve this rollout?",
+    request_summary="Evaluate whether the rollout should be approved.",
+    current_understanding="The lead should coordinate a research and review pass.",
+    assigned_task="Coordinate the review and return a final recommendation.",
+)
+
+result = await run_task_runner(
+    lead,
+    brief=brief,
+    context=context,
+    installed_tools=[researcher.as_tool(), reviewer.as_tool()],
+)
+```
 
 ### Coordinator System
 
@@ -56,6 +203,13 @@ Complete system implementation that:
 - Handles agent construction and caching
 - Provides simple `async_ask()` interface
 
+Use this preset when:
+
+- your topology is flat
+- a single coordinator delegates to workers
+- workers mostly act as specialized assistants
+- you do not need structured multi-layer reinterpretation between each hop
+
 ### Hierarchical Agent System
 
 The hierarchical system is for multi-layer orchestration where nodes reinterpret and synthesize work instead of forwarding raw messages verbatim.
@@ -76,6 +230,13 @@ Hierarchy shape:
 - specialists
 
 Each handoff uses a structured `DelegationBrief`, and each node responds with a `NodeResult`.
+
+Use this preset when:
+
+- you want gateway triage
+- managers should rewrite or refine tasks before delegating
+- specialists should return structured child results
+- synthesis should happen at each level
 
 #### Runtime-symmetric builder API
 
@@ -126,7 +287,7 @@ See:
 
 - `examples/hierarchical_agent_system_example.py`
 
-## Quick Start
+## Quick Start: coordinator preset
 
 ```python
 from cortex import (
@@ -169,37 +330,58 @@ system = CoordinatorSystem(
 response = await system.async_ask("What is 2 + 2?")
 ```
 
+If you want a custom topology instead of a preset, start with the composition-layer example above.
+
+## Runtime choices
+
+### `Agent`
+
+Choose `Agent` when the behavior is mostly:
+
+- prompt-driven
+- tool-augmented
+- conversational
+
+### `WorkflowAgent`
+
+Choose `WorkflowAgent` when the behavior needs:
+
+- explicit steps
+- deterministic routing
+- retries or fallback behavior
+- parallel branches
+- a clear control-flow graph
+
+You can use `WorkflowAgent` directly, through `TaskRunnerBuilder.create_workflow(...)`, or inside hierarchical builders like `GatewayNodeBuilder.create_workflow(...)`.
+
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     CoordinatorSystem                        │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │              CoordinatorAgent                         │  │
-│  │  - Analyzes requests                                  │  │
-│  │  - Delegates to workers                               │  │
-│  │  - Manages conversation flow                          │  │
-│  └───────────────────────────────────────────────────────┘  │
-│                           │                                  │
-│                           │ delegates to                     │
-│                           ▼                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │ Worker Agent │  │ Worker Agent │  │ Worker Agent │     │
-│  │   (Math)     │  │  (Writing)   │  │  (Research)  │     │
-│  │              │  │              │  │              │     │
-│  │ - Tools      │  │ - Tools      │  │ - Tools      │     │
-│  │ - Memory     │  │ - Memory     │  │ - Memory     │     │
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
-└─────────────────────────────────────────────────────────────┘
-                           │
-                           │ uses
-                           ▼
-              ┌─────────────────────────┐
-              │  AgentSystemContext     │
-              │  - Memory Bank          │
-              │  - Usage Tracking       │
-              │  - Shared LLMs          │
-              └─────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                          Agent System Layers                       │
+├────────────────────────────────────────────────────────────────────┤
+│ Runtime primitives                                                 │
+│ - Agent                                                            │
+│ - WorkflowAgent                                                    │
+├────────────────────────────────────────────────────────────────────┤
+│ Composition helpers                                                │
+│ - TaskBrief / TaskResult                                           │
+│ - TaskRunnerBuilderBase / TaskRunnerBuilder                        │
+│ - task_runner_tool / run_task_tools / summarize_task_results       │
+├────────────────────────────────────────────────────────────────────┤
+│ Preset systems                                                     │
+│ - CoordinatorSystem                                                │
+│ - HierarchicalAgentSystem                                          │
+└────────────────────────────────────────────────────────────────────┘
+                               │
+                               │ share
+                               ▼
+                  ┌─────────────────────────┐
+                  │  AgentSystemContext     │
+                  │  - Memory Bank          │
+                  │  - Usage Tracking       │
+                  │  - Shared LLMs          │
+                  └─────────────────────────┘
 ```
 
 ## Key Features
@@ -229,7 +411,7 @@ print(f"Total tokens: {usage.total_tokens}")
 ```
 
 ### 3. Dynamic Tool Loading
-Workers can load tools dynamically based on context:
+Agent builders and workflow-backed runtimes can load tools dynamically based on context:
 
 ```python
 def tools_builder(context):
@@ -265,6 +447,10 @@ See `examples/agent_system_example.py` for comprehensive examples including:
 - Workers with custom tools
 - Usage tracking
 - Custom context configuration
+
+See `examples/hierarchical_agent_system_example.py` for the hierarchical preset.
+
+Use the composition helpers when you want to build your own topology instead of following either preset.
 
 ## Extending the System
 
@@ -311,7 +497,7 @@ class CustomSystem(AgentSystem):
 4. **Separate concerns**: Use builders for structure, systems for runtime management
 5. **Test workers independently**: Build and test workers before integrating into a coordinator system
 
-## Migration from Direct Agent Usage
+## Migration from Direct Runtime Usage
 
 If you're currently using `Agent` directly:
 
@@ -350,3 +536,9 @@ Benefits:
 - Usage tracking
 - Easy to add more workers
 - Coordinator handles delegation automatically
+
+If you're currently using `Agent` directly and you want structured multi-runner orchestration, the nearest migration path is usually the composition layer:
+
+- wrap agent runtimes with `TaskRunnerBuilder.create_agent(...)`
+- expose child runners with `task_runner_tool(...)`
+- use `run_task_tools(...)` and `summarize_task_results(...)` to build your own orchestration layer
