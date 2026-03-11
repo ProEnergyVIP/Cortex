@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from cortex.agent import Tool
+
+from ..core.system import AgentSystem
+from .builders import GatewayNodeBuilder
+from .models import DelegationBrief, DepartmentSpec, HandoffRecord, NodeResult
+
+
+class HierarchicalAgentSystem(AgentSystem):
+    def __init__(
+        self,
+        gateway_builder: GatewayNodeBuilder,
+        departments: list[DepartmentSpec],
+        context: Optional[Any] = None,
+    ):
+        super().__init__(context)
+        self._gateway_builder = gateway_builder
+        self._departments = departments
+        self._gateway_node = None
+
+    async def get_agent(self):
+        return await self.get_gateway_node()
+
+    async def get_gateway_node(self):
+        if self._gateway_node is not None:
+            return self._gateway_node
+
+        installed_tools = [await self._build_department_tool(department) for department in self._departments]
+        self._gateway_node = await self._gateway_builder.build_node(context=self._context, installed_tools=installed_tools)
+        return self._gateway_node
+
+    async def async_ask(self, messages: Any) -> Any:
+        user_request = self._stringify_user_input(messages)
+        gateway = await self.get_gateway_node()
+        brief = DelegationBrief.new(
+            from_node="user",
+            to_node=gateway.name,
+            handoff_level="user_to_gateway",
+            original_user_request=user_request,
+            original_request_summary=user_request,
+            caller_understanding="Direct user request requiring gateway triage and coordination.",
+            scoped_task="Understand the request, route to departments if needed, and produce the final user-facing answer.",
+            metadata={"source": "HierarchicalAgentSystem.async_ask"},
+        )
+        await self._log_handoff(
+            HandoffRecord(
+                conversation_id=brief.conversation_id,
+                task_id=brief.task_id,
+                parent_task_id=brief.parent_task_id,
+                from_node=brief.from_node,
+                to_node=brief.to_node,
+                direction="downward",
+                summary=brief.scoped_task,
+                confidence=brief.confidence,
+                status="delegated",
+                metadata={"handoff_level": brief.handoff_level},
+            )
+        )
+        result = await gateway.run_brief(brief, context=self._context)
+        await self._log_result(result)
+        if result.status == "needs_escalation" and result.confidence < 0.6:
+            return result.summary
+        return result.output.get("final_answer", result.summary)
+
+    async def _build_department_tool(self, department: DepartmentSpec) -> Tool:
+        manager = department.manager
+        specialists = [specialist.install() for specialist in department.specialists]
+
+        async def func(args: dict[str, Any], context: Any):
+            brief_value = args["brief"]
+            brief = brief_value if isinstance(brief_value, DelegationBrief) else DelegationBrief.from_dict(brief_value)
+            node = await manager.build_node(context=context, installed_tools=specialists)
+            await self._log_handoff(
+                HandoffRecord(
+                    conversation_id=brief.conversation_id,
+                    task_id=brief.task_id,
+                    parent_task_id=brief.parent_task_id,
+                    from_node=brief.from_node,
+                    to_node=node.name,
+                    direction="downward",
+                    summary=brief.scoped_task,
+                    confidence=brief.confidence,
+                    status="delegated",
+                    metadata={"department": department.name, "handoff_level": brief.handoff_level},
+                )
+            )
+            result = await node.run_brief(brief, context=context)
+            await self._log_result(result)
+            return result.to_dict()
+
+        return Tool(
+            name=manager.tool_name,
+            func=func,
+            description=manager.description or department.description,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "brief": {
+                        "type": "object",
+                        "description": "Structured delegation brief for this department manager",
+                    }
+                },
+                "required": ["brief"],
+                "additionalProperties": False,
+            },
+        )
+
+    def department_names(self) -> list[str]:
+        return [department.name for department in self._departments]
+
+    def describe_hierarchy(self) -> dict[str, Any]:
+        return {
+            "gateway": self._gateway_builder.name,
+            "departments": [
+                {
+                    "name": department.name,
+                    "description": department.description,
+                    "manager": department.manager.name,
+                    "specialists": [specialist.name for specialist in department.specialists],
+                }
+                for department in self._departments
+            ],
+        }
+
+    async def _log_handoff(self, record: HandoffRecord) -> None:
+        whiteboard = getattr(self._context, "whiteboard", None)
+        if whiteboard is None:
+            return
+        await whiteboard.post(
+            sender=record.from_node,
+            channel="hierarchical_handoffs",
+            content=record.to_dict(),
+            thread=record.conversation_id,
+        )
+
+    async def _log_result(self, result: NodeResult) -> None:
+        await self._log_handoff(
+            HandoffRecord(
+                conversation_id=result.conversation_id,
+                task_id=result.task_id,
+                parent_task_id=result.parent_task_id,
+                from_node=result.from_node,
+                to_node=result.to_node,
+                direction="upward",
+                summary=result.summary,
+                confidence=result.confidence,
+                status=result.status,
+                metadata={
+                    "role": result.role,
+                    "blockers": list(result.blockers),
+                    "assumptions": list(result.assumptions),
+                    "escalation_reason": result.escalation_reason,
+                },
+            )
+        )
+
+    @staticmethod
+    def _stringify_user_input(messages: Any) -> str:
+        if isinstance(messages, str):
+            return messages
+        if isinstance(messages, list):
+            return "\n".join(HierarchicalAgentSystem._stringify_user_input(item) for item in messages)
+        content = getattr(messages, "content", None)
+        if content is not None:
+            return str(content)
+        return str(messages)
