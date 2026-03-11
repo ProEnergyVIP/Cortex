@@ -5,7 +5,7 @@ from typing import Any, Callable, Optional
 
 from cortex.agent import Tool
 
-from ..composition import run_task_tools, summarize_task_results
+from ..task_composition import execute_task_tools, synthesize_task_results
 from .models import DelegationBrief, NodeResult
 from .orchestration import (
     build_manager_brief,
@@ -64,9 +64,9 @@ class DefaultGatewayNode:
             for department_name in department_names
             if (tool := self._find_department_tool(department_name)) is not None
         ]
-        child_results = await run_task_tools(
+        child_results = await execute_task_tools(
             available_department_tools,
-            parent_brief=brief,
+            parent_desc=brief,
             context=context,
             handoff_kind="gateway_to_manager",
             assigned_task_builder=lambda department_name: self._manager_task(brief, department_name),
@@ -98,10 +98,10 @@ class DefaultGatewayNode:
                 )
             )
 
-        synthesized = summarize_task_results(
-            brief=brief,
+        synthesized = synthesize_task_results(
+            desc=brief,
             role="gateway",
-            from_runner=self.name,
+            from_executor=self.name,
             child_results=child_results,
             summary=self._gateway_summary(child_results),
             metadata={"routing_decision": routing.to_dict()},
@@ -215,9 +215,9 @@ class DefaultManagerNode:
             for specialist_name in specialist_names
             if (tool := self._find_specialist_tool(specialist_name)) is not None
         ]
-        child_results = await run_task_tools(
+        child_results = await execute_task_tools(
             available_specialist_tools,
-            parent_brief=brief,
+            parent_desc=brief,
             context=context,
             handoff_kind="manager_to_worker",
             assigned_task_builder=lambda specialist_name: self._specialist_task(brief, specialist_name),
@@ -247,10 +247,10 @@ class DefaultManagerNode:
                 )
             )
 
-        synthesized = summarize_task_results(
-            brief=brief,
+        synthesized = synthesize_task_results(
+            desc=brief,
             role="manager",
-            from_runner=self.name,
+            from_executor=self.name,
             child_results=child_results,
             summary=self._manager_summary(child_results),
             metadata={"selected_specialists": specialist_names},

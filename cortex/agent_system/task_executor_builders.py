@@ -7,72 +7,77 @@ from typing import Any, Callable, Optional
 from cortex.agent import Agent, Tool
 from cortex.workflow import WorkflowAgent
 
-from .task_adapters import AgentTaskRunnerAdapter, WorkflowTaskRunnerAdapter
-from .task_node import BuiltTaskRunner
-from .task_types import TaskBrief
+from .task_executor_adapters import AgentTaskRunnerAdapter, WorkflowTaskRunnerAdapter
+from .task_executor import BuiltTaskExecutor
+from .task_models import TaskDesc
 
 
 RuntimeFactory = Callable[[Any], Any]
 
 
 @dataclass(slots=True)
-class TaskRunnerBuilderBase:
+class TaskExecutorBuilderBase:
     name: str
     role: str
     runtime_factory: RuntimeFactory
     description: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    async def build_task_runner(self, *, context: Any, installed_tools: Optional[list[Tool]] = None) -> BuiltTaskRunner:
+    async def build_task_executor(
+        self,
+        *,
+        context: Any,
+        installed_tools: Optional[list[Tool]] = None,
+    ) -> BuiltTaskExecutor:
         runtime = self._invoke_runtime_factory(context=context, installed_tools=installed_tools or [])
         if iscoroutine(runtime):
             runtime = await runtime
 
-        if isinstance(runtime, BuiltTaskRunner):
+        if isinstance(runtime, BuiltTaskExecutor):
             return runtime
         if hasattr(runtime, "run_brief"):
-            return BuiltTaskRunner(name=self.name, role=self.role, runtime=runtime)
+            return BuiltTaskExecutor(name=self.name, role=self.role, runtime=runtime)
         if isinstance(runtime, Agent):
-            return BuiltTaskRunner(
+            return BuiltTaskExecutor(
                 name=self.name,
                 role=self.role,
                 runtime=AgentTaskRunnerAdapter(name=self.name, role=self.role, agent=runtime),
             )
         if isinstance(runtime, WorkflowAgent):
-            return BuiltTaskRunner(
+            return BuiltTaskExecutor(
                 name=self.name,
                 role=self.role,
                 runtime=WorkflowTaskRunnerAdapter(name=self.name, role=self.role, workflow=runtime),
             )
         raise TypeError(
-            f"Unsupported runtime for task runner '{self.name}': {type(runtime)!r}. "
-            "Expected Agent, WorkflowAgent, BuiltTaskRunner, or a run_brief-compatible object."
+            f"Unsupported runtime for task executor '{self.name}': {type(runtime)!r}. "
+            "Expected Agent, WorkflowAgent, BuiltTaskExecutor, or a run_brief-compatible object."
         )
 
-    async def build(self, *, context: Any, installed_tools: Optional[list[Tool]] = None) -> BuiltTaskRunner:
-        return await self.build_task_runner(context=context, installed_tools=installed_tools)
+    async def build(self, *, context: Any, installed_tools: Optional[list[Tool]] = None) -> BuiltTaskExecutor:
+        return await self.build_task_executor(context=context, installed_tools=installed_tools)
 
     def install(self) -> Tool:
         async def func(args: dict[str, Any], context: Any):
-            brief_value = args["brief"]
-            brief = brief_value if isinstance(brief_value, TaskBrief) else TaskBrief.from_dict(brief_value)
-            runner = await self.build_task_runner(context=context)
-            result = await runner.run_brief(brief, context=context)
+            desc_value = args["desc"]
+            desc = desc_value if isinstance(desc_value, TaskDesc) else TaskDesc.from_dict(desc_value)
+            task_executor = await self.build_task_executor(context=context)
+            result = await task_executor.run_brief(desc, context=context)
             return result.to_dict()
 
         return Tool(
             name=self.tool_name,
             func=func,
-            description=self.description or f"Delegates work to {self.name}",
+            description=self.description or f"Delegates task execution to {self.name}",
             parameters={
                 "type": "object",
                 "properties": {
-                    "brief": {
+                    "desc": {
                         "type": "object",
-                        "description": "Structured task brief for the target runner",
+                        "description": "Structured task description for the target executor",
                     }
                 },
-                "required": ["brief"],
+                "required": ["desc"],
                 "additionalProperties": False,
             },
         )
@@ -80,7 +85,7 @@ class TaskRunnerBuilderBase:
     def as_tool(self) -> Tool:
         return self.install()
 
-    def with_metadata(self, **metadata: Any) -> "TaskRunnerBuilderBase":
+    def with_metadata(self, **metadata: Any) -> "TaskExecutorBuilderBase":
         self.metadata.update(metadata)
         return self
 
@@ -128,4 +133,4 @@ class TaskRunnerBuilderBase:
         return workflow(**kwargs)
 
 
-__all__ = ["RuntimeFactory", "TaskRunnerBuilderBase"]
+__all__ = ["RuntimeFactory", "TaskExecutorBuilderBase"]

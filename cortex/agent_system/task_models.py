@@ -15,7 +15,7 @@ Direction = Literal["downward", "upward"]
 
 
 @dataclass(slots=True)
-class TaskBrief:
+class TaskDesc:
     conversation_id: str
     task_id: str
     parent_task_id: Optional[str]
@@ -59,7 +59,7 @@ class TaskBrief:
         confidence: float = 1.0,
         escalation_if_below: float = 0.6,
         metadata: Optional[dict[str, Any]] = None,
-    ) -> "TaskBrief":
+    ) -> "TaskDesc":
         return cls(
             conversation_id=conversation_id or new_conversation_id(),
             task_id=task_id or new_task_id(),
@@ -81,7 +81,7 @@ class TaskBrief:
         )
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "TaskBrief":
+    def from_dict(cls, value: dict[str, Any]) -> "TaskDesc":
         return cls(**value)
 
     def to_dict(self) -> dict[str, Any]:
@@ -121,7 +121,7 @@ class TaskResult:
     def complete(
         cls,
         *,
-        brief: TaskBrief,
+        brief: TaskDesc,
         role: TaskRole,
         summary: str,
         from_node: Optional[str] = None,
@@ -153,7 +153,7 @@ class TaskResult:
     def escalate(
         cls,
         *,
-        brief: TaskBrief,
+        brief: TaskDesc,
         role: TaskRole,
         summary: str,
         from_node: Optional[str] = None,
@@ -250,8 +250,7 @@ def new_task_id() -> str:
 
 
 def child_task_id(parent_task_id: str, node_name: str) -> str:
-    normalized = node_name.lower().replace(" ", "_")
-    return f"{parent_task_id}.{normalized}"
+    return f"{parent_task_id}.{node_name.lower().replace(' ', '_')}"
 
 
 def clamp_confidence(value: float) -> float:

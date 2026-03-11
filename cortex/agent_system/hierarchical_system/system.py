@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from cortex.agent import Tool
 
-from ..composition import build_task_runner, task_runner_tool
+from ..task_composition import create_task_tool, resolve_task_executor
 from ..core.system import AgentSystem
 from .builders import GatewayNodeBuilder
 from .models import DelegationBrief, DepartmentSpec, HandoffRecord, NodeResult
@@ -45,7 +45,7 @@ class HierarchicalAgentSystem(AgentSystem):
             return self._gateway_node
 
         installed_tools = [await self._build_department_tool(department) for department in self._departments]
-        self._gateway_node = await build_task_runner(
+        self._gateway_node = await resolve_task_executor(
             self._gateway_builder,
             context=self._context,
             installed_tools=installed_tools,
@@ -90,7 +90,7 @@ class HierarchicalAgentSystem(AgentSystem):
     async def _build_department_tool(self, department: DepartmentSpec) -> Tool:
         manager = department.manager
         specialists = [specialist.install() for specialist in department.specialists]
-        built_manager = await build_task_runner(
+        built_manager = await resolve_task_executor(
             manager,
             context=self._context,
             installed_tools=specialists,
@@ -121,7 +121,7 @@ class HierarchicalAgentSystem(AgentSystem):
                 await self._log_result(result)
                 return result
 
-        tool = task_runner_tool(
+        tool = create_task_tool(
             LoggedDepartmentRunner(),
             name=manager.name,
             role=manager.role,

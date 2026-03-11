@@ -9,7 +9,7 @@ from cortex.agent import Agent
 from cortex.message import DeveloperMessage, UserMessage
 from cortex.workflow import WorkflowAgent
 
-from .task_types import TaskBrief, TaskResult
+from .task_models import TaskDesc, TaskResult
 
 
 @dataclass(slots=True)
@@ -19,7 +19,7 @@ class AgentTaskRunnerAdapter:
     agent: Agent
     confidence_threshold: float = 0.6
 
-    async def run_brief(self, brief: TaskBrief, *, context: Any) -> TaskResult:
+    async def run_brief(self, brief: TaskDesc, *, context: Any) -> TaskResult:
         messages = [
             DeveloperMessage(content=_agent_protocol_prompt(self.role, self.confidence_threshold)),
             UserMessage(content=json.dumps(brief.to_dict(), ensure_ascii=False, indent=2)),
@@ -34,7 +34,7 @@ class WorkflowTaskRunnerAdapter:
     role: str
     workflow: WorkflowAgent
 
-    async def run_brief(self, brief: TaskBrief, *, context: Any) -> TaskResult:
+    async def run_brief(self, brief: TaskDesc, *, context: Any) -> TaskResult:
         run = await self.workflow.async_run(user_input=brief.to_dict(), context=context)
         value = run.final_output
         result = normalize_task_result(value, brief=brief, role=self.role, fallback_name=self.name)
@@ -50,7 +50,7 @@ async def maybe_await(value: Any) -> Any:
     return value
 
 
-def normalize_task_result(value: Any, *, brief: TaskBrief, role: str, fallback_name: str) -> TaskResult:
+def normalize_task_result(value: Any, *, brief: TaskDesc, role: str, fallback_name: str) -> TaskResult:
     if isinstance(value, TaskResult):
         return value
     if isinstance(value, dict):
@@ -74,9 +74,12 @@ def normalize_task_result(value: Any, *, brief: TaskBrief, role: str, fallback_n
     )
 
 
-def _result_from_mapping(value: dict[str, Any], *, brief: TaskBrief, role: str, fallback_name: str) -> TaskResult:
+def _result_from_mapping(value: dict[str, Any], *, brief: TaskDesc, role: str, fallback_name: str) -> TaskResult:
     if _looks_like_task_result(value):
-        return TaskResult.from_dict(value)
+        try:
+            return TaskResult.from_dict(value)
+        except TypeError:
+            pass
 
     summary = str(value.get("summary") or value.get("response") or value.get("message") or "Completed")
     confidence = float(value.get("confidence", 0.8))

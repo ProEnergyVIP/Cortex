@@ -92,7 +92,7 @@ def make_finance_manager_workflow(context, installed_tools):
                 caller_understanding=f"The finance manager wants {specialist_name} analysis for: {brief.original_request_summary}",
                 expected_output={"type": "specialist_result"},
             )
-            raw_result = await tool.async_run({"brief": specialist_brief.to_dict()}, context, None)
+            raw_result = await tool.async_run({"desc": specialist_brief.to_dict()}, context, None)
             child_results.append(NodeResult.from_dict(raw_result))
 
         return synthesize_results(

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
-from .task_types import RoutingDecision, TaskBrief, TaskResult, child_task_id
+from .task_models import RoutingDecision, TaskDesc, TaskResult, child_task_id
 
 
-def build_child_task_brief_for_role(
+def build_child_task_desc_for_role(
     *,
-    parent_brief: TaskBrief,
+    parent_desc: TaskDesc,
     child_name: str,
     handoff_kind: str,
     scoped_task: str,
@@ -16,32 +16,32 @@ def build_child_task_brief_for_role(
     constraints: Optional[dict[str, Any]] = None,
     dependencies: Optional[list[str]] = None,
     metadata: Optional[dict[str, Any]] = None,
-) -> TaskBrief:
-    merged_constraints = _merge_constraints(parent_brief.constraints, constraints)
-    return TaskBrief.new(
-        conversation_id=parent_brief.conversation_id,
-        task_id=child_task_id(parent_brief.task_id, child_name),
-        parent_task_id=parent_brief.task_id,
-        from_node=parent_brief.to_node,
+) -> TaskDesc:
+    merged_constraints = _merge_constraints(parent_desc.constraints, constraints)
+    return TaskDesc.new(
+        conversation_id=parent_desc.conversation_id,
+        task_id=child_task_id(parent_desc.task_id, child_name),
+        parent_task_id=parent_desc.task_id,
+        from_node=parent_desc.to_node,
         to_node=child_name,
         handoff_level=handoff_kind,
-        original_user_request=parent_brief.original_user_request,
-        original_request_summary=parent_brief.original_request_summary,
+        original_user_request=parent_desc.original_user_request,
+        original_request_summary=parent_desc.original_request_summary,
         caller_understanding=caller_understanding,
         scoped_task=scoped_task,
         expected_output=expected_output,
         constraints=merged_constraints,
-        dependencies=list(parent_brief.dependencies) + list(dependencies or []),
-        priority=parent_brief.priority,
-        confidence=parent_brief.confidence,
-        escalation_if_below=parent_brief.escalation_if_below,
-        metadata={**parent_brief.metadata, **(metadata or {})},
+        dependencies=list(parent_desc.dependencies) + list(dependencies or []),
+        priority=parent_desc.priority,
+        confidence=parent_desc.confidence,
+        escalation_if_below=parent_desc.escalation_if_below,
+        metadata={**parent_desc.metadata, **(metadata or {})},
     )
 
 
 def synthesize_task_results(
     *,
-    brief: TaskBrief,
+    brief: TaskDesc,
     role: str,
     from_node: Optional[str],
     child_results: Iterable[TaskResult],
@@ -106,7 +106,7 @@ def synthesize_task_results(
 
 def build_routing_decision(
     *,
-    brief: TaskBrief,
+    brief: TaskDesc,
     departments: list[str],
     rationale: str,
     confidence: float,

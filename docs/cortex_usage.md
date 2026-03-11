@@ -588,30 +588,41 @@ The composition layer is the reusable foundation for custom agent systems.
 
 Key APIs:
 
-- `TaskBrief`
+- `TaskDesc`
 - `TaskResult`
-- `TaskRunnerBuilderBase`
-- `TaskRunnerBuilder`
-- `TaskTextBuilder`
-- `TaskMetadataBuilder`
-- `build_task_brief(...)`
-- `build_child_task_brief(...)`
-- `build_task_runner(...)`
-- `run_task_runner(...)`
-- `task_runner_tool(...)`
-- `normalize_task_result(...)`
-- `run_task_tools(...)`
-- `summarize_task_results(...)`
+- `TaskExecutorBuilderBase`
+- `TaskExecutorBuilder`
+- `TaskTextFactory`
+- `TaskMetadataFactory`
+- `create_task_desc(...)`
+- `create_child_task_desc(...)`
+- `resolve_task_executor(...)`
+- `execute_task_executor(...)`
+- `create_task_tool(...)`
+- `coerce_task_result(...)`
+- `execute_task_tools(...)`
+- `synthesize_task_results(...)`
 
 What each piece does:
 
-- `TaskBrief` is the structured handoff contract
+- `TaskDesc` is the structured handoff contract
 - `TaskResult` is the normalized result contract
-- `TaskRunnerBuilderBase` is the neutral shared builder foundation
-- `TaskRunnerBuilder` wraps `Agent`, `WorkflowAgent`, or custom runtimes behind one builder surface
-- `task_runner_tool(...)` exposes a runner as a `Tool`
-- `run_task_tools(...)` fans work out to child tools
-- `summarize_task_results(...)` synthesizes child results back upward
+- `TaskExecutorBuilderBase` is the neutral shared builder foundation
+- `TaskExecutorBuilder` wraps `Agent`, `WorkflowAgent`, or custom runtimes behind one builder surface
+- `create_task_tool(...)` exposes an executor as a `Tool`
+- `execute_task_tools(...)` fans work out to child tools
+- `synthesize_task_results(...)` synthesizes child results back upward
+
+The public composition surface is intentionally minimal and centered on `TaskDesc`, `TaskResult`, `TaskExecutor`, and `TaskExecutorBuilder`.
+
+Implementation modules:
+
+- `cortex/agent_system/task_models.py`
+- `cortex/agent_system/task_executor.py`
+- `cortex/agent_system/task_executor_builders.py`
+- `cortex/agent_system/task_executor_adapters.py`
+- `cortex/agent_system/task_executor_orchestration.py`
+- `cortex/agent_system/task_composition.py`
 
 The composition layer is designed as **building blocks**, not as a graph framework. You can:
 
@@ -628,36 +639,36 @@ from cortex import (
     AsyncAgentMemoryBank,
     GPTModels,
     LLM,
-    TaskRunnerBuilder,
-    build_task_brief,
-    run_task_runner,
+    TaskExecutorBuilder,
+    create_task_desc,
+    execute_task_executor,
 )
 
 context = AgentSystemContext(memory_bank=AsyncAgentMemoryBank())
 
-researcher = TaskRunnerBuilder.create_agent(
+researcher = TaskExecutorBuilder.create_agent(
     name="Researcher",
     role="research",
     llm=LLM(model=GPTModels.GPT_4O_MINI),
     prompt="You investigate the task and return a structured result.",
 )
 
-reviewer = TaskRunnerBuilder.create_agent(
+reviewer = TaskExecutorBuilder.create_agent(
     name="Reviewer",
     role="review",
     llm=LLM(model=GPTModels.GPT_4O_MINI),
     prompt="You review the task and return a structured result.",
 )
 
-lead = TaskRunnerBuilder.create_workflow(
+lead = TaskExecutorBuilder.create_workflow(
     name="Lead",
     role="lead",
     workflow=make_lead_workflow,
 )
 
-brief = build_task_brief(
-    from_runner="user",
-    to_runner="Lead",
+desc = create_task_desc(
+    from_executor="user",
+    to_executor="Lead",
     handoff_kind="user_to_lead",
     original_request="Should we approve this rollout?",
     request_summary="Evaluate whether the rollout should be approved.",
@@ -665,9 +676,9 @@ brief = build_task_brief(
     assigned_task="Coordinate the review and return a final recommendation.",
 )
 
-result = await run_task_runner(
+result = await execute_task_executor(
     lead,
-    brief=brief,
+    desc=desc,
     context=context,
     installed_tools=[researcher.as_tool(), reviewer.as_tool()],
 )

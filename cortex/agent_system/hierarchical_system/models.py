@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from ..task_types import (
+from ..task_models import (
     DepartmentSpec,
     Direction,
     HandoffRecord,
     Priority,
     RoutingDecision,
     RoutingMode,
-    TaskBrief as DelegationBrief,
+    TaskDesc as DelegationBrief,
     TaskHandoffKind as HandoffLevel,
     TaskResult as NodeResult,
     TaskRole as NodeRole,

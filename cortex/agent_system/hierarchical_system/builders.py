@@ -1,25 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from cortex.agent import Agent, Tool
 from cortex.workflow import WorkflowAgent
 
-from ..task_builders import TaskRunnerBuilderBase
+from ..task_executor_builders import TaskExecutorBuilderBase
 from .defaults import DefaultGatewayNode, DefaultManagerNode
 from .node import BuiltNode
 
 
 @dataclass(slots=True)
-class NodeBuilder(TaskRunnerBuilderBase):
+class NodeBuilder(TaskExecutorBuilderBase):
     async def build_node(self, *, context: Any, installed_tools: Optional[list[Tool]] = None) -> BuiltNode:
-        return await self.build_task_runner(context=context, installed_tools=installed_tools)
+        return await self.build_task_executor(context=context, installed_tools=installed_tools)
 
 
 @dataclass(slots=True)
 class GatewayNodeBuilder(NodeBuilder):
-    role: str = "gateway"
+    role: str = field(default="gateway", init=False)
 
     @classmethod
     def create_agent(
@@ -101,7 +101,7 @@ class GatewayNodeBuilder(NodeBuilder):
 
 @dataclass(slots=True)
 class DepartmentManagerBuilder(NodeBuilder):
-    role: str = "manager"
+    role: str = field(default="manager", init=False)
     department: Optional[str] = None
 
     @classmethod
@@ -192,7 +192,7 @@ class DepartmentManagerBuilder(NodeBuilder):
 
 @dataclass(slots=True)
 class SpecialistNodeBuilder(NodeBuilder):
-    role: str = "worker"
+    role: str = field(default="worker", init=False)
     specialty: Optional[str] = None
 
     @classmethod

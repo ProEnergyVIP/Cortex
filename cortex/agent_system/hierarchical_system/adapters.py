@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..task_adapters import (
+from ..task_executor_adapters import (
     AgentTaskRunnerAdapter as AgentNodeAdapter,
     WorkflowTaskRunnerAdapter as WorkflowNodeAdapter,
     maybe_await,
