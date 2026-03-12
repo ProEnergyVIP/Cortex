@@ -1,27 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Optional
 
-FailureStrategy = Literal["raise", "fallback"]
+from .node import FailureStrategy, NodePolicy
+
+__all__ = ["FailureStrategy", "StepPolicy"]
 
 
 @dataclass(frozen=True)
-class StepPolicy:
+class StepPolicy(NodePolicy):
     """Runtime policy controlling retries, fallback behavior, and timeouts."""
 
-    max_retries: int = 0
-    failure_strategy: FailureStrategy = "raise"
     fallback_step: Optional[str] = None
-    timeout_seconds: Optional[float] = None
 
     def __post_init__(self):
-        """Validate the internal consistency of the configured policy."""
-        if self.max_retries < 0:
-            raise ValueError("StepPolicy.max_retries must be >= 0")
-        if self.timeout_seconds is not None and self.timeout_seconds <= 0:
-            raise ValueError("StepPolicy.timeout_seconds must be > 0 when provided")
-        if self.failure_strategy == "fallback" and not self.fallback_step:
-            raise ValueError("StepPolicy with failure_strategy='fallback' requires fallback_step")
-        if self.failure_strategy != "fallback" and self.fallback_step is not None:
-            raise ValueError("fallback_step can only be set when failure_strategy='fallback'")
+        super().__post_init__()
+        if self.fallback_node is not None and self.fallback_step is not None and self.fallback_node != self.fallback_step:
+            raise ValueError("fallback_node and fallback_step must match when both are provided")
+        fallback_value = self.fallback_step if self.fallback_step is not None else self.fallback_node
+        object.__setattr__(self, "fallback_step", fallback_value)
+        object.__setattr__(self, "fallback_node", fallback_value)

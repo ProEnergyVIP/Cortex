@@ -1,4 +1,14 @@
-from cortex import FunctionStep, GPTModels, LLM, LLMStep, ParallelStep, RouterStep, StepResult, WorkflowAgent, WorkflowStep
+from cortex import (
+    GPTModels,
+    LLM,
+    StepResult,
+    function_node,
+    llm_node,
+    parallel_node,
+    router_node,
+    runtime_node,
+    workflow,
+)
 
 
 def route_request(state, context, workflow):
@@ -47,28 +57,29 @@ def finalize_refund_answer(state, context, workflow):
     return analysis["compose_refund_subworkflow"]
 
 
-refund_response_workflow = WorkflowAgent(
+refund_response_workflow = workflow(
     name="Refund Response Workflow",
-    steps=[
-        LLMStep.final(
+    nodes=[
+        llm_node(
             name="compose_refund_response",
             llm=LLM(model=GPTModels.GPT_4O_MINI),
             prompt=build_refund_response_prompt,
             input_builder=lambda state, context, workflow: state.get("refund_request", {}),
+            is_final=True,
         ),
     ],
 )
 
 
-workflow = WorkflowAgent(
+support_workflow = workflow(
     name="Support Workflow",
-    steps=[
-        RouterStep(
+    nodes=[
+        router_node(
             name="route_request",
             func=route_request,
-            possible_next_steps=["extract_refund_request", "compose_direct_answer"],
+            possible_next_nodes=["extract_refund_request", "compose_direct_answer"],
         ),
-        LLMStep(
+        llm_node(
             name="extract_refund_request",
             llm=LLM(model=GPTModels.GPT_4O_MINI),
             prompt=build_refund_prompt,
@@ -83,42 +94,46 @@ workflow = WorkflowAgent(
                 "additionalProperties": False,
             },
             output_key="refund_request",
-            next_step="analyze_refund_request",
+            next_node="analyze_refund_request",
         ),
-        ParallelStep(
+        parallel_node(
             name="analyze_refund_request",
-            steps=[
-                WorkflowStep(
+            nodes=[
+                runtime_node(
                     name="compose_refund_subworkflow",
-                    workflow_agent=refund_response_workflow,
+                    runtime=refund_response_workflow,
                     input_builder=lambda state, context, workflow: state.require("refund_request"),
                 ),
-                FunctionStep(
+                function_node(
                     name="summarize_refund_issue",
                     func=summarize_refund_issue,
                 ),
-                FunctionStep(
+                function_node(
                     name="detect_order_reference",
                     func=detect_order_reference,
                 ),
             ],
             output_key="refund_parallel_analysis",
-            next_step="finalize_refund_answer",
+            next_node="finalize_refund_answer",
         ),
-        FunctionStep.final(
+        function_node(
             name="finalize_refund_answer",
             func=finalize_refund_answer,
+            is_final=True,
         ),
-        LLMStep.final(
+        llm_node(
             name="compose_direct_answer",
             llm=LLM(model=GPTModels.GPT_4O_MINI),
             prompt=build_direct_answer_prompt,
+            is_final=True,
         ),
     ],
-    start_step="route_request",
+    start_node="route_request",
 )
 
 
 async def main():
-    response = await workflow.async_ask("I want a refund for order 12345 because the product arrived damaged.")
+    response = await support_workflow.async_ask(
+        "I want a refund for order 12345 because the product arrived damaged."
+    )
     print(response)

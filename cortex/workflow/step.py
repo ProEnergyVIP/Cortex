@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from asyncio import iscoroutine
-from dataclasses import dataclass, field
 from inspect import signature
 from typing import Any, Callable, Optional
 
@@ -12,7 +11,9 @@ from cortex.agent import Agent
 from cortex.message import Message, UserMessage
 from cortex.tool import BaseTool
 
+from .engine import NodeResult
 from .policy import StepPolicy
+from .runtime import resolve_runtime
 from .state import WorkflowState
 from .types import InputBuilder, PromptBuilder, RouterFunction, StepFunction
 
@@ -40,16 +41,16 @@ class WorkflowStepError(Exception):
         self.trace_data = trace_data or {}
 
 
-@dataclass
-class StepResult:
+class StepResult(NodeResult):
     """Result returned by a workflow step."""
 
-    updates: dict[str, Any] = field(default_factory=dict)
-    output: Any = None
-    next_step: Optional[str] = None
-    stop: bool = False
-    final_output: Any = None
-    trace_data: dict[str, Any] = field(default_factory=dict)
+    @property
+    def next_step(self) -> Optional[str]:
+        return self.next_node
+
+    @next_step.setter
+    def next_step(self, value: Optional[str]) -> None:
+        self.next_node = value
 
     @classmethod
     def next(cls, step_name: str, *, output: Any = None, updates: Optional[dict[str, Any]] = None) -> "StepResult":
@@ -57,7 +58,7 @@ class StepResult:
         return cls(
             updates=updates or {},
             output=output,
-            next_step=step_name,
+            next_node=step_name,
         )
 
     @classmethod
@@ -83,16 +84,8 @@ class StepResult:
         return cls(
             updates=updates,
             output=output,
-            next_step=next_step,
+            next_node=next_step,
         )
-
-    def apply(self, state: WorkflowState) -> None:
-        """Apply the result to a workflow state object."""
-        state.update(self.updates)
-        if self.output is not None:
-            state.set_output(self.output)
-        if self.final_output is not None:
-            state.set_final_output(self.final_output)
 
 
 class Step(ABC):
@@ -105,11 +98,22 @@ class Step(ABC):
         self.next_step = next_step
         self.policy = policy or StepPolicy()
 
+    @property
+    def next_node(self) -> Optional[str]:
+        return self.next_step
+
+    @next_node.setter
+    def next_node(self, value: Optional[str]) -> None:
+        self.next_step = value
+
     def declared_next_steps(self) -> set[str]:
         """Return statically declared next-step references for validation."""
         if self.next_step is None:
             return set()
         return {self.next_step}
+
+    def declared_next_nodes(self) -> set[str]:
+        return self.declared_next_steps()
 
     def is_terminal(self) -> bool:
         """Return whether this step is intended to stop the workflow."""
@@ -240,8 +244,6 @@ class WorkflowStep(Step):
 
         if self.is_final and self.next_step is not None:
             raise ValueError("Final WorkflowSteps cannot declare next_step")
-        if not hasattr(self.workflow_agent, "async_run"):
-            raise ValueError("WorkflowStep requires workflow_agent to define async_run")
 
     def is_terminal(self) -> bool:
         """Return whether this nested workflow step is terminal."""
@@ -274,8 +276,26 @@ class WorkflowStep(Step):
         else:
             child_input = state.input
 
-        child_run = await self.workflow_agent.async_run(child_input, context=context)
-        result = child_run.final_output
+        child_runtime = await resolve_runtime(
+            self.workflow_agent,
+            context=context,
+            usage=getattr(workflow, "usage", None),
+            parent=workflow,
+        )
+
+        if hasattr(child_runtime, "async_run"):
+            child_run = await child_runtime.async_run(child_input, context=context)
+            result = child_run.final_output
+            child_runtime_name = getattr(child_run, "workflow_name", None) or getattr(child_run, "engine_name", None) or getattr(child_runtime, "name", None)
+            child_trace_payload = {
+                "child_runtime_name": child_runtime_name,
+                "child_run": child_run,
+            }
+        else:
+            result = await child_runtime.async_ask(child_input, context=context)
+            child_trace_payload = {
+                "child_runtime_name": getattr(child_runtime, "name", None),
+            }
 
         updates = {}
         if self.output_key is not None:
@@ -288,10 +308,7 @@ class WorkflowStep(Step):
             next_step=self.next_step,
             stop=self.is_final,
             final_output=final_output,
-            trace_data={
-                "child_workflow_name": child_run.workflow_name,
-                "child_run": child_run,
-            },
+            trace_data=child_trace_payload,
         )
 
 

@@ -3,6 +3,12 @@ from cortex.agent import Agent, Tool
 from cortex.LLMFunc import llmfunc, CheckResult
 from cortex.workflow import (
     WorkflowAgent,
+    workflow,
+    function_node,
+    router_node,
+    parallel_node,
+    runtime_node,
+    llm_node,
     FailureStrategy,
     StepPolicy,
     WorkflowRun,
@@ -120,6 +126,7 @@ __all__ = [
     # Workflow Agent - Composed workflow-oriented API
     'WorkflowAgent', 'FailureStrategy', 'StepPolicy', 'WorkflowRun', 'WorkflowState', 'StepTrace',
     'Step', 'StepResult', 'LLMStep', 'FunctionStep', 'ParallelStep', 'RouterStep', 'WorkflowStep',
+    'workflow', 'function_node', 'router_node', 'parallel_node', 'runtime_node', 'llm_node',
     'PromptBuilder', 'InputBuilder', 'StepFunction', 'RouterFunction', 'StepValue', 'StepUpdates', 'WorkflowMessageInput',
     # Whiteboard models
     'Whiteboard', 'WhiteboardStorage', 'InMemoryStorage', 'RedisStorage',
