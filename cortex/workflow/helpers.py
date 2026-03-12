@@ -4,7 +4,8 @@ from typing import Any, Optional
 
 from .agent import WorkflowAgent
 from .policy import StepPolicy
-from .step import FunctionStep, LLMStep, ParallelStep, RouterStep, WorkflowStep
+from .runtime import FunctionRuntime
+from .step import FunctionStep, LLMStep, ParallelStep, RouterStep, RuntimeNode
 
 
 def workflow(
@@ -29,6 +30,23 @@ def workflow(
         context=context,
         usage=usage,
         max_steps=max_steps,
+    )
+
+
+def function_runtime(
+    *,
+    ask,
+    run=None,
+    name: Optional[str] = None,
+    context: Any = None,
+    usage: Any = None,
+) -> FunctionRuntime:
+    return FunctionRuntime(
+        ask_func=ask,
+        run_func=run,
+        name=name,
+        context=context,
+        usage=usage,
     )
 
 
@@ -86,11 +104,11 @@ def runtime_node(
     next_step: Optional[str] = None,
     policy: Optional[StepPolicy] = None,
     is_final: bool = False,
-) -> WorkflowStep:
+) -> RuntimeNode:
     resolved_next = next_step if next_step is not None else next_node
-    return WorkflowStep(
+    return RuntimeNode(
         name=name,
-        workflow_agent=runtime,
+        runtime=runtime,
         input_builder=input_builder,
         output_key=output_key,
         next_step=resolved_next,

@@ -12,7 +12,7 @@ from .step import Step
 
 @dataclass
 class WorkflowAgent:
-    """Execute a named sequence or graph of workflow steps against shared state."""
+    """Execute a named sequence or graph of workflow nodes against shared state."""
 
     name: str
     nodes: list[Step]
@@ -23,7 +23,7 @@ class WorkflowAgent:
     _engine: WorkflowEngine = field(init=False, repr=False)
 
     def __post_init__(self):
-        """Validate workflow construction and precompute step lookup structures."""
+        """Validate workflow construction and precompute node lookup structures."""
         self._engine = WorkflowEngine(
             name=self.name,
             nodes=self.nodes,
@@ -42,13 +42,19 @@ class WorkflowAgent:
             state.update(kwargs)
         return state
 
+    def get_node(self, node_name: str):
+        """Return a node by name or raise if the node is unknown."""
+        return self._engine.get_node(node_name)
+
     def get_step(self, step_name: str):
-        """Return a step by name or raise if the step is unknown."""
-        return self._engine.get_node(step_name)
+        return self.get_node(step_name)
+
+    def get_next_node_name(self, current_node_name: str) -> Optional[str]:
+        """Return the default ordered successor for a node, if any."""
+        return self._engine.get_next_node_name(current_node_name)
 
     def get_next_step_name(self, current_step_name: str) -> Optional[str]:
-        """Return the default ordered successor for a step, if any."""
-        return self._engine.get_next_node_name(current_step_name)
+        return self.get_next_node_name(current_step_name)
 
     def get_declared_graph(self) -> dict[str, dict[str, Any]]:
         """Return a structured view of the statically declared workflow graph."""
@@ -73,9 +79,11 @@ class WorkflowAgent:
             "graph": self.get_declared_graph(),
         }
 
-    def _validate_declared_step_references(self) -> None:
-        """Validate statically declared step references and obvious dead ends."""
+    def _validate_declared_node_references(self) -> None:
         self._engine._validate_declared_node_references()
+
+    def _validate_declared_step_references(self) -> None:
+        self._validate_declared_node_references()
 
     async def async_run(
         self,

@@ -13,7 +13,7 @@ from cortex.tool import BaseTool
 
 from .engine import NodeResult
 from .policy import StepPolicy
-from .runtime import resolve_runtime
+from .runtime import invoke_runtime
 from .state import WorkflowState
 from .types import InputBuilder, PromptBuilder, RouterFunction, StepFunction
 
@@ -222,13 +222,13 @@ class RouterStep(FunctionStep):
         return StepResult(output=result, next_step=str(result))
 
 
-class WorkflowStep(Step):
-    """Execute another WorkflowAgent as a nested step."""
+class RuntimeNode(Step):
+    """Execute another runtime as a nested node."""
 
     def __init__(
         self,
         name: str,
-        workflow_agent,
+        runtime,
         *,
         input_builder: Optional[InputBuilder] = None,
         output_key: Optional[str] = None,
@@ -237,32 +237,36 @@ class WorkflowStep(Step):
         is_final: bool = False,
     ):
         super().__init__(name=name, next_step=next_step, policy=policy)
-        self.workflow_agent = workflow_agent
+        self.runtime = runtime
         self.input_builder = input_builder
         self.output_key = output_key
         self.is_final = is_final
 
         if self.is_final and self.next_step is not None:
-            raise ValueError("Final WorkflowSteps cannot declare next_step")
+            raise ValueError("Final RuntimeNodes cannot declare next_step")
 
     def is_terminal(self) -> bool:
-        """Return whether this nested workflow step is terminal."""
+        """Return whether this nested runtime node is terminal."""
         return self.is_final
 
     @classmethod
     def final(
         cls,
         name: str,
-        workflow_agent,
+        runtime=None,
         *,
+        workflow_agent=None,
         input_builder: Optional[InputBuilder] = None,
         output_key: Optional[str] = None,
         policy: Optional[StepPolicy] = None,
-    ) -> "WorkflowStep":
-        """Construct a terminal nested-workflow step."""
+    ) -> "RuntimeNode":
+        """Construct a terminal runtime-backed node."""
+        resolved_runtime = workflow_agent if workflow_agent is not None else runtime
+        if resolved_runtime is None:
+            raise ValueError("RuntimeNode.final(...) requires runtime")
         return cls(
             name=name,
-            workflow_agent=workflow_agent,
+            runtime=resolved_runtime,
             input_builder=input_builder,
             output_key=output_key,
             policy=policy,
@@ -270,32 +274,25 @@ class WorkflowStep(Step):
         )
 
     async def run(self, state: WorkflowState, *, context: Any = None, workflow: Any = None) -> StepResult:
-        """Run the nested workflow and map its result back into the parent workflow."""
+        """Run the nested runtime and map its result back into the parent workflow."""
         if self.input_builder is not None:
             child_input = await _resolve_callable(self.input_builder, state, context, workflow)
         else:
             child_input = state.input
 
-        child_runtime = await resolve_runtime(
-            self.workflow_agent,
+        child_invocation = await invoke_runtime(
+            self.runtime,
+            child_input,
             context=context,
             usage=getattr(workflow, "usage", None),
             parent=workflow,
         )
-
-        if hasattr(child_runtime, "async_run"):
-            child_run = await child_runtime.async_run(child_input, context=context)
-            result = child_run.final_output
-            child_runtime_name = getattr(child_run, "workflow_name", None) or getattr(child_run, "engine_name", None) or getattr(child_runtime, "name", None)
-            child_trace_payload = {
-                "child_runtime_name": child_runtime_name,
-                "child_run": child_run,
-            }
-        else:
-            result = await child_runtime.async_ask(child_input, context=context)
-            child_trace_payload = {
-                "child_runtime_name": getattr(child_runtime, "name", None),
-            }
+        result = child_invocation.output
+        child_trace_payload = {
+            "child_runtime_name": child_invocation.runtime_name,
+        }
+        if child_invocation.run is not None:
+            child_trace_payload["child_run"] = child_invocation.run
 
         updates = {}
         if self.output_key is not None:
@@ -310,6 +307,58 @@ class WorkflowStep(Step):
             final_output=final_output,
             trace_data=child_trace_payload,
         )
+
+
+class WorkflowStep(RuntimeNode):
+    """Compatibility shim for runtime-backed workflow nodes."""
+
+    def __init__(
+        self,
+        name: str,
+        workflow_agent,
+        *,
+        input_builder: Optional[InputBuilder] = None,
+        output_key: Optional[str] = None,
+        next_step: Optional[str] = None,
+        policy: Optional[StepPolicy] = None,
+        is_final: bool = False,
+    ):
+        super().__init__(
+            name=name,
+            runtime=workflow_agent,
+            input_builder=input_builder,
+            output_key=output_key,
+            next_step=next_step,
+            policy=policy,
+            is_final=is_final,
+        )
+
+    @classmethod
+    def final(
+        cls,
+        name: str,
+        workflow_agent,
+        *,
+        input_builder: Optional[InputBuilder] = None,
+        output_key: Optional[str] = None,
+        policy: Optional[StepPolicy] = None,
+    ) -> "WorkflowStep":
+        return cls(
+            name=name,
+            workflow_agent=workflow_agent,
+            input_builder=input_builder,
+            output_key=output_key,
+            policy=policy,
+            is_final=True,
+        )
+
+    @property
+    def workflow_agent(self):
+        return self.runtime
+
+    @workflow_agent.setter
+    def workflow_agent(self, value) -> None:
+        self.runtime = value
 
 
 class ParallelStep(Step):

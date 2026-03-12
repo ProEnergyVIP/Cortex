@@ -1,18 +1,45 @@
 from .agent import WorkflowAgent
-from .helpers import function_node, llm_node, parallel_node, router_node, runtime_node, workflow
+from .helpers import function_node, function_runtime, llm_node, parallel_node, router_node, runtime_node, workflow
 from .policy import FailureStrategy, StepPolicy
+from .runtime import (
+    AskCapableRuntimeLike,
+    RuntimeAdapter,
+    RunCapableRuntimeLike,
+    RunResultLike,
+    RuntimeInvocation,
+    RuntimeLike,
+    WorkflowRunResultLike,
+    adapt_runtime,
+    get_run_name,
+    get_runtime_name,
+    invoke_runtime,
+    resolve_runtime,
+)
 from .state import WorkflowRun, WorkflowState, StepTrace
-from .step import FunctionStep, LLMStep, ParallelStep, RouterStep, Step, StepResult, WorkflowStep
+from .step import FunctionStep, LLMStep, ParallelStep, RouterStep, RuntimeNode, Step, StepResult, WorkflowStep
 from .types import InputBuilder, PromptBuilder, RouterFunction, StepFunction, StepUpdates, StepValue, WorkflowMessageInput
 
 __all__ = [
     "WorkflowAgent",
     "workflow",
+    "function_runtime",
     "function_node",
     "router_node",
     "parallel_node",
     "runtime_node",
     "llm_node",
+    "AskCapableRuntimeLike",
+    "RuntimeAdapter",
+    "RuntimeLike",
+    "RunCapableRuntimeLike",
+    "RunResultLike",
+    "WorkflowRunResultLike",
+    "RuntimeInvocation",
+    "adapt_runtime",
+    "get_runtime_name",
+    "get_run_name",
+    "resolve_runtime",
+    "invoke_runtime",
     "StepPolicy",
     "FailureStrategy",
     "WorkflowState",
@@ -24,6 +51,7 @@ __all__ = [
     "FunctionStep",
     "ParallelStep",
     "RouterStep",
+    "RuntimeNode",
     "WorkflowStep",
     "PromptBuilder",
     "InputBuilder",

@@ -3,6 +3,7 @@ from cortex import (
     LLM,
     StepResult,
     function_node,
+    function_runtime,
     llm_node,
     parallel_node,
     router_node,
@@ -70,6 +71,18 @@ refund_response_workflow = workflow(
     ],
 )
 
+refund_response_runtime = function_runtime(
+    name="Refund Response Runtime",
+    ask=lambda user_input=None, context=None, usage=None, runtime=None, parent=None: refund_response_workflow.async_ask(
+        user_input,
+        context=context,
+    ),
+    run=lambda user_input=None, context=None, usage=None, runtime=None, parent=None: refund_response_workflow.async_run(
+        user_input,
+        context=context,
+    ),
+)
+
 
 support_workflow = workflow(
     name="Support Workflow",
@@ -101,7 +114,7 @@ support_workflow = workflow(
             nodes=[
                 runtime_node(
                     name="compose_refund_subworkflow",
-                    runtime=refund_response_workflow,
+                    runtime=refund_response_runtime,
                     input_builder=lambda state, context, workflow: state.require("refund_request"),
                 ),
                 function_node(
