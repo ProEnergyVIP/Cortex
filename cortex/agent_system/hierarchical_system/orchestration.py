@@ -22,23 +22,30 @@ def build_manager_brief(
     constraints: Optional[dict[str, Any]] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> DelegationBrief:
+    context: dict[str, Any] = {
+        "handoff_kind": "gateway_to_manager",
+        "summary": parent_brief.original_request_summary,
+        "understanding": caller_understanding,
+        "escalate_if_below": parent_brief.escalation_if_below,
+        "priority": parent_brief.priority,
+        "dependencies": list(parent_brief.dependencies),
+        "constraints": _merge_constraints(parent_brief.constraints, constraints, {"department": department_name}),
+    }
+    if expected_output is not None:
+        context["expected_output"] = expected_output
+    payload = {
+        "request": parent_brief.original_user_request,
+        "task": scoped_task,
+        "context": context,
+        "confidence": parent_brief.confidence,
+    }
     return DelegationBrief.new(
         conversation_id=parent_brief.conversation_id,
         task_id=_child_task_id(parent_brief.task_id, manager_name),
         parent_task_id=parent_brief.task_id,
         from_node=parent_brief.to_node,
         to_node=manager_name,
-        handoff_level="gateway_to_manager",
-        original_user_request=parent_brief.original_user_request,
-        original_request_summary=parent_brief.original_request_summary,
-        caller_understanding=caller_understanding,
-        scoped_task=scoped_task,
-        expected_output=expected_output,
-        constraints=_merge_constraints(parent_brief.constraints, constraints, {"department": department_name}),
-        dependencies=list(parent_brief.dependencies),
-        priority=parent_brief.priority,
-        confidence=parent_brief.confidence,
-        escalation_if_below=parent_brief.escalation_if_below,
+        payload=payload,
         metadata={**parent_brief.metadata, **(metadata or {}), "department": department_name},
     )
 
@@ -55,23 +62,30 @@ def build_specialist_brief(
     dependencies: Optional[list[str]] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> DelegationBrief:
+    context: dict[str, Any] = {
+        "handoff_kind": "manager_to_worker",
+        "summary": parent_brief.original_request_summary,
+        "understanding": caller_understanding,
+        "escalate_if_below": parent_brief.escalation_if_below,
+        "priority": parent_brief.priority,
+        "dependencies": list(parent_brief.dependencies) + list(dependencies or []),
+        "constraints": _merge_constraints(parent_brief.constraints, constraints),
+    }
+    if expected_output is not None:
+        context["expected_output"] = expected_output
+    payload = {
+        "request": parent_brief.original_user_request,
+        "task": scoped_task,
+        "context": context,
+        "confidence": parent_brief.confidence,
+    }
     return DelegationBrief.new(
         conversation_id=parent_brief.conversation_id,
         task_id=_child_task_id(parent_brief.task_id, specialist_name),
         parent_task_id=parent_brief.task_id,
         from_node=parent_brief.to_node,
         to_node=specialist_name,
-        handoff_level="manager_to_worker",
-        original_user_request=parent_brief.original_user_request,
-        original_request_summary=parent_brief.original_request_summary,
-        caller_understanding=caller_understanding,
-        scoped_task=scoped_task,
-        expected_output=expected_output,
-        constraints=_merge_constraints(parent_brief.constraints, constraints),
-        dependencies=list(parent_brief.dependencies) + list(dependencies or []),
-        priority=parent_brief.priority,
-        confidence=parent_brief.confidence,
-        escalation_if_below=parent_brief.escalation_if_below,
+        payload=payload,
         metadata={**parent_brief.metadata, **(metadata or {})},
     )
 

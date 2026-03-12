@@ -119,23 +119,33 @@ def create_task_desc(
     escalate_if_below: float = 0.6,
     metadata: Optional[dict[str, Any]] = None,
 ) -> TaskDesc:
+    context: dict[str, Any] = {
+        "handoff_kind": handoff_kind,
+        "summary": request_summary,
+        "understanding": current_understanding,
+        "escalate_if_below": escalate_if_below,
+    }
+    if expected_output is not None:
+        context["expected_output"] = expected_output
+    if constraints:
+        context["constraints"] = dict(constraints)
+    if dependencies:
+        context["dependencies"] = list(dependencies)
+    if priority:
+        context["priority"] = priority
+    payload = {
+        "request": original_request,
+        "task": assigned_task,
+        "context": context,
+        "confidence": confidence,
+    }
     return TaskDesc.new(
         conversation_id=conversation_id,
         task_id=task_id,
         parent_task_id=parent_task_id,
         from_node=from_executor,
         to_node=to_executor,
-        handoff_level=handoff_kind,
-        original_user_request=original_request,
-        original_request_summary=request_summary,
-        caller_understanding=current_understanding,
-        scoped_task=assigned_task,
-        expected_output=expected_output,
-        constraints=constraints,
-        dependencies=dependencies,
-        priority=priority,
-        confidence=confidence,
-        escalation_if_below=escalate_if_below,
+        payload=payload,
         metadata=metadata,
     )
 
@@ -155,6 +165,26 @@ def create_child_task_desc(
     merged_constraints = dict(parent_desc.constraints)
     if constraints:
         merged_constraints.update(constraints)
+    context: dict[str, Any] = {
+        "handoff_kind": handoff_kind,
+        "summary": parent_desc.original_request_summary,
+        "understanding": current_understanding,
+        "escalate_if_below": parent_desc.escalation_if_below,
+    }
+    if expected_output is not None:
+        context["expected_output"] = expected_output
+    if merged_constraints:
+        context["constraints"] = merged_constraints
+    all_dependencies = list(parent_desc.dependencies) + list(dependencies or [])
+    if all_dependencies:
+        context["dependencies"] = all_dependencies
+    context["priority"] = parent_desc.priority
+    payload = {
+        "request": parent_desc.original_user_request,
+        "task": assigned_task,
+        "context": context,
+        "confidence": parent_desc.confidence,
+    }
 
     return TaskDesc.new(
         conversation_id=parent_desc.conversation_id,
@@ -162,17 +192,7 @@ def create_child_task_desc(
         parent_task_id=parent_desc.task_id,
         from_node=parent_desc.to_node,
         to_node=child_name,
-        handoff_level=handoff_kind,
-        original_user_request=parent_desc.original_user_request,
-        original_request_summary=parent_desc.original_request_summary,
-        caller_understanding=current_understanding,
-        scoped_task=assigned_task,
-        expected_output=expected_output,
-        constraints=merged_constraints,
-        dependencies=list(parent_desc.dependencies) + list(dependencies or []),
-        priority=parent_desc.priority,
-        confidence=parent_desc.confidence,
-        escalation_if_below=parent_desc.escalation_if_below,
+        payload=payload,
         metadata={**parent_desc.metadata, **(metadata or {})},
     )
 

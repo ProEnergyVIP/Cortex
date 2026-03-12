@@ -57,14 +57,19 @@ class HierarchicalAgentSystem(AgentSystem):
     async def async_ask(self, messages: Any) -> Any:
         user_request = self._stringify_user_input(messages)
         gateway = await self.get_gateway_node()
+        payload = {
+            "request": user_request,
+            "task": "Understand the request, route to departments if needed, and produce the final user-facing answer.",
+            "context": {
+                "handoff_kind": "user_to_gateway",
+                "summary": user_request,
+                "understanding": "Direct user request requiring gateway triage and coordination.",
+            },
+        }
         brief = DelegationBrief.new(
             from_node="user",
             to_node=gateway.name,
-            handoff_level="user_to_gateway",
-            original_user_request=user_request,
-            original_request_summary=user_request,
-            caller_understanding="Direct user request requiring gateway triage and coordination.",
-            scoped_task="Understand the request, route to departments if needed, and produce the final user-facing answer.",
+            payload=payload,
             metadata={"source": "HierarchicalAgentSystem.async_ask"},
         )
         await self._log_handoff(

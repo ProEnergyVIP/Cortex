@@ -87,6 +87,13 @@ def _result_from_mapping(value: dict[str, Any], *, brief: TaskDesc, role: str, f
     output = value.get("output")
     if not isinstance(output, dict):
         output = {"value": output if output is not None else value}
+    metadata = dict(value.get("metadata", {}))
+    if "assumptions" in value:
+        metadata["assumptions"] = list(value.get("assumptions", []))
+    if "blockers" in value:
+        metadata["blockers"] = list(value.get("blockers", []))
+    if "child_summaries" in value:
+        metadata["child_summaries"] = list(value.get("child_summaries", []))
 
     return TaskResult(
         conversation_id=value.get("conversation_id", brief.conversation_id),
@@ -99,11 +106,8 @@ def _result_from_mapping(value: dict[str, Any], *, brief: TaskDesc, role: str, f
         summary=summary,
         output=output,
         confidence=confidence,
-        assumptions=list(value.get("assumptions", [])),
-        blockers=list(value.get("blockers", [])),
-        child_summaries=list(value.get("child_summaries", [])),
         escalation_reason=value.get("escalation_reason"),
-        metadata=dict(value.get("metadata", {})),
+        metadata=metadata,
     )
 
 

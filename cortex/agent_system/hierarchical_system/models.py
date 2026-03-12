@@ -4,11 +4,9 @@ from ..task_models import (
     DepartmentSpec,
     Direction,
     HandoffRecord,
-    Priority,
     RoutingDecision,
     RoutingMode,
     TaskDesc as DelegationBrief,
-    TaskHandoffKind as HandoffLevel,
     TaskResult as NodeResult,
     TaskRole as NodeRole,
     TaskStatus as NodeStatus,
@@ -16,6 +14,9 @@ from ..task_models import (
     new_conversation_id,
     new_task_id,
 )
+
+Priority = str
+HandoffLevel = str
 
 __all__ = [
     "Priority",
