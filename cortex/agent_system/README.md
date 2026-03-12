@@ -1,16 +1,12 @@
 # Agent System
 
-The agent-system package gives you **building blocks at multiple layers** for constructing multi-agent applications on top of the core `Agent`, `WorkflowAgent`, `LLM`, and `Tool` primitives.
+The agent-system package provides the remaining higher-level multi-agent APIs on top of the core `Agent`, `WorkflowAgent`, `LLM`, and `Tool` primitives.
 
 ## Overview
 
-Cortex now exposes three useful layers:
+Cortex now exposes one higher-level preset:
 
-- **Runtime primitives**: `Agent` and `WorkflowAgent`
-- **Composable helper layer**: shared task/executor/tool orchestration helpers in `cortex.agent_system`
-- **Preset systems**: `CoordinatorSystem`, `TaskCoordinatorSystem`, and `HierarchicalAgentSystem`
-
-This layering lets you choose the lightest abstraction that matches your topology instead of forcing everything into one framework.
+- **Preset system**: `CoordinatorSystem`
 
 ## Choosing the right layer
 
@@ -27,24 +23,11 @@ Use:
 - `Agent` when prompt + tools are enough
 - `WorkflowAgent` when you want explicit steps, branching, retries, or parallel execution in a single runtime
 
-### Use the composition helpers
+### Use the preset system
 
-Use the composition helpers when:
-
-- you want to build a **custom topology**
-- you want structured handoffs and normalized results
-- you want to mix `Agent`, `WorkflowAgent`, and custom runtimes behind one surface
-- you want to expose child executors as tools and synthesize their results
-
-This is the recommended layer when you want reusable building blocks without committing to a preset topology.
-
-### Use a preset system
-
-Use a preset when the topology already matches your problem:
+Use the preset when the topology already matches your problem:
 
 - `CoordinatorSystem` for a flat coordinator-worker shape
-- `TaskCoordinatorSystem` for a flat coordinator-worker shape built on the `TaskDesc` / `TaskExecutor` composition layer
-- `HierarchicalAgentSystem` for gateway → manager → specialist orchestration with reinterpretation and synthesis at each layer
 
 ## What the agent-system package provides
 
@@ -52,7 +35,7 @@ Use a preset when the topology already matches your problem:
 - **Composable orchestration**: task briefs, results, executor builders, tool wrappers, and synthesis helpers
 - **Memory management**: built-in support for conversation history via `AgentMemoryBank`
 - **Usage tracking**: optional tracking of API calls and token usage
-- **Preset systems**: prebuilt coordinator-worker and hierarchical topologies
+- **Preset systems**: the coordinator-worker topology
 
 ## Core Components
 
@@ -75,120 +58,6 @@ Runtime context passed to agents, containing:
 - `memory_bank`: `AsyncAgentMemoryBank` for conversation history
 - `llm_primary`: Pre-configured primary LLM (GPT-5-MINI, minimal reasoning)
 - `llm_creative`: Pre-configured creative LLM (GPT-5-MINI, medium reasoning)
-
-### Composition layer
-
-The composition layer is the reusable middle layer between raw runtimes and preset systems.
-
-Core concepts:
-
-- `TaskDesc`
-- `TaskResult`
-- `TaskExecutor`
-- `BuiltTaskExecutor`
-- `TaskExecutorBuilderBase`
-- `TaskExecutorBuilder`
-
-Core helper APIs:
-
-- `create_task_desc(...)`
-- `create_child_task_desc(...)`
-- `resolve_task_executor(...)`
-- `execute_task_executor(...)`
-- `create_task_tool(...)`
-- `execute_task_tools(...)`
-- `synthesize_task_results(...)`
-- `coerce_task_result(...)`
-- `should_escalate(...)`
-
-Supporting helper types:
-
-- `TaskTextFactory`
-- `TaskMetadataFactory`
-
-What each piece does:
-
-- `TaskDesc` is the structured handoff contract
-- `TaskResult` is the normalized result contract
-- `TaskExecutorBuilderBase` is the neutral shared builder foundation
-- `TaskExecutorBuilder` is the ergonomic public builder for composition
-- `TaskExecutorBuilder.create_agent(...)` wraps an `Agent`-backed runtime
-- `TaskExecutorBuilder.create_workflow(...)` wraps a `WorkflowAgent`-backed runtime
-- `create_task_tool(...)` exposes an executor as a tool
-- `execute_task_tools(...)` fans work out to child tools
-- `synthesize_task_results(...)` synthesizes child results back upward
-
-The public composition surface is intentionally minimal and centered on `TaskDesc`, `TaskResult`, `TaskExecutor`, and `TaskExecutorBuilder`.
-
-Implementation modules:
-
-- `cortex/agent_system/task_models.py`
-- `cortex/agent_system/task_executor.py`
-- `cortex/agent_system/task_executor_builders.py`
-- `cortex/agent_system/task_executor_adapters.py`
-- `cortex/agent_system/task_executor_orchestration.py`
-- `cortex/agent_system/task_composition.py`
-
-The composition helpers are intentionally runtime-symmetric. You can combine:
-
-- `Agent`-backed executors
-- `WorkflowAgent`-backed executors
-- custom runtimes that implement `run_task(...)`
-
-inside the same topology.
-
-### Minimal composition example
-
-```python
-from cortex import (
-    AgentSystemContext,
-    AsyncAgentMemoryBank,
-    GPTModels,
-    LLM,
-    TaskExecutorBuilder,
-    create_task_desc,
-    execute_task_executor,
-)
-
-context = AgentSystemContext(memory_bank=AsyncAgentMemoryBank())
-
-researcher = TaskExecutorBuilder.create_agent(
-    name="Researcher",
-    role="research",
-    llm=LLM(model=GPTModels.GPT_4O_MINI),
-    prompt="You investigate the task and return a structured result.",
-)
-
-reviewer = TaskExecutorBuilder.create_agent(
-    name="Reviewer",
-    role="review",
-    llm=LLM(model=GPTModels.GPT_4O_MINI),
-    prompt="You review the task and return a structured result.",
-)
-
-lead = TaskExecutorBuilder.create_workflow(
-    name="Lead",
-    role="lead",
-    workflow=make_lead_workflow,
-)
-
-desc = create_task_desc(
-    from_executor="user",
-    to_executor="Lead",
-    handoff_kind="user_to_lead",
-    original_request="Should we approve this rollout?",
-    request_summary="Evaluate whether the rollout should be approved.",
-    current_understanding="The lead should coordinate a research and review pass.",
-    assigned_task="Coordinate the review and return a final recommendation.",
-)
-
-result = await execute_task_executor(
-    lead,
-    desc=desc,
-    context=context,
-    installed_tools=[researcher.as_tool(), reviewer.as_tool()],
-)
-```
 
 ### Coordinator System
 
@@ -219,105 +88,6 @@ Use this preset when:
 - a single coordinator delegates to workers
 - workers mostly act as specialized assistants
 - you do not need structured multi-layer reinterpretation between each hop
-
-### Task Coordinator System
-
-#### `TaskCoordinatorBuilder`
-Builder for a coordinator runtime that delegates through structured `TaskDesc` handoffs. The coordinator can be backed by either an `Agent` or a `WorkflowAgent`.
-
-#### `TaskWorkerBuilder`
-Builder for worker runtimes that consume `TaskDesc` inputs and return normalized `TaskResult` outputs. Workers can also be backed by either an `Agent` or a `WorkflowAgent`.
-
-#### `TaskCoordinatorSystem`
-Composition-native coordinator preset that:
-- creates a root `TaskDesc` from the user request
-- exposes workers to the coordinator as `desc`-driven task tools
-- supports `Agent` and `WorkflowAgent` runtimes for both coordinator and workers
-- expects the coordinator to rewrite requests into clear worker-facing `TaskDesc` handoffs
-
-Use this preset when:
-
-- you want the flat coordinator-worker topology
-- you want structured delegation instead of verbatim message forwarding
-- you want the coordinator and workers to share the `TaskDesc` / `TaskResult` contract
-- you want to mix `Agent` and `WorkflowAgent` runtimes inside the same preset
-
-### Hierarchical Agent System
-
-The hierarchical system is for multi-layer orchestration where nodes reinterpret and synthesize work instead of forwarding raw messages verbatim.
-
-Core types:
-
-- `GatewayNodeBuilder`
-- `DepartmentManagerBuilder`
-- `SpecialistNodeBuilder`
-- `DepartmentSpec`
-- `HierarchicalAgentSystem`
-
-Hierarchy shape:
-
-- user
-- gateway
-- department managers
-- specialists
-
-Each handoff uses a structured `DelegationBrief`, and each node responds with a `NodeResult`.
-
-Use this preset when:
-
-- you want gateway triage
-- managers should rewrite or refine tasks before delegating
-- specialists should return structured child results
-- synthesis should happen at each level
-
-#### Runtime-symmetric builder API
-
-Every role can be backed by either `Agent` or `WorkflowAgent`.
-
-Gateway:
-
-- `GatewayNodeBuilder.create_agent(...)`
-- `GatewayNodeBuilder.create_workflow(...)`
-- `GatewayNodeBuilder.create_default(...)`
-
-Manager:
-
-- `DepartmentManagerBuilder.create_agent(...)`
-- `DepartmentManagerBuilder.create_workflow(...)`
-- `DepartmentManagerBuilder.create_default(...)`
-
-Specialist:
-
-- `SpecialistNodeBuilder.create_agent(...)`
-- `SpecialistNodeBuilder.create_workflow(...)`
-
-Workflow-backed gateway and manager factories can accept:
-
-- `context`
-- `installed_tools`
-- `child_tools`
-
-This lets workflow-based orchestrators call their child department or specialist tools directly.
-
-#### Fluent hierarchy construction
-
-Use:
-
-- `DepartmentSpec.create(...)`
-- `add_specialist(...)`
-- `add_specialists(...)`
-
-to build department trees cleanly.
-
-#### Recommended system entrypoint
-
-Use `HierarchicalAgentSystem.create(...)` to assemble the full hierarchy.
-
-#### Example
-
-See:
-
-- `examples/hierarchical_agent_system_example.py`
 
 ## Quick Start: coordinator preset
 
@@ -362,8 +132,6 @@ system = CoordinatorSystem(
 response = await system.async_ask("What is 2 + 2?")
 ```
 
-If you want a custom topology instead of a preset, start with the composition-layer example above.
-
 ## Runtime choices
 
 ### `Agent`
@@ -384,26 +152,19 @@ Choose `WorkflowAgent` when the behavior needs:
 - parallel branches
 - a clear control-flow graph
 
-You can use `WorkflowAgent` directly, through `TaskExecutorBuilder.create_workflow(...)`, or inside hierarchical builders like `GatewayNodeBuilder.create_workflow(...)`.
+You can use `WorkflowAgent` directly.
 
 ## Architecture
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                          Agent System Layers                       │
+│                           Agent System API                         │
 ├────────────────────────────────────────────────────────────────────┤
 │ Runtime primitives                                                 │
 │ - Agent                                                            │
 │ - WorkflowAgent                                                    │
-├────────────────────────────────────────────────────────────────────┤
-│ Composition helpers                                                │
-│ - TaskDesc / TaskResult                                            │
-│ - TaskExecutorBuilderBase / TaskExecutorBuilder                    │
-│ - create_task_tool / execute_task_tools / synthesize_task_results  │
-├────────────────────────────────────────────────────────────────────┤
 │ Preset systems                                                     │
 │ - CoordinatorSystem                                                │
-│ - HierarchicalAgentSystem                                          │
 └────────────────────────────────────────────────────────────────────┘
                                │
                                │ share
@@ -479,10 +240,6 @@ See `examples/agent_system_example.py` for comprehensive examples including:
 - Workers with custom tools
 - Usage tracking
 - Custom context configuration
-
-See `examples/hierarchical_agent_system_example.py` for the hierarchical preset.
-
-Use the composition helpers when you want to build your own topology instead of following either preset.
 
 ## Extending the System
 
@@ -569,8 +326,4 @@ Benefits:
 - Easy to add more workers
 - Coordinator handles delegation automatically
 
-If you're currently using `Agent` directly and you want structured multi-executor orchestration, the nearest migration path is usually the composition layer:
-
-- wrap agent runtimes with `TaskExecutorBuilder.create_agent(...)`
-- expose child executors with `create_task_tool(...)`
-- use `execute_task_tools(...)` and `synthesize_task_results(...)` to build your own orchestration layer
+If you're currently using `Agent` directly and you want more orchestration, the nearest migration path is usually to move to either `WorkflowAgent` or `CoordinatorSystem`, depending on whether you want explicit steps or a coordinator-worker topology.

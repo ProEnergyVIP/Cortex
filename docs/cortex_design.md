@@ -6,7 +6,7 @@ This document describes how Cortex is structured internally and how the major ab
 - Message model (`Message`, `AIMessage`, tool call messages)
 - Tools (`FunctionTool` and hosted tools)
 - `Agent` (conversation loop, tool execution, memory)
-- Agent System (`AgentBuilder`, `AgentSystem`, task composition helpers, presets)
+- Agent System (`AgentBuilder`, `AgentSystem`, `CoordinatorSystem`)
 - Whiteboard (shared multi-agent messaging)
 
 The goal is to help you understand **how requests flow through the library**, where to extend it, and what invariants the core code assumes.
@@ -33,13 +33,11 @@ At a high level, Cortex is built around this pipeline:
    - the agent loops and calls the LLM again
 9. When a final natural-language (or JSON) answer is produced, it’s returned and saved to memory.
 
-The agent-system package adds higher layers above this:
+The agent-system package adds a higher-level multi-agent API above this:
 
 - Builders construct agents lazily from a runtime context.
 - Systems own an `async_ask(...)` API and choose the agent(s) used to answer.
 - `CoordinatorSystem` exposes worker agents as tools to a coordinator agent.
-- The task composition layer normalizes structured handoffs across `Agent`, `WorkflowAgent`, and custom runtimes.
-- `HierarchicalAgentSystem` builds a gateway -> manager -> specialist topology on top of those helpers.
 
 ---
 
@@ -299,13 +297,11 @@ Summarization errors are caught and logged as warnings. The agent continues norm
 
 The Agent System lives in `cortex/agent_system/`.
 
-It exposes multiple layers:
+It exposes:
 
 - `AgentBuilder`: builds an agent from context (prompt, tools, memory)
 - `AgentSystem`: owns a context and provides a single `async_ask(...)` entrypoint
-- `TaskDesc` / `TaskResult`: structured handoff and normalized result contracts
-- `TaskExecutorBuilder` / `TaskExecutorBuilderBase`: runtime-symmetric executor builders
-- Preset systems such as `CoordinatorSystem` and `HierarchicalAgentSystem`
+- Preset systems such as `CoordinatorSystem`
 
 ### 7.1 `AgentSystemContext`
 
@@ -342,65 +338,6 @@ A worker builder’s `install(...)` method returns a `Tool` (async `FunctionTool
 - optionally appends `DeveloperMessage(context_instructions)`
 - can enrich context with whiteboard summaries
 - returns the worker agent’s JSON response
-
-### 7.4 Task composition layer
-
-The composition layer is the reusable middle layer between raw runtimes and preset systems.
-
-Core concepts:
-
-- `TaskDesc`
-- `TaskResult`
-- `TaskExecutor`
-- `BuiltTaskExecutor`
-- `TaskExecutorBuilderBase`
-- `TaskExecutorBuilder`
-
-Core helper APIs:
-
-- `create_task_desc(...)`
-- `create_child_task_desc(...)`
-- `resolve_task_executor(...)`
-- `execute_task_executor(...)`
-- `create_task_tool(...)`
-- `coerce_task_result(...)`
-- `execute_task_tools(...)`
-- `synthesize_task_results(...)`
-- `should_escalate(...)`
-
-Key invariants:
-
-- the layer normalizes `Agent`, `WorkflowAgent`, and custom `run_task(...)` runtimes behind a shared executor surface
-- child executors are exposed as tools using a structured `{"desc": ...}` payload
-- `TaskExecutorBuilder.create_agent(...)` requests structured JSON replies so task results normalize reliably
-- `resolve_task_executor(...)` accepts `TaskExecutorBuilderBase` subclasses as well as already-built executors and raw runtimes
-
-### 7.5 `HierarchicalAgentSystem`: gateway -> manager -> specialist
-
-The hierarchical preset is implemented on top of the task composition layer rather than as a separate incompatible abstraction.
-
-Core pieces:
-
-- `GatewayNodeBuilder`
-- `DepartmentManagerBuilder`
-- `SpecialistNodeBuilder`
-- `DepartmentSpec`
-- `HierarchicalAgentSystem`
-
-The hierarchy exchanges structured `DelegationBrief` / `NodeResult` values, which are aliases over the shared task-model layer.
-
-Design intent:
-
-- gateways route requests across departments
-- managers reinterpret and refine delegated work
-- specialists produce structured child results
-- synthesis happens explicitly at each level
-
-Runtime symmetry:
-
-- gateways can be backed by `Agent`, `WorkflowAgent`, or a default preset runtime
-- managers can be backed by `Agent`, `WorkflowAgent`, or a default preset runtime
-- specialists can be backed by `Agent` or `WorkflowAgent`
 
 ---
 
