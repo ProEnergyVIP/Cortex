@@ -3,6 +3,7 @@ from .helpers import function_node, function_runtime, llm_node, parallel_node, r
 from .policy import FailureStrategy, StepPolicy
 from .runtime import (
     AskCapableRuntimeLike,
+    FunctionRuntime,
     RuntimeAdapter,
     RunCapableRuntimeLike,
     RunResultLike,
@@ -29,6 +30,7 @@ __all__ = [
     "runtime_node",
     "llm_node",
     "AskCapableRuntimeLike",
+    "FunctionRuntime",
     "RuntimeAdapter",
     "RuntimeLike",
     "RunCapableRuntimeLike",

@@ -172,6 +172,12 @@ def get_run_name(run: RunResultLike) -> Optional[str]:
     return getattr(run, "workflow_name", None) or run.engine_name
 
 
+def get_run_output(run: Any) -> Any:
+    if isinstance(run, RunResultLike):
+        return run.final_output
+    return getattr(run, "final_output", run)
+
+
 async def invoke_runtime(
     runtime: Any,
     user_input: Any = None,
@@ -189,11 +195,15 @@ async def invoke_runtime(
 
     if isinstance(adapted_runtime.runtime, RunCapableRuntimeLike):
         runtime_run = await adapted_runtime.async_run(user_input, context=context)
-        runtime_name = get_run_name(runtime_run) or adapted_runtime.name
+        runtime_name = (
+            get_run_name(runtime_run)
+            if isinstance(runtime_run, RunResultLike) or hasattr(runtime_run, "final_output")
+            else adapted_runtime.name
+        )
         return RuntimeInvocation(
-            output=runtime_run.final_output,
+            output=get_run_output(runtime_run),
             runtime_name=runtime_name,
-            run=runtime_run,
+            run=runtime_run if isinstance(runtime_run, RunResultLike) else None,
         )
 
     output = await adapted_runtime.async_ask(user_input, context=context)

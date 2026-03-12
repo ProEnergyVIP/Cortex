@@ -59,14 +59,15 @@ Use `Agent` when:
 - You expect multi-turn conversations.
 - You want tool retries, parallel tool execution, and conversation memory.
 
-### 1.4 Use `WorkflowAgent` when you want explicit step orchestration
+### 1.4 Use `WorkflowAgent` when you want explicit workflow orchestration
 
 Use `WorkflowAgent` when:
 
-- You want explicit steps instead of an open-ended agent loop.
+- You want explicit nodes instead of an open-ended agent loop.
 - You need deterministic routing between stages.
 - You want retries, fallbacks, or parallel branches in one runtime.
 - You want orchestration logic to be part of the runtime itself.
+- You want nested runtimes, explicit shared state, and inspectable graph execution.
 
 ### 1.5 Use preset agent systems when the topology already fits
 
@@ -79,6 +80,28 @@ Use these when:
 - You want a single `system.async_ask(...)` entrypoint.
 - You want context-managed memory, usage tracking, and optional whiteboard support.
 - The coordinator-worker preset topology already matches your application well.
+
+---
+
+### 1.6 Function-first workflow and runtime helpers
+
+The preferred workflow API is function-first:
+
+- `workflow(...)`
+- `function_node(...)`
+- `router_node(...)`
+- `parallel_node(...)`
+- `runtime_node(...)`
+- `llm_node(...)`
+
+For explicit runtime composition, Cortex also provides:
+
+- `function_runtime(...)`
+- `resolve_runtime(...)`
+- `adapt_runtime(...)`
+- `invoke_runtime(...)`
+
+Use these when you want to compose agents, workflows, and lazy runtime builders uniformly without introducing factory classes.
 
 ---
 
@@ -623,12 +646,105 @@ Use `WorkflowAgent` directly when you want explicit orchestration inside a singl
 
 Choose it when you need:
 
-- step-by-step control flow
+- node-by-node control flow
 - retries or fallback logic
 - deterministic routing between stages
 - parallel branches in one workflow
 
-### 7.5 Usage tracking
+`WorkflowAgent` is now node-oriented:
+
+- primary constructor fields:
+  - `nodes`
+  - `start_node`
+- compatibility aliases:
+  - `steps`
+  - `start_step`
+
+Example:
+
+```python
+from cortex import workflow, function_node, router_node
+
+def route_request(state, context, workflow):
+    if state.require("kind") == "math":
+        return "solve_math"
+    return "answer_directly"
+
+wf = workflow(
+    name="Support Workflow",
+    nodes=[
+        router_node(
+            "route_request",
+            func=route_request,
+            possible_next_nodes=["solve_math", "answer_directly"],
+        ),
+        function_node("solve_math", func=lambda state, context, workflow: "42", is_final=True),
+        function_node("answer_directly", func=lambda state, context, workflow: "done", is_final=True),
+    ],
+    start_node="route_request",
+)
+```
+
+### 7.5 Nested runtimes inside workflows
+
+Use `runtime_node(...)` when one node should execute another runtime.
+
+That runtime can be:
+
+- an `Agent`
+- a `WorkflowAgent`
+- a lazy builder returning either of the above
+- a wrapped function runtime from `function_runtime(...)`
+
+Example:
+
+```python
+from cortex import function_runtime, runtime_node, workflow, function_node
+
+child_runtime = function_runtime(
+    name="Child Runtime",
+    ask=lambda user_input=None, context=None, usage=None, runtime=None, parent=None: {
+        "echo": user_input
+    },
+)
+
+wf = workflow(
+    name="Parent Workflow",
+    nodes=[
+        runtime_node(
+            "call_child",
+            runtime=child_runtime,
+            output_key="child_result",
+            next_node="finish",
+        ),
+        function_node(
+            "finish",
+            func=lambda state, context, workflow: state.require("child_result"),
+            is_final=True,
+        ),
+    ],
+)
+```
+
+### 7.6 Runtime helpers
+
+The runtime layer gives you explicit control over lazy composition:
+
+- `function_runtime(...)`
+  - wrap plain functions as runtime-like objects
+
+- `resolve_runtime(...)`
+  - lazily resolve a concrete runtime from a runtime or builder
+
+- `adapt_runtime(...)`
+  - normalize a resolved runtime into a uniform runtime-shaped object
+
+- `invoke_runtime(...)`
+  - execute a runtime through the shared resolution/adaptation path
+
+These helpers are primarily useful when you are building runtime composition abstractions or integrating custom runtime builders.
+
+### 7.7 Usage tracking
 
 Provide `usage` in `AgentSystemContext` and it will be passed through:
 
@@ -643,7 +759,7 @@ await system.async_ask("Hello")
 print(usage.format())
 ```
 
-### 7.6 Whiteboard (agent communication)
+### 7.8 Whiteboard (agent communication)
 
 The whiteboard provides a channel-based messaging system for agents to communicate asynchronously. Enable it to let agents share context, post updates, and coordinate across conversation turns.
 

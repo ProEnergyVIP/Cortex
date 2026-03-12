@@ -6,6 +6,7 @@ This document describes how Cortex is structured internally and how the major ab
 - Message model (`Message`, `AIMessage`, tool call messages)
 - Tools (`FunctionTool` and hosted tools)
 - `Agent` (conversation loop, tool execution, memory)
+- Workflow runtime (`WorkflowEngine`, `WorkflowAgent`, workflow nodes, runtime composition)
 - Agent System (`AgentBuilder`, `AgentSystem`, `CoordinatorSystem`)
 - Whiteboard (shared multi-agent messaging)
 
@@ -32,6 +33,13 @@ At a high level, Cortex is built around this pipeline:
    - tool results are appended as `ToolMessageGroup`
    - the agent loops and calls the LLM again
 9. When a final natural-language (or JSON) answer is produced, it’s returned and saved to memory.
+
+The workflow and agent-system packages add higher-level runtime layers above this:
+
+- `WorkflowEngine` owns generic node execution, retries, fallback, and tracing.
+- `WorkflowAgent` is the public node-oriented workflow runtime built on top of `WorkflowEngine`.
+- `RuntimeNode` lets workflows compose agents, workflows, and lazy runtime builders uniformly.
+- The runtime layer resolves callables lazily through `resolve_runtime(...)`, `adapt_runtime(...)`, and `invoke_runtime(...)`.
 
 The agent-system package adds a higher-level multi-agent API above this:
 
@@ -341,12 +349,26 @@ A worker builder’s `install(...)` method returns a `Tool` (async `FunctionTool
 
 ---
 
-## 8) WorkflowAgent: explicit workflow orchestration
+## 8) Workflow runtime: engine, agent, nodes, and runtime composition
 
-The workflow runtime lives in `cortex/workflow/` and provides a higher-level orchestration primitive for multi-step agentic flows that need **explicit state, explicit routing, runtime policies, and durable observability**.
+The workflow runtime lives in `cortex/workflow/` and provides an orchestration layer for flows that need **explicit state, explicit routing, runtime policies, and durable observability**.
 
-At a high level, `WorkflowAgent` is designed for tasks where a single `Agent` loop is too implicit. Instead of letting the model drive all control flow, the library exposes a named-step workflow model:
+The current design is layered:
 
+- `WorkflowEngine`
+  - generic node executor
+  - content-agnostic
+  - owns retries, fallback, timeout handling, tracing, and ordered graph traversal
+
+- `WorkflowAgent`
+  - node-oriented public runtime wrapper
+  - exposes `nodes` / `start_node`
+  - preserves `steps` / `start_step` as compatibility aliases
+  - delegates execution to `WorkflowEngine`
+
+At a high level, the public workflow model now consists of:
+
+- `WorkflowEngine`
 - `WorkflowAgent`
 - `WorkflowState`
 - `WorkflowRun`
@@ -355,35 +377,44 @@ At a high level, `WorkflowAgent` is designed for tasks where a single `Agent` lo
 - `FunctionStep`
 - `RouterStep`
 - `LLMStep`
-- `WorkflowStep`
+- `RuntimeNode`
+- `WorkflowStep` as a compatibility shim
 - `ParallelStep`
+- `workflow(...)`
+- `function_node(...)`
+- `router_node(...)`
+- `parallel_node(...)`
+- `runtime_node(...)`
+- `llm_node(...)`
+- `function_runtime(...)`
 
 ### 8.1 Mental model
 
 A workflow run proceeds like this:
 
-1. A `WorkflowAgent` is created with named steps and an optional `start_step`.
-2. `async_run(...)` creates or reuses a `WorkflowState`.
-3. The agent resolves the current step by name.
-4. The step returns a `StepResult`, which may update state, emit output, route to another step, or stop execution.
-5. The agent records a `StepTrace` for each executed step.
-6. Runtime policy may retry, time out, or fallback to another step.
-7. The final result is returned as a `WorkflowRun`; `async_ask(...)` returns only `final_output`.
+1. A `WorkflowAgent` or `workflow(...)` helper creates a named graph of nodes.
+2. Internally, `WorkflowAgent` builds a `WorkflowEngine(name, nodes, start_node, ...)`.
+3. `async_run(...)` creates or reuses a `WorkflowState`.
+4. The engine resolves the current node by name.
+5. The node returns a `StepResult`, which may update state, emit output, route to another node, or stop execution.
+6. The engine records a trace entry for each executed node.
+7. Runtime policy may retry, time out, or fallback to another node.
+8. The final result is returned as a `WorkflowRun`; `async_ask(...)` returns only `final_output`.
 
-This makes control flow explicit while still allowing LLM-powered steps inside the graph.
+This makes control flow explicit while still allowing LLM-powered nodes and nested runtimes inside the graph.
 
 ### 8.2 Core abstractions
 
 #### `WorkflowState`
 
-`WorkflowState` is the mutable state container shared by all steps. It stores:
+`WorkflowState` is the mutable state container shared by all nodes. It stores:
 
 - `input`
 - arbitrary step data in `data`
 - `last_output`
 - `final_output`
-- `current_step`
-- `completed_steps`
+- `current_step` as a compatibility alias over `current_node`
+- `completed_steps` as a compatibility alias over `completed_nodes`
 - `metadata`
 
 Helper methods such as `get`, `has`, `require`, `set`, `update`, `set_output`, and `set_final_output` keep step code compact and explicit.
@@ -394,7 +425,7 @@ Helper methods such as `get`, `has`, `require`, `set`, `update`, `set_output`, a
 
 - state updates
 - step output
-- optional `next_step`
+- optional `next_node`
 - stop/final-output signals
 - trace metadata
 
@@ -406,26 +437,26 @@ Ergonomic constructors are provided:
 
 #### `StepPolicy`
 
-`StepPolicy` lets a step opt into runtime behavior:
+`StepPolicy` lets a node opt into runtime behavior:
 
 - `max_retries`
 - `failure_strategy`
-- `fallback_step`
+- `fallback_step` compatibility alias over `fallback_node`
 - `timeout_seconds`
 
-Timeouts are enforced in `WorkflowAgent.async_run(...)` with `asyncio.wait_for(...)`, and timeouts participate in the same retry/fallback machinery as other failures.
+Timeouts are enforced in `WorkflowEngine.async_run(...)` with `asyncio.wait_for(...)`, and timeouts participate in the same retry/fallback machinery as other failures.
 
-### 8.3 Step types
+### 8.3 Node types and compatibility step classes
 
 #### `FunctionStep`
 
-Runs a Python callable against `(state, context, workflow)`. It is useful for deterministic orchestration logic, validation, state shaping, and lightweight transforms.
+Runs a Python callable against `(state, context, workflow)`. It is useful for deterministic orchestration logic, validation, state shaping, and lightweight transforms. `function_node(...)` is the preferred public constructor.
 
 `FunctionStep.final(...)` constructs a terminal step. A review-time bug in final function-step handling was fixed so that plain return values now correctly terminate the workflow instead of falling through to the next ordered step.
 
 #### `RouterStep`
 
-`RouterStep` is a specialized function step for routing decisions. It can declare `possible_next_steps` so construction-time validation can verify the workflow graph even when routing is dynamic at runtime.
+`RouterStep` is a specialized function node for routing decisions. It can declare `possible_next_steps` and `possible_next_nodes` so construction-time validation can verify the graph even when routing is dynamic at runtime.
 
 #### `LLMStep`
 
@@ -438,17 +469,28 @@ Runs a Python callable against `(state, context, workflow)`. It is useful for de
 - tool-enabled agent execution
 - terminal usage via `LLMStep.final(...)`
 
+#### `RuntimeNode`
+
+`RuntimeNode` is the primary runtime-backed node abstraction. It allows a parent workflow to map parent state into child input, lazily resolve a runtime, invoke it, store child output back into parent state, and expose child-run metadata in traces.
+
+It composes:
+
+- concrete `Agent` runtimes
+- concrete `WorkflowAgent` runtimes
+- lazy runtime builders
+- wrapped function runtimes built with `function_runtime(...)`
+
 #### `WorkflowStep`
 
-`WorkflowStep` composes one workflow inside another. It allows a parent workflow to map parent state into child input, run a nested `WorkflowAgent`, store the child result back into parent state, and expose child-run metadata in traces.
+`WorkflowStep` is now a compatibility shim over `RuntimeNode`. It remains available for older workflow-oriented code but is no longer the primary abstraction.
 
 #### `ParallelStep`
 
-`ParallelStep` executes child steps concurrently and merges their results. It is intentionally conservative in this version:
+`ParallelStep` executes child nodes concurrently and merges their results. It is intentionally conservative in this version:
 
-- child step names must be unique
-- child steps cannot declare their own `next_step`
-- child steps cannot be terminal
+- child node names must be unique
+- child nodes cannot declare their own `next_step`
+- child nodes cannot be terminal
 - merge behavior is explicit via `merge_strategy`
 
 Supported merge strategies:
@@ -460,9 +502,9 @@ Parallel execution records branch outputs and merge metadata in the trace surfac
 
 ### 8.4 Validation and graph safety
 
-`WorkflowAgent` performs construction-time validation to catch workflow graph issues early:
+`WorkflowEngine`, and therefore `WorkflowAgent`, performs construction-time validation to catch graph issues early:
 
-- unknown `next_step` references
+- unknown `next_node` references
 - unknown fallback targets
 - obvious non-terminal dead ends
 
@@ -471,21 +513,52 @@ The agent also exposes graph introspection helpers:
 - `get_declared_graph()`
 - `describe_graph()`
 
-These helpers surface step order, declared successors, terminal steps, and fallback targets for tooling, debugging, and future visualization support.
+These helpers surface node order, declared successors, terminal nodes, and fallback targets for tooling, debugging, and future visualization support.
 
-### 8.5 Observability model
+### 8.5 Runtime composition layer
+
+The runtime layer exists so workflows can compose agents, workflows, and builders lazily and uniformly.
+
+#### `resolve_runtime(...)`
+
+`resolve_runtime(...)` repeatedly resolves a runtime-like object from either:
+
+- a concrete runtime
+- a callable returning a runtime
+- a callable returning another callable, until a runtime is produced
+
+Only supported kwargs are forwarded to builders, which keeps builder signatures lightweight.
+
+#### `adapt_runtime(...)`
+
+`adapt_runtime(...)` resolves a concrete runtime and wraps it in a `RuntimeAdapter`, giving callers a uniform runtime-shaped object.
+
+#### `invoke_runtime(...)`
+
+`invoke_runtime(...)` is the shared runtime invocation path used by `RuntimeNode`. It:
+
+- resolves and adapts the runtime
+- prefers `async_run(...)` when available
+- falls back to `async_ask(...)`
+- returns a structured `RuntimeInvocation`
+
+#### `function_runtime(...)`
+
+`function_runtime(...)` builds a `FunctionRuntime`, which is a lightweight adapter for turning plain callables into runtime-like objects. This supports function-first lazy composition without introducing factory classes.
+
+### 8.6 Observability model
 
 Workflow execution is designed to be inspectable by default.
 
 #### `StepTrace`
 
-Each executed step records:
+Each executed node records:
 
-- step name
+- node name
 - status
 - attempt count
 - timing
-- next step / fallback step
+- next node / fallback node, with step-oriented compatibility aliases
 - state before / after
 - output
 - error
@@ -509,9 +582,23 @@ Helper APIs include:
 - `failed_trace()`
 - `to_dict()`
 
-Serialization helpers normalize nested workflow runs and trace metadata into plain Python data, which is especially important for nested workflows and parallel branches.
+Serialization helpers normalize nested workflow runs and trace metadata into plain Python data, which is especially important for nested runtimes and parallel branches.
 
-### 8.6 Design constraints
+### 8.7 Public construction helpers
+
+The preferred public construction style is function-first:
+
+- `workflow(...)`
+- `function_node(...)`
+- `router_node(...)`
+- `parallel_node(...)`
+- `runtime_node(...)`
+- `llm_node(...)`
+- `function_runtime(...)`
+
+This avoids public factory classes while keeping lazy runtime composition explicit and ergonomic.
+
+### 8.8 Design constraints
 
 Current workflow constraints are deliberate:
 
@@ -519,7 +606,7 @@ Current workflow constraints are deliberate:
 - Subworkflows are sequential composition primitives; they do not yet expose full nested graph visualization or resumability.
 - Runtime validation is strongest for statically declared graph edges; fully dynamic router behavior still depends on user correctness at runtime.
 
-### 8.7 Why this feature matters
+### 8.9 Why this feature matters
 
 `WorkflowAgent` fills an important gap between:
 

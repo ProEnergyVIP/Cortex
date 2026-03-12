@@ -3,9 +3,10 @@
 Cortex is a Python framework for building LLM-powered applications with:
 
 - **Runtime primitives** for direct `Agent` and `WorkflowAgent` usage
+- **Function-first workflow and runtime composition helpers**
 - **A preset system** for coordinator-worker orchestration
 
-It is designed so you can start with a single runtime, move up to explicit workflows when needed, and use the coordinator preset when that topology fits your problem.
+It is designed so you can start with a single runtime, move up to explicit node-oriented workflows when needed, and use the coordinator preset when that topology fits your problem.
 
 ## Features
 
@@ -14,8 +15,14 @@ It is designed so you can start with a single runtime, move up to explicit workf
   - Use local tools and provider-hosted tools
 
 - **Explicit workflow runtime**
-  - Build step-based flows with `WorkflowAgent`
-  - Use deterministic routing, retries, fallbacks, and parallel branches
+  - Build node-oriented flows with `WorkflowAgent`
+  - Use deterministic routing, retries, fallbacks, parallel branches, and nested runtimes
+  - Compose workflows with function-first helpers such as `workflow(...)`, `function_node(...)`, `router_node(...)`, `parallel_node(...)`, `runtime_node(...)`, and `llm_node(...)`
+
+- **Runtime composition**
+  - Lazily resolve concrete runtimes, runtime builders, agents, and workflows only when needed
+  - Wrap plain callables as runtimes with `function_runtime(...)`
+  - Use `RuntimeNode` to embed runtimes inside workflow graphs
 
 - **Preset systems**
   - `CoordinatorSystem` for flat coordinator-worker delegation
@@ -37,7 +44,8 @@ It is designed so you can start with a single runtime, move up to explicit workf
 
 - **Use `WorkflowAgent`**
   - when control flow should be explicit
-  - when you need branching, retries, or parallel steps
+  - when you need branching, retries, fallbacks, or parallel nodes
+  - when you want explicit state and inspectable graph execution
 
 - **Use a preset system**
   - when your topology already matches coordinator-worker orchestration
@@ -47,7 +55,9 @@ It is designed so you can start with a single runtime, move up to explicit workf
 Top-level exports include:
 
 - `Agent`, `Tool`, `LLM`
-- `WorkflowAgent`, `FunctionStep`, `LLMStep`, `RouterStep`, `ParallelStep`
+- `WorkflowAgent`, `workflow`, `function_node`, `router_node`, `parallel_node`, `runtime_node`, `llm_node`
+- `RuntimeNode`, `function_runtime`, `resolve_runtime`, `adapt_runtime`, `invoke_runtime`
+- `FunctionStep`, `LLMStep`, `RouterStep`, `ParallelStep`
 - `CoordinatorSystem`, `CoordinatorAgentBuilder`, `WorkerAgentBuilder`
 
 For a fuller guide, see:
