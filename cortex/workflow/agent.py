@@ -7,11 +7,11 @@ actual execution logic to the lower-level engine.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from cortex.message import AgentUsage
 
-from .engine import WorkflowEngine
+from .engine import WorkflowEngine, WorkflowStateProtocol
 from .node import Node
 from .state import WorkflowRun, WorkflowState
 
@@ -26,6 +26,8 @@ class WorkflowAgent:
     context: Any = None
     usage: Optional[AgentUsage] = None
     max_steps: int = 50
+    state_type: Optional[type[WorkflowStateProtocol]] = None
+    state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None
     _engine: WorkflowEngine = field(init=False, repr=False)
 
     def __post_init__(self):
@@ -36,6 +38,8 @@ class WorkflowAgent:
             nodes=self.nodes,
             start_node=self.start_node,
             max_steps=self.max_steps,
+            state_type=self.state_type,
+            state_factory=self.state_factory,
         )
         self.nodes = self._engine.nodes
         self.start_node = self._engine.start_node

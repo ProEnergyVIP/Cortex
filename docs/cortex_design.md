@@ -460,6 +460,41 @@ can execute many different runtime forms.
 
 Helper methods such as `get`, `has`, `require`, `set`, `update`, `set_output`, and `set_final_output` keep step code compact and explicit.
 
+Workflows can also use a custom user-defined state type. The engine now depends on a
+small structural contract, `WorkflowStateProtocol`, instead of assuming that every run
+must use the built-in `WorkflowState` class.
+
+That protocol includes:
+
+- the standard workflow fields (`input`, `data`, `last_output`, `final_output`, `current_node`, `completed_nodes`, `metadata`)
+- the state access/update helpers
+- `to_dict()` for trace/run serialization
+- `clone()` for branch-safe copying
+
+This design keeps the default workflow experience simple while allowing advanced users to
+introduce typed fields or domain-specific helpers on their own state classes.
+
+#### Custom state creation: `state_type` and `state_factory`
+
+`WorkflowAgent` and `workflow(...)` can now be configured with either:
+
+- `state_type`
+- `state_factory`
+
+`state_type` is the simple path:
+
+- pass a subclass of `WorkflowState`
+- the engine will instantiate that class when it needs a fresh workflow state
+
+`state_factory` is the advanced path:
+
+- pass a callable that returns a state object satisfying `WorkflowStateProtocol`
+- the factory receives `user_input` and `initial_data`
+- use this when state construction requires additional logic
+
+The configuration is intentionally exclusive. A workflow cannot declare both at once,
+which avoids ambiguity about which creation path should win.
+
 #### `WorkflowNodeResult`
 
 `WorkflowNodeResult` is the normalized return type for the runtime. It encapsulates:
@@ -560,9 +595,14 @@ Supported merge strategies:
 
 Parallel execution records branch outputs and merge metadata in the trace surface, and branch failures are wrapped with explicit branch-level error context.
 
-Each branch receives a copied `WorkflowState`, not the shared live state object. That
+Each branch receives a copied workflow state, not the shared live state object. That
 prevents concurrent mutation races. After all branches finish, `ParallelNode` merges the
 resulting updates according to `merge_strategy`.
+
+The important implementation detail is that `ParallelNode` now clones the active state via
+`state.clone(...)` instead of reconstructing the built-in `WorkflowState` directly. That
+means custom state subclasses survive parallel execution without being flattened back into
+the default state type.
 
 ### 8.4 Validation and graph safety
 

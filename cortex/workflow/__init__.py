@@ -21,7 +21,7 @@ from .runtime import (
     invoke_runnable,
     resolve_runnable,
 )
-from .state import NodeTrace, WorkflowRun, WorkflowState
+from .state import NodeTrace, WorkflowRun, WorkflowState, WorkflowStateProtocol
 from .types import InputBuilder, NodeFunction, NodeUpdates, NodeValue, PromptBuilder, RouterFunction, WorkflowMessageInput
 
 # Keep exports explicit so the public workflow surface stays easy to inspect and stable
@@ -50,6 +50,7 @@ __all__ = [
     "NodePolicy",
     "FailureStrategy",
     "WorkflowState",
+    "WorkflowStateProtocol",
     "WorkflowRun",
     "NodeTrace",
     "Node",

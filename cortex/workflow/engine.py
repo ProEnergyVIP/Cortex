@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from .node import EngineNode
 
@@ -129,6 +129,61 @@ class EngineState:
             "metadata": _serialize_value(dict(self.metadata)),
         }
 
+    def clone(self, **overrides) -> "EngineState":
+        """Return a shallow structural copy of the state with optional field overrides."""
+
+        values = {
+            "input": self.input,
+            "data": dict(self.data),
+            "last_output": self.last_output,
+            "final_output": self.final_output,
+            "current_node": self.current_node,
+            "completed_nodes": list(self.completed_nodes),
+            "metadata": dict(self.metadata),
+        }
+        values.update(overrides)
+        return type(self)(**values)
+
+
+@runtime_checkable
+class WorkflowStateProtocol(Protocol):
+    """Structural contract for workflow state objects used by the engine and nodes."""
+
+    input: Any
+    data: dict[str, Any]
+    last_output: Any
+    final_output: Any
+    current_node: Optional[str]
+    completed_nodes: list[str]
+    metadata: dict[str, Any]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        ...
+
+    def has(self, key: str) -> bool:
+        ...
+
+    def require(self, key: str) -> Any:
+        ...
+
+    def set(self, key: str, value: Any) -> Any:
+        ...
+
+    def update(self, values: Optional[dict[str, Any]]) -> None:
+        ...
+
+    def set_output(self, value: Any) -> Any:
+        ...
+
+    def set_final_output(self, value: Any) -> Any:
+        ...
+
+    def to_dict(self) -> dict[str, Any]:
+        ...
+
+    def clone(self, **overrides) -> "WorkflowStateProtocol":
+        ...
+
 
 @dataclass
 class EngineRun:
@@ -180,12 +235,16 @@ class WorkflowEngine:
     nodes: list[EngineNode]
     start_node: Optional[str] = None
     max_steps: int = 50
+    state_type: Optional[type[WorkflowStateProtocol]] = None
+    state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None
 
     def __post_init__(self):
         """Validate workflow structure and precompute fast lookup tables."""
 
         if not self.nodes:
             raise ValueError("WorkflowEngine requires at least one node")
+        if self.state_type is not None and self.state_factory is not None:
+            raise ValueError("WorkflowEngine accepts either state_type or state_factory, not both")
         self.nodes_by_name = {node.name: node for node in self.nodes}
         if len(self.nodes_by_name) != len(self.nodes):
             raise ValueError("WorkflowEngine node names must be unique")
@@ -195,12 +254,22 @@ class WorkflowEngine:
             raise ValueError(f"Unknown start_node: {self.start_node}")
         self._validate_declared_node_references()
 
-    def create_state(self, user_input: Any = None, **kwargs) -> EngineState:
+    def create_state(self, user_input: Any = None, **kwargs) -> WorkflowStateProtocol:
         """Create a fresh workflow state seeded with user input and extra values."""
 
-        state = EngineState(input=user_input)
+        if self.state_factory is not None:
+            state = self.state_factory(user_input=user_input, initial_data=dict(kwargs))
+        else:
+            state_cls = self.state_type or EngineState
+            state = state_cls(input=user_input)
+            if kwargs:
+                state.update(kwargs)
+        if not isinstance(state, WorkflowStateProtocol):
+            raise TypeError("Workflow state must satisfy WorkflowStateProtocol")
         if kwargs:
-            state.update(kwargs)
+            missing_keys = [key for key, value in kwargs.items() if state.get(key) != value]
+            if missing_keys:
+                state.update({key: kwargs[key] for key in missing_keys})
         return state
 
     def get_node(self, node_name: str):
@@ -271,7 +340,14 @@ class WorkflowEngine:
             formatted = ", ".join(dead_end_nodes)
             raise ValueError(f"Workflow contains non-terminal dead-end nodes: {formatted}")
 
-    async def async_run(self, user_input: Any = None, *, state: Optional[EngineState] = None, context: Any = None, runtime: Any = None) -> EngineRun:
+    async def async_run(
+        self,
+        user_input: Any = None,
+        *,
+        state: Optional[WorkflowStateProtocol] = None,
+        context: Any = None,
+        runtime: Any = None,
+    ) -> EngineRun:
         """Run the workflow from `start_node` until a node stops or the graph ends."""
 
         run = EngineRun(engine_name=self.name, started_at=datetime.now(), status="running")

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from inspect import signature
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from cortex.LLMFunc import llmfunc
 from cortex.agent import Agent
 from cortex.message import Message, UserMessage
 
 from .agent import WorkflowAgent
+from .engine import WorkflowStateProtocol
 from .node import NodePolicy, ParallelNode, RouterNode, RunnableNode
 from .runtime import FunctionRunnable, function_runnable as build_function_runnable
 
@@ -20,6 +21,8 @@ def workflow(
     context: Any = None,
     usage: Any = None,
     max_steps: int = 50,
+    state_type: Optional[type[WorkflowStateProtocol]] = None,
+    state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None,
 ) -> WorkflowAgent:
     if nodes is None:
         raise ValueError("workflow(...) requires nodes")
@@ -30,6 +33,8 @@ def workflow(
         context=context,
         usage=usage,
         max_steps=max_steps,
+        state_type=state_type,
+        state_factory=state_factory,
     )
 
 

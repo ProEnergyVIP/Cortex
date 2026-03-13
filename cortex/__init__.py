@@ -26,6 +26,7 @@ from cortex.workflow import (
     NodePolicy,
     WorkflowRun,
     WorkflowState,
+    WorkflowStateProtocol,
     NodeTrace,
     Node,
     WorkflowNodeResult,
@@ -135,7 +136,7 @@ __all__ = [
     'CoordinatorAgentBuilder', 'WorkerAgentBuilder', 'CoordinatorSystem',
     'AgentSystemContext',
     # Workflow Agent - Composed workflow-oriented API
-    'WorkflowAgent', 'FailureStrategy', 'NodePolicy', 'WorkflowRun', 'WorkflowState', 'NodeTrace',
+    'WorkflowAgent', 'FailureStrategy', 'NodePolicy', 'WorkflowRun', 'WorkflowState', 'WorkflowStateProtocol', 'NodeTrace',
     'Node', 'WorkflowNodeResult', 'ParallelNode', 'RouterNode', 'RunnableNode',
     'workflow', 'function_runnable', 'function_node', 'router_node', 'parallel_node', 'runnable_node', 'llm_node',
     'AskCapableRunnableLike', 'FunctionRunnable', 'RunnableLike', 'RunCapableRunnableLike', 'RunResultLike',

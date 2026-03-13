@@ -354,18 +354,10 @@ class ParallelNode(Node):
         """Run child nodes concurrently and merge their outputs into one result."""
 
         async def _run_child(node: Node):
-            from .state import WorkflowState
-
             # Each branch gets a copy of state so concurrent child execution does not mutate
             # shared state in place.
-            branch_state = WorkflowState(
-                input=state.input,
-                data=dict(state.data),
-                last_output=state.last_output,
-                final_output=state.final_output,
+            branch_state = state.clone(
                 current_node=node.name,
-                completed_nodes=list(state.completed_nodes),
-                metadata=dict(state.metadata),
             )
             try:
                 result = await node.run(branch_state, context=context, workflow=workflow)

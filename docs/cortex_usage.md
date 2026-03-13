@@ -694,6 +694,8 @@ A workflow usually has:
 - optional shared `context`
 - optional `usage`
 - a `max_steps` guard
+- optional `state_type`
+- optional `state_factory`
 
 The most common node-building pattern is:
 
@@ -754,6 +756,121 @@ print(run.to_dict())
 Use `async_run(...)` when you want the full trace/state record, and `async_ask(...)` when
 you only need the final answer.
 
+### 7.4.1.1 Using a custom workflow state class
+
+Workflows can now use a user-defined state type.
+
+This is useful when you want:
+
+- typed workflow fields
+- domain-specific helper methods on state
+- cleaner node code than manually reading and writing every value through `state.data`
+
+The simplest pattern is to subclass `WorkflowState` and pass it as `state_type`.
+
+Example:
+
+```python
+from dataclasses import dataclass, field
+
+from cortex import WorkflowState, function_node, workflow
+
+
+@dataclass
+class SupportState(WorkflowState):
+    customer_id: str | None = None
+    tags: list[str] = field(default_factory=list)
+
+    def add_tag(self, tag: str) -> None:
+        self.tags.append(tag)
+
+
+def classify(state, context, workflow):
+    if "invoice" in (state.input or "").lower():
+        state.add_tag("billing")
+        return "billing"
+    return "general"
+
+
+wf = workflow(
+    name="Support Workflow",
+    nodes=[
+        function_node("classify", func=classify, next_node="finish"),
+        function_node("finish", func=lambda state, context, workflow: state.tags, is_final=True),
+    ],
+    start_node="classify",
+    state_type=SupportState,
+)
+```
+
+When the workflow creates state internally, it will now create `SupportState` instead of
+the default `WorkflowState`.
+
+### 7.4.1.2 Seeding custom state before execution
+
+You can still construct state explicitly before a run.
+
+Example:
+
+```python
+state = wf.create_state("I need help with an invoice", ticket_id="T-100")
+state.customer_id = "cust-123"
+
+run = await wf.async_run(state=state)
+print(type(run.state).__name__)
+print(run.final_output)
+```
+
+This pattern is useful when:
+
+- upstream code already prepared state
+- you need to populate custom fields before the first node runs
+- you want to reuse the same initialized state shape across tests or applications
+
+### 7.4.1.3 Using `state_factory` for custom initialization
+
+If state creation requires custom logic, use `state_factory` instead of `state_type`.
+
+The factory is called with:
+
+- `user_input`
+- `initial_data`
+
+Example:
+
+```python
+from dataclasses import dataclass
+
+from cortex import WorkflowState, workflow
+
+
+@dataclass
+class ReviewState(WorkflowState):
+    review_type: str | None = None
+
+
+def build_review_state(*, user_input=None, initial_data=None):
+    state = ReviewState(input=user_input, review_type="fast")
+    if initial_data:
+        state.update(initial_data)
+    return state
+
+
+wf = workflow(
+    name="Review Workflow",
+    nodes=[...],
+    state_factory=build_review_state,
+)
+```
+
+Use `state_factory` when:
+
+- you need construction logic beyond plain dataclass initialization
+- default values depend on configuration or environment
+- you want one place to normalize initial workflow data
+
+Do not pass both `state_type` and `state_factory` to the same workflow.
+
 ### 7.4.2 A practical workflow design pattern
 
 A good default structure for business workflows is:
@@ -772,6 +889,34 @@ A good default structure for business workflows is:
 
 This pattern keeps control flow inspectable and makes retries/fallback behavior easy to
 reason about.
+
+### 7.4.3 State design recommendations
+
+For most workflows, a good pattern is:
+
+- put generic workflow values in `state.data`
+- add typed fields only for values that are central to the workflow
+- add helper methods when they make node logic clearer
+
+Example:
+
+```python
+@dataclass
+class TriageState(WorkflowState):
+    severity: str | None = None
+
+    def mark_urgent(self) -> None:
+        self.severity = "urgent"
+```
+
+Recommended:
+
+- use `state_type` when a simple subclass is enough
+- use `state_factory` when construction itself needs logic
+- keep `to_dict()` and `clone()` working if you override them
+
+The `clone()` part matters because `ParallelNode` copies the active state for each branch.
+If you subclass `WorkflowState`, the inherited `clone()` implementation is usually enough.
 
 ### 7.5 Nested runnables inside workflows
 
