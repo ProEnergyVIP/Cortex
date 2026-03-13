@@ -1,3 +1,9 @@
+"""Public workflow API surface.
+
+This module re-exports the workflow engine, node types, helper constructors, runtime
+adapters, and shared types that make up the supported `cortex.workflow` interface.
+"""
+
 from .agent import WorkflowAgent
 from .helpers import function_node, function_runnable, llm_node, parallel_node, router_node, runnable_node, workflow
 from .node import FailureStrategy, Node, NodePolicy, ParallelNode, RouterNode, RunnableNode, WorkflowNodeResult
@@ -18,6 +24,8 @@ from .runtime import (
 from .state import NodeTrace, WorkflowRun, WorkflowState
 from .types import InputBuilder, NodeFunction, NodeUpdates, NodeValue, PromptBuilder, RouterFunction, WorkflowMessageInput
 
+# Keep exports explicit so the public workflow surface stays easy to inspect and stable
+# for users importing from `cortex.workflow`.
 __all__ = [
     "WorkflowAgent",
     "workflow",

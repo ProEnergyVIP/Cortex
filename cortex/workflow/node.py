@@ -1,3 +1,9 @@
+"""Core workflow node types and result objects.
+
+This module defines the abstract node contract plus the concrete node implementations
+used by the workflow engine: routing nodes, runnable-backed nodes, and parallel nodes.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -23,6 +29,8 @@ class NodePolicy:
     timeout_seconds: Optional[float] = None
 
     def __post_init__(self):
+        """Validate that retry, timeout, and fallback settings are internally consistent."""
+
         if self.max_retries < 0:
             raise ValueError("NodePolicy.max_retries must be >= 0")
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
@@ -34,6 +42,8 @@ class NodePolicy:
 
 
 class EngineNode(Protocol):
+    """Structural protocol implemented by node types that the engine can execute."""
+
     name: str
     next_node: Optional[str]
     policy: NodePolicy
@@ -49,6 +59,8 @@ class EngineNode(Protocol):
 
 
 async def _resolve_callable(value, *args):
+    """Resolve a static value or invoke a sync/async builder with positional args."""
+
     if callable(value):
         sig = signature(value)
         count = len(sig.parameters)
@@ -69,7 +81,7 @@ class WorkflowNodeError(Exception):
 
 @dataclass
 class WorkflowNodeResult:
-    """Result returned by a workflow node."""
+    """Normalized result object returned by workflow nodes."""
 
     updates: dict[str, Any] = field(default_factory=dict)
     output: Any = None
@@ -79,6 +91,8 @@ class WorkflowNodeResult:
     trace_data: dict[str, Any] = field(default_factory=dict)
 
     def apply(self, state) -> None:
+        """Apply updates and output fields to the shared workflow state."""
+
         state.update(self.updates)
         if self.output is not None:
             state.set_output(self.output)
@@ -87,6 +101,8 @@ class WorkflowNodeResult:
 
     @classmethod
     def next(cls, node_name: str, *, output: Any = None, updates: Optional[dict[str, Any]] = None) -> "WorkflowNodeResult":
+        """Create a result that routes execution to another node."""
+
         return cls(updates=updates or {}, output=output, next_node=node_name)
 
     @classmethod
@@ -97,6 +113,8 @@ class WorkflowNodeResult:
         updates: Optional[dict[str, Any]] = None,
         final_output: Any = None,
     ) -> "WorkflowNodeResult":
+        """Create a terminal result that stops the workflow."""
+
         return cls(
             updates=updates or {},
             output=output,
@@ -112,6 +130,8 @@ class WorkflowNodeResult:
         output: Any = None,
         next_node: Optional[str] = None,
     ) -> "WorkflowNodeResult":
+        """Create a result that only updates state and optionally routes onward."""
+
         return cls(updates=updates, output=output, next_node=next_node)
 
 
@@ -126,9 +146,13 @@ class Node(ABC):
         self.policy = policy or NodePolicy()
 
     def declared_next_nodes(self) -> set[str]:
+        """Return statically declared successor nodes for validation and graph tooling."""
+
         return {self.next_node} if self.next_node is not None else set()
 
     def is_terminal(self) -> bool:
+        """Return whether this node always terminates the workflow."""
+
         return False
 
     @abstractmethod
@@ -154,9 +178,13 @@ class RouterNode(Node):
         self.possible_next_nodes = set(possible_next_nodes or [])
 
     def declared_next_nodes(self) -> set[str]:
+        """Return both the default successor and any explicitly declared route targets."""
+
         return super().declared_next_nodes().union(self.possible_next_nodes)
 
     async def run(self, state, *, context: Any = None, workflow: Any = None) -> WorkflowNodeResult:
+        """Execute the router and normalize its output into a workflow result."""
+
         result = self.func(state, context, workflow)
         if iscoroutine(result):
             result = await result
@@ -174,7 +202,7 @@ class RouterNode(Node):
 
 
 class RunnableNode(Node):
-    """Execute another runnable as a nested node."""
+    """Execute a nested runnable and map its output back into workflow state."""
 
     def __init__(
         self,
@@ -206,6 +234,8 @@ class RunnableNode(Node):
         output_key: Optional[str] = None,
         policy: Optional[NodePolicy] = None,
     ) -> "RunnableNode":
+        """Construct a terminal runnable node."""
+
         return cls(
             name=name,
             runnable=runnable,
@@ -219,6 +249,8 @@ class RunnableNode(Node):
         return self.is_final
 
     async def run(self, state, *, context: Any = None, workflow: Any = None) -> WorkflowNodeResult:
+        """Build child input, invoke the runnable, and normalize the child output."""
+
         child_input = await _resolve_callable(self.input_builder, state, context, workflow) if self.input_builder is not None else state.input
         child_invocation = await invoke_runnable(
             self.runnable,
@@ -229,6 +261,8 @@ class RunnableNode(Node):
         )
         result = child_invocation.output
         if isinstance(result, WorkflowNodeResult):
+            # Child workflows may already return a fully normalized node result. In that
+            # case, this wrapper only fills in defaults and attaches nested trace metadata.
             if result.next_node is None:
                 result.next_node = self.next_node
             if self.is_final and not result.stop:
@@ -248,6 +282,8 @@ class RunnableNode(Node):
                 }
             return result
 
+        # Plain outputs are wrapped into a standard result so the engine only has to reason
+        # about one result shape.
         child_trace_payload = {"child_runnable_name": child_invocation.runnable_name}
         if child_invocation.run is not None:
             child_trace_payload["child_run"] = child_invocation.run
@@ -307,15 +343,21 @@ class ParallelNode(Node):
         merge_strategy: str = "error",
         policy: Optional[NodePolicy] = None,
     ) -> "ParallelNode":
+        """Construct a terminal parallel node."""
+
         return cls(name=name, nodes=nodes, output_key=output_key, merge_strategy=merge_strategy, policy=policy, is_final=True)
 
     def is_terminal(self) -> bool:
         return self.is_final
 
     async def run(self, state, *, context: Any = None, workflow: Any = None) -> WorkflowNodeResult:
+        """Run child nodes concurrently and merge their outputs into one result."""
+
         async def _run_child(node: Node):
             from .state import WorkflowState
 
+            # Each branch gets a copy of state so concurrent child execution does not mutate
+            # shared state in place.
             branch_state = WorkflowState(
                 input=state.input,
                 data=dict(state.data),
@@ -347,6 +389,8 @@ class ParallelNode(Node):
 
         for node_name, result, branch_state in branch_results:
             for key, value in result.updates.items():
+                # Merge conflicts are either rejected or resolved deterministically based on
+                # the configured merge strategy.
                 if key in merged_updates and self.merge_strategy == "error":
                     previous_node = update_sources[key]
                     raise ValueError(

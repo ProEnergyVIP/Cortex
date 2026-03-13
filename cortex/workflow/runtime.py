@@ -1,3 +1,9 @@
+"""Runnable adaptation utilities used by workflow nodes.
+
+The workflow layer accepts agents, workflows, and plain functions. This module normalizes
+those shapes into a small runnable interface so `RunnableNode` can invoke them uniformly.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +16,8 @@ from cortex.message import AgentUsage
 
 @runtime_checkable
 class AskCapableRunnableLike(Protocol):
+    """Protocol for runnable-like objects that can answer asynchronously."""
+
     name: Optional[str]
     context: Any
     usage: Optional[AgentUsage]
@@ -20,16 +28,22 @@ class AskCapableRunnableLike(Protocol):
 
 @runtime_checkable
 class RunnableLike(AskCapableRunnableLike, Protocol):
+    """Marker protocol for the minimum runnable surface workflows require."""
+
     pass
 
 
 @runtime_checkable
 class RunResultLike(Protocol):
+    """Protocol for structured results returned by `async_run(...)`."""
+
     final_output: Any
     engine_name: Optional[str]
 
 
 class RunnableInvocation:
+    """Normalized output returned by `invoke_runnable(...)`."""
+
     output: Any
     runnable_name: Optional[str]
     run: Optional[RunResultLike] = None
@@ -37,6 +51,8 @@ class RunnableInvocation:
 
 @dataclass
 class RunnableAdapter:
+    """Thin adapter that gives resolved runnables a uniform interface."""
+
     runnable: AskCapableRunnableLike
 
     @property
@@ -52,9 +68,13 @@ class RunnableAdapter:
         return getattr(self.runnable, "usage", None)
 
     async def async_ask(self, user_input: Any = None, **kwargs) -> Any:
+        """Forward `async_ask(...)` to the wrapped runnable."""
+
         return await self.runnable.async_ask(user_input, **kwargs)
 
     async def async_run(self, user_input: Any = None, **kwargs) -> Any:
+        """Forward `async_run(...)` when the wrapped runnable supports it."""
+
         if isinstance(self.runnable, RunCapableRunnableLike):
             return await self.runnable.async_run(user_input, **kwargs)
         raise TypeError("Adapted runnable does not support async_run(...)")
@@ -62,12 +82,16 @@ class RunnableAdapter:
 
 @runtime_checkable
 class RunCapableRunnableLike(AskCapableRunnableLike, Protocol):
+    """Protocol for runnable-like objects that expose `async_run(...)`."""
+
     async def async_run(self, user_input: Any = None, **kwargs) -> Any:
         ...
 
 
 @dataclass
 class FunctionRunnable:
+    """Simple runnable wrapper around plain callables."""
+
     ask_func: Any
     run_func: Any = None
     name: Optional[str] = None
@@ -75,6 +99,8 @@ class FunctionRunnable:
     usage: Optional[AgentUsage] = None
 
     async def async_ask(self, user_input: Any = None, **kwargs) -> Any:
+        """Invoke the ask function with only the supported keyword arguments."""
+
         return await _call_with_supported_kwargs(
             self.ask_func,
             user_input=user_input,
@@ -84,6 +110,8 @@ class FunctionRunnable:
         )
 
     async def async_run(self, user_input: Any = None, **kwargs) -> Any:
+        """Invoke the run function when one is configured."""
+
         if self.run_func is None:
             raise TypeError("FunctionRunnable does not support async_run(...)")
         return await _call_with_supported_kwargs(
@@ -97,6 +125,8 @@ class FunctionRunnable:
 
 
 async def _call_with_supported_kwargs(func, **kwargs):
+    """Call a sync or async function with only the kwargs it accepts."""
+
     sig = signature(func)
     accepted_kwargs = {}
 
@@ -122,6 +152,8 @@ async def resolve_runnable(
     usage: Optional[AgentUsage] = None,
     parent: Any = None,
 ) -> RunnableLike:
+    """Resolve a runnable-like object from either a concrete runnable or a callable."""
+
     current = runnable
 
     while True:
@@ -131,6 +163,8 @@ async def resolve_runnable(
             raise TypeError(
                 "Runnable must be a concrete runnable with async_ask(...) or a callable that returns one"
             )
+        # Plain functions are adapted lazily into a runnable shape instead of requiring
+        # callers to wrap them manually.
         return FunctionRunnable(
             ask_func=current,
             name=getattr(current, "__name__", None),
@@ -146,6 +180,8 @@ async def adapt_runnable(
     usage: Optional[AgentUsage] = None,
     parent: Any = None,
 ) -> RunnableAdapter:
+    """Resolve a runnable and wrap it in a uniform adapter."""
+
     resolved_runnable = await resolve_runnable(
         runnable,
         context=context,
@@ -156,14 +192,20 @@ async def adapt_runnable(
 
 
 def get_runnable_name(runnable: Any) -> Optional[str]:
+    """Return the display name for a runnable when available."""
+
     return getattr(runnable, "name", None)
 
 
 def get_run_name(run: RunResultLike) -> Optional[str]:
+    """Return the display name for a structured run result."""
+
     return run.engine_name
 
 
 def get_run_output(run: Any) -> Any:
+    """Extract the output from either a structured run object or a plain value."""
+
     if isinstance(run, RunResultLike):
         return run.final_output
     return getattr(run, "final_output", run)
@@ -177,6 +219,8 @@ async def invoke_runnable(
     usage: Optional[AgentUsage] = None,
     parent: Any = None,
 ) -> RunnableInvocation:
+    """Invoke a runnable, preferring `async_run(...)` when available."""
+
     adapted_runnable = await adapt_runnable(
         runnable,
         context=context,
@@ -185,6 +229,7 @@ async def invoke_runnable(
     )
 
     if isinstance(adapted_runnable.runnable, RunCapableRunnableLike):
+        # Structured runs preserve nested run metadata for workflow traces.
         runnable_run = await adapted_runnable.async_run(user_input, context=context)
         runnable_name = (
             get_run_name(runnable_run)
@@ -197,6 +242,7 @@ async def invoke_runnable(
             run=runnable_run if isinstance(runnable_run, RunResultLike) else None,
         )
 
+    # Ask-only runnables still participate uniformly, but do not produce nested run data.
     output = await adapted_runnable.async_ask(user_input, context=context)
     return RunnableInvocation(
         output=output,
@@ -212,6 +258,8 @@ def function_runnable(
     context: Any = None,
     usage: Optional[AgentUsage] = None,
 ) -> FunctionRunnable:
+    """Create a `FunctionRunnable` from plain callables."""
+
     return FunctionRunnable(
         ask_func=ask,
         run_func=run,

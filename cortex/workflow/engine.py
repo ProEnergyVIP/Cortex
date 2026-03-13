@@ -9,6 +9,8 @@ from .node import EngineNode
 
 
 def _serialize_value(value: Any) -> Any:
+    """Recursively convert workflow runtime objects into plain Python data."""
+
     if isinstance(value, EngineRun):
         return value.to_dict()
     if isinstance(value, EngineState):
@@ -24,6 +26,8 @@ def _serialize_value(value: Any) -> Any:
 
 @dataclass
 class EngineTrace:
+    """Trace record for one node execution, including retries and routing decisions."""
+
     node_name: str
     status: str = "pending"
     attempt_count: int = 0
@@ -39,6 +43,8 @@ class EngineTrace:
     error: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable snapshot of the trace."""
+
         return {
             "node_name": self.node_name,
             "status": self.status,
@@ -58,6 +64,8 @@ class EngineTrace:
 
 @dataclass
 class EngineState:
+    """Mutable workflow state shared across all nodes in a single run."""
+
     input: Any = None
     data: dict[str, Any] = field(default_factory=dict)
     last_output: Any = None
@@ -67,34 +75,50 @@ class EngineState:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
+        """Read a value from the workflow data bag."""
+
         return self.data.get(key, default)
 
     def has(self, key: str) -> bool:
+        """Return whether a key exists in the workflow data bag."""
+
         return key in self.data
 
     def require(self, key: str) -> Any:
+        """Read a required value or raise when the key is missing."""
+
         if key not in self.data:
             raise KeyError(f"Workflow state is missing required key: {key}")
         return self.data[key]
 
     def set(self, key: str, value: Any) -> Any:
+        """Store a value in the workflow data bag and return it."""
+
         self.data[key] = value
         return value
 
     def update(self, values: Optional[dict[str, Any]]) -> None:
+        """Merge new values into the workflow data bag."""
+
         if values:
             self.data.update(values)
 
     def set_output(self, value: Any) -> Any:
+        """Record the most recent node output."""
+
         self.last_output = value
         return value
 
     def set_final_output(self, value: Any) -> Any:
+        """Record the terminal workflow output and mirror it to `last_output`."""
+
         self.final_output = value
         self.last_output = value
         return value
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable snapshot of the current state."""
+
         return {
             "input": _serialize_value(self.input),
             "data": _serialize_value(dict(self.data)),
@@ -108,6 +132,8 @@ class EngineState:
 
 @dataclass
 class EngineRun:
+    """Top-level record for a workflow execution."""
+
     engine_name: str
     traces: list[EngineTrace] = field(default_factory=list)
     state: Optional[EngineState] = None
@@ -118,15 +144,21 @@ class EngineRun:
     finished_at: Optional[datetime] = None
 
     def add_trace(self, trace: EngineTrace) -> None:
+        """Append a node trace to the run record."""
+
         self.traces.append(trace)
 
     @property
     def duration_ms(self) -> Optional[float]:
+        """Return total runtime in milliseconds when timing information is complete."""
+
         if self.started_at is None or self.finished_at is None:
             return None
         return (self.finished_at - self.started_at).total_seconds() * 1000
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable snapshot of the run."""
+
         return {
             "engine_name": self.engine_name,
             "traces": [trace.to_dict() for trace in self.traces],
@@ -142,12 +174,16 @@ class EngineRun:
 
 @dataclass
 class WorkflowEngine:
+    """Execute a validated graph of workflow nodes against shared state."""
+
     name: str
     nodes: list[EngineNode]
     start_node: Optional[str] = None
     max_steps: int = 50
 
     def __post_init__(self):
+        """Validate workflow structure and precompute fast lookup tables."""
+
         if not self.nodes:
             raise ValueError("WorkflowEngine requires at least one node")
         self.nodes_by_name = {node.name: node for node in self.nodes}
@@ -160,18 +196,24 @@ class WorkflowEngine:
         self._validate_declared_node_references()
 
     def create_state(self, user_input: Any = None, **kwargs) -> EngineState:
+        """Create a fresh workflow state seeded with user input and extra values."""
+
         state = EngineState(input=user_input)
         if kwargs:
             state.update(kwargs)
         return state
 
     def get_node(self, node_name: str):
+        """Return a node by name or raise when the workflow graph is invalid at runtime."""
+
         node = self.nodes_by_name.get(node_name)
         if node is None:
             raise KeyError(f"Unknown workflow node: {node_name}")
         return node
 
     def get_next_node_name(self, current_node_name: str) -> Optional[str]:
+        """Return the default ordered successor for a node."""
+
         try:
             node_index = self.node_order.index(current_node_name)
         except ValueError as e:
@@ -181,6 +223,8 @@ class WorkflowEngine:
         return None
 
     def get_declared_graph(self) -> dict[str, dict[str, Any]]:
+        """Describe the statically declared graph shape for inspection or tooling."""
+
         graph: dict[str, dict[str, Any]] = {}
         for index, node in enumerate(self.nodes):
             graph[node.name] = {
@@ -192,6 +236,8 @@ class WorkflowEngine:
         return graph
 
     def describe_graph(self) -> dict[str, Any]:
+        """Return a higher-level graph summary for debugging and visualization."""
+
         return {
             "name": self.name,
             "start_node": self.start_node,
@@ -201,6 +247,8 @@ class WorkflowEngine:
         }
 
     def _validate_declared_node_references(self) -> None:
+        """Catch invalid edges and obvious dead ends before execution starts."""
+
         known_nodes = set(self.node_order)
         invalid_references: list[tuple[str, str]] = []
         dead_end_nodes: list[str] = []
@@ -224,6 +272,8 @@ class WorkflowEngine:
             raise ValueError(f"Workflow contains non-terminal dead-end nodes: {formatted}")
 
     async def async_run(self, user_input: Any = None, *, state: Optional[EngineState] = None, context: Any = None, runtime: Any = None) -> EngineRun:
+        """Run the workflow from `start_node` until a node stops or the graph ends."""
+
         run = EngineRun(engine_name=self.name, started_at=datetime.now(), status="running")
         state = state or self.create_state(user_input)
         if user_input is not None and state.input is None:
@@ -235,6 +285,7 @@ class WorkflowEngine:
 
         try:
             while current_node_name is not None:
+                # Guard against accidental cycles or routing bugs.
                 steps_executed += 1
                 if steps_executed > self.max_steps:
                     raise RuntimeError(f"Workflow exceeded max_steps={self.max_steps}")
@@ -252,6 +303,8 @@ class WorkflowEngine:
                 try:
                     attempt_count = 0
                     while True:
+                        # Retries are tracked on the same trace so a single node execution
+                        # remains easy to inspect.
                         attempt_count += 1
                         trace.attempt_count = attempt_count
                         try:
@@ -264,6 +317,7 @@ class WorkflowEngine:
                                 result = await node.run(state, context=context, workflow=runtime)
                             break
                         except Exception as e:
+                            # Nodes may attach structured trace metadata to exceptions.
                             if hasattr(e, "trace_data") and e.trace_data:
                                 trace.metadata.update(e.trace_data)
                             if isinstance(e, TimeoutError):
@@ -287,6 +341,8 @@ class WorkflowEngine:
                         trace.state_after = state.to_dict()
                         continue
 
+                    # Node results are applied centrally so every node type follows the same
+                    # state transition rules.
                     result.apply(state)
                     state.completed_nodes.append(current_node_name)
                     if result.trace_data:
@@ -294,6 +350,8 @@ class WorkflowEngine:
 
                     next_node = result.next_node
                     if result.stop:
+                        # A terminal result can still expose a next_node for debugging, but
+                        # execution stops immediately once `stop=True`.
                         trace.status = "completed"
                         trace.output = result.output
                         trace.next_node = next_node
@@ -303,6 +361,7 @@ class WorkflowEngine:
                         break
 
                     if next_node is None:
+                        # When a node does not explicitly route, fall back to declared order.
                         next_node = self.get_next_node_name(current_node_name)
 
                     trace.status = "completed"
@@ -316,6 +375,8 @@ class WorkflowEngine:
                         trace.duration_ms = (trace.finished_at - trace.started_at).total_seconds() * 1000
 
             if run.status == "running":
+                # Reaching the end of the graph without an explicit stop still counts as a
+                # successful completion.
                 run.status = "completed"
                 run.final_output = state.final_output if state.final_output is not None else state.last_output
 

@@ -1,3 +1,9 @@
+"""Public workflow wrapper built on top of `WorkflowEngine`.
+
+This module keeps the high-level workflow API small and ergonomic while delegating the
+actual execution logic to the lower-level engine.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -23,7 +29,8 @@ class WorkflowAgent:
     _engine: WorkflowEngine = field(init=False, repr=False)
 
     def __post_init__(self):
-        """Validate workflow construction and precompute node lookup structures."""
+        """Build the underlying engine and mirror its validated graph metadata."""
+
         self._engine = WorkflowEngine(
             name=self.name,
             nodes=self.nodes,
@@ -56,6 +63,8 @@ class WorkflowAgent:
         return self._engine.describe_graph()
 
     def _validate_declared_node_references(self) -> None:
+        """Re-run graph validation on the underlying engine."""
+
         self._engine._validate_declared_node_references()
 
     async def async_run(
@@ -66,6 +75,8 @@ class WorkflowAgent:
         context: Any = None,
     ) -> WorkflowRun:
         """Run the workflow and return the full workflow run record."""
+
+        # Per-call context can override the agent default without mutating the agent.
         active_context = context if context is not None else self.context
         workflow_state = state or self.create_state(user_input)
         return await self._engine.async_run(
@@ -83,6 +94,7 @@ class WorkflowAgent:
         context: Any = None,
     ) -> Any:
         """Run the workflow and return only the final output."""
+
         run = await self.async_run(user_input, state=state, context=context)
         return run.final_output
 
