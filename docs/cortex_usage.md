@@ -656,10 +656,6 @@ Choose it when you need:
 - primary constructor fields:
   - `nodes`
   - `start_node`
-- compatibility aliases:
-  - `steps`
-  - `start_step`
-
 Example:
 
 ```python

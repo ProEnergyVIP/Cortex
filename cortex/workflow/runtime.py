@@ -29,11 +29,6 @@ class RunResultLike(Protocol):
     engine_name: Optional[str]
 
 
-@runtime_checkable
-class WorkflowRunResultLike(RunResultLike, Protocol):
-    workflow_name: Optional[str]
-
-
 class RunnableInvocation:
     output: Any
     runnable_name: Optional[str]
@@ -165,9 +160,7 @@ def get_runnable_name(runnable: Any) -> Optional[str]:
 
 
 def get_run_name(run: RunResultLike) -> Optional[str]:
-    if isinstance(run, WorkflowRunResultLike):
-        return run.workflow_name
-    return getattr(run, "workflow_name", None) or run.engine_name
+    return run.engine_name
 
 
 def get_run_output(run: Any) -> Any:

@@ -363,7 +363,6 @@ The current design is layered:
 - `WorkflowAgent`
   - node-oriented public runtime wrapper
   - exposes `nodes` / `start_node`
-  - preserves `steps` / `start_step` as compatibility aliases
   - delegates execution to `WorkflowEngine`
 
 At a high level, the public workflow model now consists of:
@@ -372,14 +371,12 @@ At a high level, the public workflow model now consists of:
 - `WorkflowAgent`
 - `WorkflowState`
 - `WorkflowRun`
-- `StepTrace`
-- `StepPolicy`
-- `FunctionStep`
-- `RouterStep`
-- `LLMStep`
+- `NodeTrace`
+- `NodePolicy`
+- `WorkflowNodeResult`
 - `RunnableNode`
-- `WorkflowStep` as a compatibility shim
-- `ParallelStep`
+- `RouterNode`
+- `ParallelNode`
 - `workflow(...)`
 - `function_node(...)`
 - `router_node(...)`
@@ -410,11 +407,11 @@ This makes control flow explicit while still allowing LLM-powered nodes and nest
 `WorkflowState` is the mutable state container shared by all nodes. It stores:
 
 - `input`
-- arbitrary step data in `data`
+- arbitrary node data in `data`
 - `last_output`
 - `final_output`
-- `current_step` as a compatibility alias over `current_node`
-- `completed_steps` as a compatibility alias over `completed_nodes`
+- `current_node`
+- `completed_nodes`
 - `metadata`
 
 Helper methods such as `get`, `has`, `require`, `set`, `update`, `set_output`, and `set_final_output` keep step code compact and explicit.
@@ -424,7 +421,7 @@ Helper methods such as `get`, `has`, `require`, `set`, `update`, `set_output`, a
 `WorkflowNodeResult` is the normalized return type for the runtime. It encapsulates:
 
 - state updates
-- step output
+- node output
 - optional `next_node`
 - stop/final-output signals
 - trace metadata
@@ -435,39 +432,22 @@ Ergonomic constructors are provided:
 - `WorkflowNodeResult.finish(...)`
 - `WorkflowNodeResult.update_state(...)`
 
-#### `StepPolicy`
+#### `NodePolicy`
 
-`StepPolicy` lets a node opt into runtime behavior:
+`NodePolicy` lets a node opt into runtime behavior:
 
 - `max_retries`
 - `failure_strategy`
-- `fallback_step` compatibility alias over `fallback_node`
+- `fallback_node`
 - `timeout_seconds`
 
 Timeouts are enforced in `WorkflowEngine.async_run(...)` with `asyncio.wait_for(...)`, and timeouts participate in the same retry/fallback machinery as other failures.
 
-### 8.3 Node types and compatibility step classes
+### 8.3 Node types
 
-#### `FunctionStep`
+#### `RouterNode`
 
-Runs a Python callable against `(state, context, workflow)`. It is useful for deterministic orchestration logic, validation, state shaping, and lightweight transforms. `function_node(...)` is the preferred public constructor.
-
-`FunctionStep.final(...)` constructs a terminal step. A review-time bug in final function-step handling was fixed so that plain return values now correctly terminate the workflow instead of falling through to the next ordered step.
-
-#### `RouterStep`
-
-`RouterStep` is a specialized function node for routing decisions. It can declare `possible_next_steps` and `possible_next_nodes` so construction-time validation can verify the graph even when routing is dynamic at runtime.
-
-#### `LLMStep`
-
-`LLMStep` wraps prompt-driven LLM execution. It supports:
-
-- prompt builders
-- input builders
-- structured outputs via `result_shape`
-- validation via `check_func`
-- tool-enabled agent execution
-- terminal usage via `LLMStep.final(...)`
+`RouterNode` is a specialized control-flow node for routing decisions. It can declare `possible_next_nodes` so construction-time validation can verify the graph even when routing is dynamic at runtime.
 
 #### `RunnableNode`
 
@@ -480,16 +460,12 @@ It composes:
 - lazy runnable builders
 - wrapped function runnables built with `function_runnable(...)`
 
-#### `WorkflowStep`
+#### `ParallelNode`
 
-`WorkflowStep` is now a compatibility shim over `RunnableNode`. It remains available for older workflow-oriented code but is no longer the primary abstraction.
-
-#### `ParallelStep`
-
-`ParallelStep` executes child nodes concurrently and merges their results. It is intentionally conservative in this version:
+`ParallelNode` executes child nodes concurrently and merges their results. It is intentionally conservative in this version:
 
 - child node names must be unique
-- child nodes cannot declare their own `next_step`
+- child nodes cannot declare their own `next_node`
 - child nodes cannot be terminal
 - merge behavior is explicit via `merge_strategy`
 
@@ -550,7 +526,7 @@ Only supported kwargs are forwarded to builders, which keeps builder signatures 
 
 Workflow execution is designed to be inspectable by default.
 
-#### `StepTrace`
+#### `NodeTrace`
 
 Each executed node records:
 
@@ -558,7 +534,7 @@ Each executed node records:
 - status
 - attempt count
 - timing
-- next node / fallback node, with step-oriented compatibility aliases
+- next node / fallback node
 - state before / after
 - output
 - error
@@ -568,7 +544,7 @@ Each executed node records:
 
 The full run record captures:
 
-- workflow name
+- engine name
 - trace list
 - final state
 - final output
@@ -578,8 +554,6 @@ The full run record captures:
 Helper APIs include:
 
 - `duration_ms`
-- `last_trace()`
-- `failed_trace()`
 - `to_dict()`
 
 Serialization helpers normalize nested workflow runs and trace metadata into plain Python data, which is especially important for nested runnables and parallel branches.
@@ -602,7 +576,7 @@ This avoids public factory classes while keeping lazy runnable composition expli
 
 Current workflow constraints are deliberate:
 
-- `ParallelStep` branch control flow is intentionally restricted to keep parent orchestration explicit.
+- `ParallelNode` branch control flow is intentionally restricted to keep parent orchestration explicit.
 - Subworkflows are sequential composition primitives; they do not yet expose full nested graph visualization or resumability.
 - Runtime validation is strongest for statically declared graph edges; fully dynamic router behavior still depends on user correctness at runtime.
 
@@ -710,7 +684,7 @@ To add a new multi-agent topology:
 - Only `FunctionTool` is executed locally by the core `Agent`.
 - Worker outputs are expected to be valid JSON when `json_reply=True`.
 - `AgentSystemContext.get_memory_bank()` raises if `memory_bank` is not initialized.
-- `WorkflowAgent` is the right abstraction when you need explicit, inspectable orchestration across multiple steps.
+- `WorkflowAgent` is the right abstraction when you need explicit, inspectable orchestration across multiple nodes.
 
 ---
 

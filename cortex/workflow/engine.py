@@ -23,23 +23,6 @@ def _serialize_value(value: Any) -> Any:
 
 
 @dataclass
-class NodeResult:
-    updates: dict[str, Any] = field(default_factory=dict)
-    output: Any = None
-    next_node: Optional[str] = None
-    stop: bool = False
-    final_output: Any = None
-    trace_data: dict[str, Any] = field(default_factory=dict)
-
-    def apply(self, state: "EngineState") -> None:
-        state.update(self.updates)
-        if self.output is not None:
-            state.set_output(self.output)
-        if self.final_output is not None:
-            state.set_final_output(self.final_output)
-
-
-@dataclass
 class EngineTrace:
     node_name: str
     status: str = "pending"

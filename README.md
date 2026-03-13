@@ -57,7 +57,7 @@ Top-level exports include:
 - `Agent`, `Tool`, `LLM`
 - `WorkflowAgent`, `workflow`, `function_node`, `router_node`, `parallel_node`, `runnable_node`, `llm_node`
 - `RunnableNode`, `function_runnable`, `resolve_runnable`, `adapt_runnable`, `invoke_runnable`
-- `FunctionStep`, `LLMStep`, `RouterStep`, `ParallelStep`
+- `WorkflowNodeResult`, `RunnableNode`, `RouterNode`, `ParallelNode`
 - `CoordinatorSystem`, `CoordinatorAgentBuilder`, `WorkerAgentBuilder`
 
 For a fuller guide, see:

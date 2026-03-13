@@ -17,7 +17,6 @@ from cortex.workflow import (
     RunnableLike,
     RunCapableRunnableLike,
     RunResultLike,
-    WorkflowRunResultLike,
     adapt_runnable,
     get_run_name,
     get_runnable_name,
@@ -139,7 +138,7 @@ __all__ = [
     'WorkflowAgent', 'FailureStrategy', 'NodePolicy', 'WorkflowRun', 'WorkflowState', 'NodeTrace',
     'Node', 'WorkflowNodeResult', 'ParallelNode', 'RouterNode', 'RunnableNode',
     'workflow', 'function_runnable', 'function_node', 'router_node', 'parallel_node', 'runnable_node', 'llm_node',
-    'AskCapableRunnableLike', 'FunctionRunnable', 'RunnableLike', 'RunCapableRunnableLike', 'RunResultLike', 'WorkflowRunResultLike',
+    'AskCapableRunnableLike', 'FunctionRunnable', 'RunnableLike', 'RunCapableRunnableLike', 'RunResultLike',
     'RunnableAdapter', 'RunnableInvocation', 'adapt_runnable', 'get_runnable_name', 'get_run_name', 'resolve_runnable', 'invoke_runnable',
     'PromptBuilder', 'InputBuilder', 'NodeFunction', 'RouterFunction', 'NodeValue', 'NodeUpdates', 'WorkflowMessageInput',
     # Whiteboard models
