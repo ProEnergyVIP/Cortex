@@ -1,7 +1,7 @@
 from cortex import (
     GPTModels,
     LLM,
-    StepResult,
+    WorkflowNodeResult,
     function_node,
     function_runnable,
     llm_node,
@@ -15,8 +15,8 @@ from cortex import (
 def route_request(state, context, workflow):
     text = str(state.input or "").lower()
     if "refund" in text or "return" in text:
-        return StepResult.next("extract_refund_request")
-    return StepResult.next("compose_direct_answer")
+        return WorkflowNodeResult.next("extract_refund_request")
+    return WorkflowNodeResult.next("compose_direct_answer")
 
 
 def build_refund_prompt(state, context, workflow):

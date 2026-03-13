@@ -396,7 +396,7 @@ A workflow run proceeds like this:
 2. Internally, `WorkflowAgent` builds a `WorkflowEngine(name, nodes, start_node, ...)`.
 3. `async_run(...)` creates or reuses a `WorkflowState`.
 4. The engine resolves the current node by name.
-5. The node returns a `StepResult`, which may update state, emit output, route to another node, or stop execution.
+5. The node returns a `WorkflowNodeResult`, which may update state, emit output, route to another node, or stop execution.
 6. The engine records a trace entry for each executed node.
 7. Runtime policy may retry, time out, or fallback to another node.
 8. The final result is returned as a `WorkflowRun`; `async_ask(...)` returns only `final_output`.
@@ -419,9 +419,9 @@ This makes control flow explicit while still allowing LLM-powered nodes and nest
 
 Helper methods such as `get`, `has`, `require`, `set`, `update`, `set_output`, and `set_final_output` keep step code compact and explicit.
 
-#### `StepResult`
+#### `WorkflowNodeResult`
 
-`StepResult` is the normalized return type for the runtime. It encapsulates:
+`WorkflowNodeResult` is the normalized return type for the runtime. It encapsulates:
 
 - state updates
 - step output
@@ -431,9 +431,9 @@ Helper methods such as `get`, `has`, `require`, `set`, `update`, `set_output`, a
 
 Ergonomic constructors are provided:
 
-- `StepResult.next(...)`
-- `StepResult.finish(...)`
-- `StepResult.update_state(...)`
+- `WorkflowNodeResult.next(...)`
+- `WorkflowNodeResult.finish(...)`
+- `WorkflowNodeResult.update_state(...)`
 
 #### `StepPolicy`
 

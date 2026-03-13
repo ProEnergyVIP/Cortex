@@ -30,8 +30,6 @@ from cortex.workflow import (
     NodeTrace,
     Node,
     WorkflowNodeResult,
-    LLMNode,
-    FunctionNode,
     ParallelNode,
     RouterNode,
     RunnableNode,
@@ -139,7 +137,7 @@ __all__ = [
     'AgentSystemContext',
     # Workflow Agent - Composed workflow-oriented API
     'WorkflowAgent', 'FailureStrategy', 'NodePolicy', 'WorkflowRun', 'WorkflowState', 'NodeTrace',
-    'Node', 'WorkflowNodeResult', 'LLMNode', 'FunctionNode', 'ParallelNode', 'RouterNode', 'RunnableNode',
+    'Node', 'WorkflowNodeResult', 'ParallelNode', 'RouterNode', 'RunnableNode',
     'workflow', 'function_runnable', 'function_node', 'router_node', 'parallel_node', 'runnable_node', 'llm_node',
     'AskCapableRunnableLike', 'FunctionRunnable', 'RunnableLike', 'RunCapableRunnableLike', 'RunResultLike', 'WorkflowRunResultLike',
     'RunnableAdapter', 'RunnableInvocation', 'adapt_runnable', 'get_runnable_name', 'get_run_name', 'resolve_runnable', 'invoke_runnable',

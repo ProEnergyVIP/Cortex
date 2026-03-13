@@ -1,6 +1,6 @@
 from .agent import WorkflowAgent
 from .helpers import function_node, function_runnable, llm_node, parallel_node, router_node, runnable_node, workflow
-from .node import FailureStrategy, FunctionNode, LLMNode, Node, NodePolicy, ParallelNode, RouterNode, RunnableNode, WorkflowNodeResult
+from .node import FailureStrategy, Node, NodePolicy, ParallelNode, RouterNode, RunnableNode, WorkflowNodeResult
 from .runtime import (
     AskCapableRunnableLike,
     FunctionRunnable,
@@ -48,8 +48,6 @@ __all__ = [
     "NodeTrace",
     "Node",
     "WorkflowNodeResult",
-    "LLMNode",
-    "FunctionNode",
     "ParallelNode",
     "RouterNode",
     "RunnableNode",

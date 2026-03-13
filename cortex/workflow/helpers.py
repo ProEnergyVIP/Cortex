@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from inspect import signature
 from typing import Any, Optional
 
+from cortex.LLMFunc import llmfunc
+from cortex.agent import Agent
+from cortex.message import Message, UserMessage
+
 from .agent import WorkflowAgent
-from .node import FunctionNode, LLMNode, NodePolicy, ParallelNode, RouterNode, RunnableNode
+from .node import NodePolicy, ParallelNode, RouterNode, RunnableNode
 from .runtime import FunctionRunnable, function_runnable as build_function_runnable
 
 
@@ -45,6 +50,38 @@ def function_runnable(
     )
 
 
+def _call_with_supported_args(func, *args, **kwargs):
+    sig = signature(func)
+    accepted_positional = []
+    remaining_args = list(args)
+    for param in sig.parameters.values():
+        if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD) and remaining_args:
+            accepted_positional.append(remaining_args.pop(0))
+    accepted_kwargs = {}
+    for name, param in sig.parameters.items():
+        if param.kind == param.VAR_KEYWORD:
+            accepted_kwargs = kwargs
+            break
+        if param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY) and name in kwargs:
+            accepted_kwargs[name] = kwargs[name]
+    return func(*accepted_positional, **accepted_kwargs)
+
+
+async def _normalize_message_input(input_builder, state, context, workflow):
+    if input_builder is not None:
+        built = _call_with_supported_args(input_builder, state, context, workflow)
+        if hasattr(built, "__await__"):
+            built = await built
+    else:
+        built = state.input
+
+    if isinstance(built, list):
+        return built
+    if isinstance(built, Message):
+        return [built]
+    return [UserMessage(content=str(built))]
+
+
 def function_node(
     name: str,
     func,
@@ -53,12 +90,20 @@ def function_node(
     output_key: Optional[str] = None,
     policy: Optional[NodePolicy] = None,
     is_final: bool = False,
-) -> FunctionNode:
-    return FunctionNode(
+) -> RunnableNode:
+    async def _ask(user_input=None, *, context=None, usage=None, parent=None):
+        state = user_input
+        result = _call_with_supported_args(func, state, context, parent)
+        if hasattr(result, "__await__"):
+            result = await result
+        return result
+
+    return RunnableNode(
         name=name,
-        func=func,
-        next_node=next_node,
+        runnable=function_runnable(name=name, ask=_ask),
+        input_builder=lambda state, context, workflow: state,
         output_key=output_key,
+        next_node=next_node,
         policy=policy,
         is_final=is_final,
     )
@@ -143,20 +188,51 @@ def llm_node(
     response_key: Optional[str] = None,
     is_final: bool = False,
     policy: Optional[NodePolicy] = None,
-) -> LLMNode:
-    return LLMNode(
+) -> RunnableNode:
+    async def _ask(user_input=None, *, context=None, usage=None, parent=None):
+        state = user_input
+        resolved_prompt = prompt
+        if callable(prompt):
+            resolved_prompt = _call_with_supported_args(prompt, state, context, parent)
+            if hasattr(resolved_prompt, "__await__"):
+                resolved_prompt = await resolved_prompt
+
+        messages = await _normalize_message_input(input_builder, state, context, parent)
+
+        if tools:
+            if result_shape or check_func:
+                raise ValueError("llm_node with tools does not support result_shape or check_func in this version")
+            agent = Agent(
+                llm=llm,
+                tools=tools,
+                sys_prompt=resolved_prompt,
+                context=context,
+                json_reply=False,
+                mode="async",
+            )
+            result = await agent.async_ask(messages, usage=usage)
+        else:
+            func_runnable = llmfunc(
+                llm,
+                prompt=resolved_prompt,
+                result_shape=result_shape,
+                check_func=check_func,
+                max_attempts=max_attempts,
+                llm_args=llm_args or {},
+                async_mode=True,
+            )
+            result = await func_runnable(messages, usage=usage)
+
+        if response_key and isinstance(result, dict):
+            return result.get(response_key)
+        return result
+
+    return RunnableNode(
         name=name,
-        llm=llm,
-        prompt=prompt,
-        tools=tools,
-        input_builder=input_builder,
+        runnable=function_runnable(name=name, ask=_ask),
+        input_builder=lambda state, context, workflow: state,
         output_key=output_key,
-        result_shape=result_shape,
-        check_func=check_func,
-        max_attempts=max_attempts,
-        llm_args=llm_args,
         next_node=next_node,
-        response_key=response_key,
-        is_final=is_final,
         policy=policy,
+        is_final=is_final,
     )

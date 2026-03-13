@@ -136,12 +136,11 @@ async def resolve_runnable(
             raise TypeError(
                 "Runnable must be a concrete runnable with async_ask(...) or a callable that returns one"
             )
-        current = await _call_with_supported_kwargs(
-            current,
+        return FunctionRunnable(
+            ask_func=current,
+            name=getattr(current, "__name__", None),
             context=context,
             usage=usage,
-            parent=parent,
-            runnable=parent,
         )
 
 
