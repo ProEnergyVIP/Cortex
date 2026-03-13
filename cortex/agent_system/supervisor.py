@@ -1,7 +1,20 @@
+"""Helpers for building supervisor agents around a set of worker agents.
+
+The public API is intentionally small: `create_supervisor(...)` either:
+
+- builds a normal `Agent` supervisor from an `llm`, or
+- delegates workflow construction to a user-provided `workflow_builder`.
+
+In both cases, each worker is exposed to the supervisor as a tool that accepts a
+single delegated `task` string. This keeps the handoff contract simple and lets
+the supervisor rewrite the request specifically for each worker.
+"""
+
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from asyncio import iscoroutine
 from inspect import signature
 from typing import Any, Callable, Optional
 
@@ -12,12 +25,16 @@ from cortex.workflow.runtime import adapt_runnable, invoke_runnable
 
 @dataclass
 class _SupervisorWorker:
+    """Normalized internal representation of one worker managed by a supervisor."""
+
     worker: Any
     name: Optional[str] = None
     description: Optional[str] = None
 
 
 def _default_supervisor_prompt(name: str, worker_descriptions: list[str], instructions: Optional[str] = None) -> str:
+    """Build the default system prompt for agent-based supervisors."""
+
     worker_block = "\n".join(f"- {description}" for description in worker_descriptions) if worker_descriptions else "- No workers configured"
     prompt = f"""You are {name}, a supervisor agent coordinating a team of worker agents.
 
@@ -41,10 +58,20 @@ Delegation rules:
 
 
 def _normalize_supervisor_workers(workers: list[Any]) -> list[_SupervisorWorker]:
+    """Normalize raw worker specs into `_SupervisorWorker` objects."""
+
     return [_normalize_supervisor_worker_spec(worker) for worker in workers]
 
 
 def _normalize_supervisor_worker_spec(worker: Any) -> _SupervisorWorker:
+    """Normalize one worker spec.
+
+    Accepted shapes:
+    - a runnable / agent / workflow-like object
+    - a dict containing `worker`, plus optional `name` and `description`
+    - an already normalized `_SupervisorWorker`
+    """
+
     if isinstance(worker, _SupervisorWorker):
         return worker
     if isinstance(worker, dict):
@@ -60,11 +87,15 @@ def _normalize_supervisor_worker_spec(worker: Any) -> _SupervisorWorker:
 
 
 def _normalize_supervisor_tool_name(name: Optional[str], index: int) -> str:
+    """Create a stable tool name for a worker."""
+
     raw_name = name or f"worker_{index + 1}"
     return raw_name.strip().lower().replace(" ", "_")
 
 
 def _describe_supervisor_worker(spec: _SupervisorWorker, tool_name: str) -> str:
+    """Create a human-readable description used in the default supervisor prompt."""
+
     worker_name = spec.name or getattr(spec.worker, "name", None) or tool_name
     description = spec.description or f"Worker agent '{worker_name}' available through tool '{tool_name}'."
     return f"{worker_name}: {description} (tool: {tool_name})"
@@ -76,6 +107,8 @@ def _build_supervisor_worker_tool(
     *,
     context: Any = None,
 ) -> Tool:
+    """Wrap a worker as a tool that accepts a single delegated `task` string."""
+
     tool_name = _normalize_supervisor_tool_name(spec.name or getattr(spec.worker, "name", None), index)
     description = spec.description or f"Delegate a task to {spec.name or getattr(spec.worker, 'name', tool_name)}."
 
@@ -113,6 +146,14 @@ def build_supervisor_tools(
     *,
     context: Any = None,
 ) -> tuple[list[_SupervisorWorker], list[Tool], list[str]]:
+    """Build worker tools and prompt descriptions from raw worker specs.
+
+    Returns a tuple of:
+    - normalized worker specs
+    - worker tools
+    - human-readable worker descriptions for prompts/docs
+    """
+
     worker_specs = _normalize_supervisor_workers(workers)
     worker_tools = [
         _build_supervisor_worker_tool(
@@ -122,6 +163,13 @@ def build_supervisor_tools(
         )
         for index, spec in enumerate(worker_specs)
     ]
+    tool_names = [tool.name for tool in worker_tools]
+    duplicate_tool_names = sorted({name for name in tool_names if tool_names.count(name) > 1})
+    if duplicate_tool_names:
+        raise ValueError(
+            "create_supervisor(...) generated duplicate worker tool names: "
+            + ", ".join(duplicate_tool_names)
+        )
     worker_descriptions = [
         _describe_supervisor_worker(spec, worker_tools[index].name)
         for index, spec in enumerate(worker_specs)
@@ -130,6 +178,8 @@ def build_supervisor_tools(
 
 
 def _get_supervisor_worker_key(spec: _SupervisorWorker, index: int) -> str:
+    """Return the canonical worker key used in workflow delegation payloads."""
+
     return _normalize_supervisor_tool_name(spec.name or getattr(spec.worker, "name", None), index)
 
 
@@ -141,6 +191,15 @@ async def invoke_supervisor_workers(
     usage: Any = None,
     parent: Any = None,
 ) -> list[dict[str, Any]]:
+    """Execute a list of delegated worker tasks and collect structured results.
+
+    This helper is primarily used by custom workflow supervisors. Each delegation
+    item must contain:
+
+    - `worker`: normalized worker tool name
+    - `task`: the rewritten task for that worker
+    """
+
     worker_map = {
         _get_supervisor_worker_key(spec, index): spec
         for index, spec in enumerate(workers)
@@ -153,6 +212,8 @@ async def invoke_supervisor_workers(
         worker_key = item["worker"]
         task = item["task"]
         try:
+            # Prefer `invoke_runnable(...)` so run-capable workers preserve nested
+            # run metadata when available.
             invocation = await invoke_runnable(
                 worker_map[worker_key].worker,
                 task,
@@ -170,20 +231,22 @@ async def invoke_supervisor_workers(
                 parent=parent,
             )
             output = await adapted_worker.async_ask(task, context=context, usage=usage, parent=parent)
-            invocation = type("FallbackInvocation", (), {
-                "output": output,
-                "runnable_name": adapted_worker.name,
-            })()
+            runnable_name = adapted_worker.name
+        else:
+            output = invocation.output
+            runnable_name = invocation.runnable_name
         return {
             "worker": worker_key,
             "task": task,
-            "output": invocation.output,
-            "runnable_name": invocation.runnable_name,
+            "output": output,
+            "runnable_name": runnable_name,
         }
 
     return await asyncio.gather(*[_run_delegation(item) for item in delegations]) if delegations else []
 
 def _call_with_supported_kwargs(func, **kwargs):
+    """Call a function with only the keyword arguments it declares."""
+
     sig = signature(func)
     accepted_kwargs = {}
 
@@ -209,6 +272,35 @@ def create_supervisor(
     context: Any = None,
     usage: Any = None,
 ) -> Agent | WorkflowAgent:
+    """Create a supervisor over a set of worker agents.
+
+    There are two supported modes:
+
+    - Agent supervisor mode: pass `llm` and optionally `sys_prompt`, `instructions`,
+      and extra `tools`. This returns a normal `Agent`.
+    - Workflow supervisor mode: pass `workflow_builder`. The builder is called after
+      worker tools are prepared and must return a `WorkflowAgent`.
+
+    Worker inputs can be either runnable objects directly or dict specs like:
+
+    ```python
+    {
+        "worker": research_agent,
+        "name": "Research Worker",  # optional
+        "description": "Researches facts and gathers information.",
+    }
+    ```
+
+    In workflow mode, the builder is called with a filtered subset of:
+
+    - `tools` / `worker_tools`: the prepared worker tools
+    - `name`: supervisor name
+    - `context`: shared context
+    - `usage`: shared usage tracker
+    - `workers`: normalized internal worker specs
+    - `worker_descriptions`: prompt-friendly worker descriptions
+    """
+
     if not workers:
         raise ValueError("create_supervisor(...) requires at least one worker")
     if llm is None and workflow_builder is None:
@@ -245,6 +337,8 @@ def create_supervisor(
         workers=worker_specs,
         worker_descriptions=worker_descriptions,
     )
+    if iscoroutine(built):
+        raise TypeError("create_supervisor(..., workflow_builder=...) must return a WorkflowAgent directly, not a coroutine")
     if isinstance(built, WorkflowAgent):
         return built
     raise TypeError("create_supervisor(..., workflow_builder=...) must return a WorkflowAgent")

@@ -560,6 +560,7 @@ for delta in streaming_func("About the ocean"):
 The agent-system package is intentionally minimal. The recommended approach is:
 
 - use `Agent` and `WorkflowAgent` as the runtime primitives
+- use `create_supervisor(...)` for flexible hierarchical agent systems
 - use the legacy `CoordinatorSystem` when it already matches your topology
 
 ### 7.0 Which layer should I use?
@@ -579,6 +580,15 @@ Use these directly when:
 Use a preset when the topology already matches what you need:
 
 - `CoordinatorSystem` for a flat coordinator-worker pattern
+
+#### Flexible hierarchical supervisor
+
+Use `create_supervisor(...)` when:
+
+- one parent runtime should manage a set of specialist workers
+- you want workers exposed as tools to that parent
+- you want the parent runtime to be either an `Agent` or a `WorkflowAgent`
+- you want to build arbitrary hierarchical systems instead of using a fixed preset shape
 
 ### 7.1 Coordinator-worker preset
 
@@ -640,7 +650,188 @@ Workers can have their own toolsets via `tools_builder`.
 
 The coordinator preset is primarily `Agent`-builder based.
 
-### 7.4 WorkflowAgent as a direct runtime
+### 7.4 Flexible hierarchical systems with `create_supervisor(...)`
+
+`create_supervisor(...)` is the main helper for building hierarchical agent systems
+flexibly in Cortex.
+
+Use it when:
+
+- you want one supervisor to manage multiple specialists
+- you want supervisors to call other supervisors
+- you want to combine conversational delegation with explicit workflows
+- the topology is more custom than a flat coordinator-worker preset
+
+The key idea is that each worker is wrapped as a tool accepting a single `task` string.
+The supervisor is expected to rewrite the user request into a complete delegated task for
+that worker.
+
+#### 7.4.1 Agent-based supervisor
+
+Use agent mode when a standard prompt-and-tool loop is enough for the parent supervisor.
+
+```python
+from cortex import Agent, LLM, GPTModels, create_supervisor
+
+llm = LLM(model=GPTModels.GPT_4O_MINI)
+
+research_worker = Agent(
+    name="Research Worker",
+    llm=llm,
+    sys_prompt="Find relevant facts and summarize them clearly.",
+    mode="async",
+)
+
+writer_worker = Agent(
+    name="Writer Worker",
+    llm=llm,
+    sys_prompt="Write polished final responses from provided notes.",
+    mode="async",
+)
+
+supervisor = create_supervisor(
+    name="Research Manager",
+    workers=[
+        {
+            "worker": research_worker,
+            "description": "Researches facts, background information, and source material.",
+        },
+        {
+            "worker": writer_worker,
+            "description": "Writes polished responses from collected notes and findings.",
+        },
+    ],
+    llm=llm,
+    instructions=(
+        "Delegate research first when factual grounding is needed. "
+        "Use the writer to turn notes into a final answer."
+    ),
+)
+
+reply = await supervisor.async_ask("Prepare a concise explanation of retrieval-augmented generation.")
+```
+
+This mode is a good fit when:
+
+- the supervisor mostly needs normal tool-calling behavior
+- delegation strategy can live in a system prompt
+- you want the simplest flexible hierarchical setup
+
+#### 7.4.2 Workflow-based supervisor
+
+Use workflow mode when the parent supervisor needs explicit routing, state, or staged
+execution.
+
+```python
+from cortex import (
+    Agent,
+    LLM,
+    GPTModels,
+    create_supervisor,
+    function_node,
+    workflow,
+)
+
+llm = LLM(model=GPTModels.GPT_4O_MINI)
+
+research_worker = Agent(
+    name="Research Worker",
+    llm=llm,
+    sys_prompt="Research the topic and provide concise notes.",
+    mode="async",
+)
+
+review_worker = Agent(
+    name="Review Worker",
+    llm=llm,
+    sys_prompt="Review drafts for quality, correctness, and missing points.",
+    mode="async",
+)
+
+def build_supervisor_workflow(*, tools, name, context, usage):
+    research_tool, review_tool = tools
+
+    async def plan_and_delegate(state, context, workflow_runtime):
+        topic = state.input
+        research_notes = await research_tool.async_run({"task": f"Research this topic thoroughly: {topic}"}, context, workflow_runtime)
+        review_notes = await review_tool.async_run({"task": f"Review these notes and identify gaps: {research_notes}"}, context, workflow_runtime)
+        return {
+            "research_notes": research_notes,
+            "review_notes": review_notes,
+        }
+
+    def finish(state, context, workflow_runtime):
+        return {
+            "research": state.require("research_notes"),
+            "review": state.require("review_notes"),
+        }
+
+    return workflow(
+        name=name,
+        context=context,
+        usage=usage,
+        nodes=[
+            function_node("plan_and_delegate", func=plan_and_delegate, next_node="finish"),
+            function_node("finish", func=finish, is_final=True),
+        ],
+        start_node="plan_and_delegate",
+    )
+
+supervisor = create_supervisor(
+    name="Workflow Research Manager",
+    workers=[
+        {
+            "worker": research_worker,
+            "description": "Finds background information and source material.",
+        },
+        {
+            "worker": review_worker,
+            "description": "Reviews outputs for correctness and completeness.",
+        },
+    ],
+    workflow_builder=build_supervisor_workflow,
+)
+
+result = await supervisor.async_ask("Explain vector databases for a product manager.")
+```
+
+This mode is a good fit when:
+
+- delegation should follow explicit stages
+- you want structured workflow state
+- the parent supervisor needs deterministic routing or aggregation steps
+
+#### 7.4.3 Worker specification
+
+You can pass workers either directly or as dict specs.
+
+The dict form is recommended because it lets you describe each worker clearly:
+
+```python
+{
+    "worker": my_worker,
+    "name": "Research Worker",  # optional
+    "description": "Finds facts and background information.",
+}
+```
+
+The `description` is especially important because it is what helps the supervisor understand
+when to use that worker.
+
+#### 7.4.4 Why this helper matters
+
+`create_supervisor(...)` is meant to make hierarchical agent systems easy to express without
+forcing one orchestration style.
+
+You can use it to build:
+
+- a simple manager with specialist workers
+- a multi-level tree of supervisors
+- workflow parents that call conversational workers
+- conversational parents that delegate into workflows
+- larger systems that mix all of the above
+
+### 7.5 WorkflowAgent as a direct runtime
 
 Use `WorkflowAgent` directly when you want explicit orchestration inside a single runtime without introducing a larger multi-agent topology.
 
@@ -681,7 +872,7 @@ wf = workflow(
 )
 ```
 
-### 7.4.1 How to create a `WorkflowAgent`
+### 7.5.1 How to create a `WorkflowAgent`
 
 You can create workflows either with the `workflow(...)` helper or by instantiating
 `WorkflowAgent(...)` directly. In most application code, the helper is the cleaner choice.
@@ -756,7 +947,7 @@ print(run.to_dict())
 Use `async_run(...)` when you want the full trace/state record, and `async_ask(...)` when
 you only need the final answer.
 
-### 7.4.1.1 Using a custom workflow state class
+### 7.5.1.1 Using a custom workflow state class
 
 Workflows can now use a user-defined state type.
 
@@ -806,7 +997,7 @@ wf = workflow(
 When the workflow creates state internally, it will now create `SupportState` instead of
 the default `WorkflowState`.
 
-### 7.4.1.2 Seeding custom state before execution
+### 7.5.1.2 Seeding custom state before execution
 
 You can still construct state explicitly before a run.
 
@@ -827,7 +1018,7 @@ This pattern is useful when:
 - you need to populate custom fields before the first node runs
 - you want to reuse the same initialized state shape across tests or applications
 
-### 7.4.1.3 Using `state_factory` for custom initialization
+### 7.5.1.3 Using `state_factory` for custom initialization
 
 If state creation requires custom logic, use `state_factory` instead of `state_type`.
 
@@ -871,7 +1062,7 @@ Use `state_factory` when:
 
 Do not pass both `state_type` and `state_factory` to the same workflow.
 
-### 7.4.2 A practical workflow design pattern
+### 7.5.2 A practical workflow design pattern
 
 A good default structure for business workflows is:
 
@@ -890,7 +1081,7 @@ A good default structure for business workflows is:
 This pattern keeps control flow inspectable and makes retries/fallback behavior easy to
 reason about.
 
-### 7.4.3 State design recommendations
+### 7.5.3 State design recommendations
 
 For most workflows, a good pattern is:
 

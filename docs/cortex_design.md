@@ -7,7 +7,7 @@ This document describes how Cortex is structured internally and how the major ab
 - Tools (`FunctionTool` and hosted tools)
 - `Agent` (conversation loop, tool execution, memory)
 - Workflow runtime (`WorkflowEngine`, `WorkflowAgent`, workflow nodes, runtime composition)
-- Agent System (`AgentBuilder`, `AgentSystem`, `CoordinatorSystem`)
+- Agent System (`AgentBuilder`, `AgentSystem`, `CoordinatorSystem`, `create_supervisor`)
 - Whiteboard (shared multi-agent messaging)
 
 The goal is to help you understand **how requests flow through the library**, where to extend it, and what invariants the core code assumes.
@@ -46,6 +46,8 @@ The agent-system package adds a higher-level multi-agent API above this:
 - Builders construct agents lazily from a runtime context.
 - Systems own an `async_ask(...)` API and choose the agent(s) used to answer.
 - `CoordinatorSystem` exposes worker agents as tools to a coordinator agent.
+- `create_supervisor(...)` exposes worker agents as tools to a parent runtime and is the
+  flexible entry point for hierarchical agent systems.
 
 ---
 
@@ -310,6 +312,7 @@ It exposes:
 - `AgentBuilder`: builds an agent from context (prompt, tools, memory)
 - `AgentSystem`: owns a context and provides a single `async_ask(...)` entrypoint
 - Preset systems such as `CoordinatorSystem`
+- `create_supervisor(...)`: flexible helper for hierarchical agent systems
 
 ### 7.1 `AgentSystemContext`
 
@@ -346,6 +349,81 @@ A worker builder’s `install(...)` method returns a `Tool` (async `FunctionTool
 - optionally appends `DeveloperMessage(context_instructions)`
 - can enrich context with whiteboard summaries
 - returns the worker agent’s JSON response
+
+### 7.4 `create_supervisor(...)`: a flexible hierarchical agent helper
+
+`create_supervisor(...)` is the main helper for building hierarchical agent systems in
+Cortex when you do not want to be constrained by a preset topology.
+
+It is intended to be the flexible entry point for structures like:
+
+- one supervisor managing many specialists
+- supervisors delegating to other supervisors
+- layered teams that mix conversational agents and workflows
+- custom orchestration patterns that do not fit a flat coordinator-worker preset
+
+The core idea is simple:
+
+- you provide a list of worker runnables
+- Cortex wraps each worker as a tool
+- the parent supervisor runtime uses those tools to delegate work
+
+Because workers are accepted as generic runnables, a worker can itself be:
+
+- an `Agent`
+- a `WorkflowAgent`
+- a wrapped function runnable
+- another supervisor returned by `create_supervisor(...)`
+
+This recursive composition model is what makes the helper suitable for arbitrary
+hierarchical systems rather than a single hard-coded pattern.
+
+#### 7.4.1 Delegation model
+
+Each worker tool accepts a single `task` string.
+
+This is intentional. The supervisor is expected to:
+
+- understand the user request
+- choose the right worker or workers
+- rewrite the request into a complete delegated task
+
+This keeps the handoff contract clean and scalable. Instead of passing through raw
+`user_input` plus extra side-channel fields, the worker receives one fully framed
+assignment from the supervisor.
+
+#### 7.4.2 Two construction modes
+
+`create_supervisor(...)` supports two parent-runtime modes:
+
+1. **Agent mode**
+   - pass `llm`
+   - Cortex constructs an `Agent`
+   - worker tools are attached directly to that agent
+   - a default system prompt describes the workers and delegation behavior
+
+2. **Workflow mode**
+   - pass `workflow_builder`
+   - Cortex prepares the worker tools first
+   - your builder receives those tools and returns any `WorkflowAgent` you want
+
+This split is important. It keeps the public API very small while still allowing very
+different orchestration styles.
+
+#### 7.4.3 Internal flow
+
+At a high level, `create_supervisor(...)` works like this:
+
+1. normalize each worker specification
+2. assign a stable tool name to each worker
+3. wrap each worker as a tool taking `{ "task": "..." }`
+4. build human-readable worker descriptions
+5. either:
+   - create an `Agent`, or
+   - call the user-provided `workflow_builder(...)`
+
+That design centralizes worker preparation once and then lets the parent runtime remain
+fully customizable.
 
 ---
 
