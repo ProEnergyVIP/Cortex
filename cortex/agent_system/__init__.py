@@ -12,6 +12,7 @@ from .coordinator_system import (
     WorkerAgentBuilder,
     CoordinatorSystem,
 )
+from .supervisor import SupervisorWorker, create_supervisor
 
 __all__ = [
     "AgentSystem",
@@ -25,4 +26,6 @@ __all__ = [
     "CoordinatorAgentBuilder",
     "WorkerAgentBuilder",
     "CoordinatorSystem",
+    "SupervisorWorker",
+    "create_supervisor",
 ]

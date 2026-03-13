@@ -95,6 +95,8 @@ from cortex.agent_system import (
     CoordinatorAgentBuilder,
     WorkerAgentBuilder,
     CoordinatorSystem,
+    SupervisorWorker,
+    create_supervisor,
 )
 from cortex.agent_system.core.context import AgentSystemContext
 from cortex.agent_system.core.whiteboard import (
@@ -133,7 +135,7 @@ __all__ = [
 
     # Agent System - Higher-level multi-agent API
     'AgentBuilder', 'AgentSystem',
-    'CoordinatorAgentBuilder', 'WorkerAgentBuilder', 'CoordinatorSystem',
+    'CoordinatorAgentBuilder', 'WorkerAgentBuilder', 'CoordinatorSystem', 'SupervisorWorker', 'create_supervisor',
     'AgentSystemContext',
     # Workflow Agent - Composed workflow-oriented API
     'WorkflowAgent', 'FailureStrategy', 'NodePolicy', 'WorkflowRun', 'WorkflowState', 'WorkflowStateProtocol', 'NodeTrace',
