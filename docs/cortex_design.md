@@ -400,6 +400,50 @@ A workflow run proceeds like this:
 
 This makes control flow explicit while still allowing LLM-powered nodes and nested runnables inside the graph.
 
+### 8.1.1 What the engine is responsible for
+
+`WorkflowEngine` is the execution core. It is intentionally generic and does not know
+whether a node is calling an LLM, an `Agent`, another `WorkflowAgent`, or a plain Python
+function. Its job is to:
+
+- validate the graph before execution
+- create and carry forward shared `WorkflowState`
+- execute one node at a time
+- normalize retries, fallback, timeout, and stop behavior
+- record detailed trace information in `NodeTrace`
+- return a final `WorkflowRun`
+
+That separation is important:
+
+- `WorkflowAgent` is the ergonomic public wrapper you instantiate in application code
+- `WorkflowEngine` is the lower-level state machine that actually drives execution
+- node types define how a unit of work is performed
+- the runnable layer lets nodes execute heterogeneous child runtimes through one path
+
+### 8.1.2 Detailed execution flow inside `WorkflowEngine.async_run(...)`
+
+At runtime, the engine follows a predictable loop:
+
+1. Create an `EngineRun` and attach the active `EngineState`.
+2. Choose the current node, starting from `start_node`.
+3. Create a fresh `EngineTrace` for that node execution.
+4. Run the node, applying timeout rules from `NodePolicy` when configured.
+5. If the node raises:
+   - retry while `attempt_count <= max_retries`
+   - route to `fallback_node` when `failure_strategy="fallback"`
+   - otherwise mark the run failed and surface the error
+6. If the node succeeds, normalize its `WorkflowNodeResult`:
+   - apply state updates
+   - record output
+   - attach trace metadata
+   - decide the next node or stop the run
+7. If the node did not explicitly choose a `next_node`, fall back to declared node order.
+8. Repeat until a node stops the workflow or the graph ends.
+
+This gives the system an important invariant: **every node type ultimately reduces to the
+same result shape**. That is why the engine stays simple even though the workflow layer
+can execute many different runtime forms.
+
 ### 8.2 Core abstractions
 
 #### `WorkflowState`
@@ -432,6 +476,15 @@ Ergonomic constructors are provided:
 - `WorkflowNodeResult.finish(...)`
 - `WorkflowNodeResult.update_state(...)`
 
+The design intent is that nodes can return either:
+
+- a fully explicit `WorkflowNodeResult`
+- or a simpler native output that the concrete node type will normalize into one
+
+That normalization happens inside node implementations such as `RouterNode`,
+`RunnableNode`, and `ParallelNode`, so the engine only needs to reason about one
+canonical result object.
+
 #### `NodePolicy`
 
 `NodePolicy` lets a node opt into runtime behavior:
@@ -449,6 +502,18 @@ Timeouts are enforced in `WorkflowEngine.async_run(...)` with `asyncio.wait_for(
 
 `RouterNode` is a specialized control-flow node for routing decisions. It can declare `possible_next_nodes` so construction-time validation can verify the graph even when routing is dynamic at runtime.
 
+A router function is usually used when:
+
+- branching depends on current workflow state
+- routing is deterministic and inspectable
+- you want graph validation to know the possible destinations up front
+
+Typical router return patterns are:
+
+- a node name string
+- `None`, which means "use the default ordered successor"
+- a fully explicit `WorkflowNodeResult`
+
 #### `RunnableNode`
 
 `RunnableNode` is the primary runnable-backed node abstraction. It allows a parent workflow to map parent state into child input, lazily resolve a runnable, invoke it, store child output back into parent state, and expose child-run metadata in traces.
@@ -459,6 +524,25 @@ It composes:
 - concrete `WorkflowAgent` runnables
 - lazy runnable builders
 - wrapped function runnables built with `function_runnable(...)`
+
+`RunnableNode` is the key abstraction that lets Cortex unify:
+
+- direct `Agent` usage
+- nested `WorkflowAgent` usage
+- function-backed runnables
+- lazy builders that construct any of the above only when the node runs
+
+Its execution model is:
+
+1. Build child input from the parent state using `input_builder` or default to `state.input`.
+2. Resolve the configured `runnable` through the runnable adaptation layer.
+3. Invoke the runnable.
+4. If the child already returns a `WorkflowNodeResult`, preserve it and fill in defaults.
+5. Otherwise wrap the plain child output into a new `WorkflowNodeResult`.
+6. Attach child-run metadata to trace data when a structured nested run exists.
+
+This is why nested workflows and nested agents both compose cleanly inside the same node
+type.
 
 #### `ParallelNode`
 
@@ -475,6 +559,10 @@ Supported merge strategies:
 - `last_write_wins`
 
 Parallel execution records branch outputs and merge metadata in the trace surface, and branch failures are wrapped with explicit branch-level error context.
+
+Each branch receives a copied `WorkflowState`, not the shared live state object. That
+prevents concurrent mutation races. After all branches finish, `ParallelNode` merges the
+resulting updates according to `merge_strategy`.
 
 ### 8.4 Validation and graph safety
 
@@ -495,6 +583,24 @@ These helpers surface node order, declared successors, terminal nodes, and fallb
 
 The runnable layer exists so workflows can compose functions, agents, workflows, and builders lazily and uniformly.
 
+### 8.5.1 Why the runnable layer exists
+
+Without this layer, each node type would need separate execution paths for:
+
+- plain Python functions
+- agents
+- workflows
+- builder callables that create one of those at runtime
+
+Instead, the workflow package normalizes these shapes behind a small protocol-oriented
+surface:
+
+- `async_ask(...)` for ask-style runnables
+- `async_run(...)` for run-capable runnables that produce structured run metadata
+
+This keeps the public API function-first while still letting the workflow system preserve
+observability for nested structured runtimes.
+
 #### `resolve_runnable(...)`
 
 `resolve_runnable(...)` repeatedly resolves a runnable-like object from either:
@@ -505,9 +611,20 @@ The runnable layer exists so workflows can compose functions, agents, workflows,
 
 Only supported kwargs are forwarded to builders, which keeps builder signatures lightweight.
 
+In the current implementation, the most common cases are:
+
+- an `Agent` instance is already a runnable
+- a `WorkflowAgent` instance is already a runnable
+- a plain function is wrapped into `FunctionRunnable`
+- a lazy builder is invoked only when the node executes
+
 #### `adapt_runnable(...)`
 
 `adapt_runnable(...)` resolves a concrete runnable and wraps it in a `RunnableAdapter`, giving callers a uniform runnable-shaped object.
+
+`RunnableAdapter` is intentionally thin. It does not add business logic; it only gives
+the engine and nodes a stable interface for `name`, `context`, `usage`, `async_ask(...)`,
+and `async_run(...)`.
 
 #### `invoke_runnable(...)`
 
@@ -518,9 +635,49 @@ Only supported kwargs are forwarded to builders, which keeps builder signatures 
 - falls back to `async_ask(...)`
 - returns a structured `RunnableInvocation`
 
+That preference order is deliberate:
+
+- `async_run(...)` is preferred because it preserves nested run metadata
+- `async_ask(...)` is still sufficient when the child runtime only exposes a simple ask API
+
+The resulting `RunnableInvocation` carries:
+
+- the final output seen by the parent node
+- the child runnable name
+- an optional structured child run object
+
 #### `function_runnable(...)`
 
 `function_runnable(...)` builds a `FunctionRunnable`, which is a lightweight adapter for turning plain callables into runnable-like objects. This supports function-first lazy composition without introducing factory classes.
+
+`FunctionRunnable` is especially useful when you want to:
+
+- wrap a simple transformation into a runnable shape
+- expose both ask-style and run-style behavior
+- plug plain functions into `RunnableNode` without creating a custom class
+
+### 8.5.2 How existing agents fit into the workflow engine
+
+Existing `Agent` instances are first-class workflow children because they already satisfy
+the ask-style runnable contract.
+
+In practice:
+
+- a `RunnableNode` can execute an `Agent`
+- the parent workflow can build the child input from current state
+- the child output can be written back into parent state under `output_key`
+- later nodes can inspect that output and decide the next step
+
+Existing `WorkflowAgent` instances also fit naturally, with one added benefit: when they
+are invoked through `async_run(...)`, the parent workflow can retain nested run metadata
+for tracing and debugging.
+
+This gives Cortex a useful composition ladder:
+
+- plain functions for lightweight deterministic logic
+- `Agent` for single-runtime conversational/tool behavior
+- `WorkflowAgent` for explicit stateful orchestration
+- parent workflows that compose any mixture of the above
 
 ### 8.6 Observability model
 

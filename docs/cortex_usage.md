@@ -681,6 +681,98 @@ wf = workflow(
 )
 ```
 
+### 7.4.1 How to create a `WorkflowAgent`
+
+You can create workflows either with the `workflow(...)` helper or by instantiating
+`WorkflowAgent(...)` directly. In most application code, the helper is the cleaner choice.
+
+A workflow usually has:
+
+- a `name`
+- a list of `nodes`
+- an optional `start_node`
+- optional shared `context`
+- optional `usage`
+- a `max_steps` guard
+
+The most common node-building pattern is:
+
+- `function_node(...)` for deterministic Python logic
+- `router_node(...)` for branching
+- `runnable_node(...)` for nested agents, workflows, or custom runnables
+- `parallel_node(...)` for concurrent branches
+- `llm_node(...)` for direct LLM-backed nodes
+
+Example with explicit state updates and routing:
+
+```python
+from cortex import WorkflowNodeResult, function_node, router_node, workflow
+
+def classify(state, context, workflow):
+    text = state.input or ""
+    kind = "billing" if "invoice" in text.lower() else "general"
+    return WorkflowNodeResult.update_state({"kind": kind}, output=kind)
+
+def route(state, context, workflow):
+    if state.require("kind") == "billing":
+        return "billing_reply"
+    return "general_reply"
+
+wf = workflow(
+    name="Support Workflow",
+    nodes=[
+        function_node("classify", func=classify, next_node="route"),
+        router_node(
+            "route",
+            func=route,
+            possible_next_nodes=["billing_reply", "general_reply"],
+        ),
+        function_node(
+            "billing_reply",
+            func=lambda state, context, workflow: "Let me help with billing.",
+            is_final=True,
+        ),
+        function_node(
+            "general_reply",
+            func=lambda state, context, workflow: "How can I help?",
+            is_final=True,
+        ),
+    ],
+    start_node="classify",
+)
+```
+
+To execute it:
+
+```python
+run = await wf.async_run("I have an invoice problem")
+print(run.final_output)
+print(run.state.to_dict())
+print(run.to_dict())
+```
+
+Use `async_run(...)` when you want the full trace/state record, and `async_ask(...)` when
+you only need the final answer.
+
+### 7.4.2 A practical workflow design pattern
+
+A good default structure for business workflows is:
+
+1. **Ingest**
+   - normalize input
+   - extract obvious fields into state
+2. **Route**
+   - choose the next node from deterministic logic
+3. **Call specialists**
+   - invoke nested agents, sub-workflows, or LLM nodes
+4. **Aggregate**
+   - combine outputs into state
+5. **Finish**
+   - produce the final output
+
+This pattern keeps control flow inspectable and makes retries/fallback behavior easy to
+reason about.
+
 ### 7.5 Nested runnables inside workflows
 
 Use `runnable_node(...)` when one node should execute another runnable.
@@ -722,6 +814,133 @@ wf = workflow(
 )
 ```
 
+### 7.5.1 Using existing `Agent` instances inside a workflow
+
+One of the most useful patterns is to keep specialized agents small and reusable, then
+orchestrate them with a parent workflow.
+
+Example:
+
+```python
+from cortex import Agent, runnable_node, workflow
+
+research_agent = Agent(
+    name="Research Agent",
+    llm=my_llm,
+    sys_prompt="Find relevant facts and summarize them briefly.",
+    mode="async",
+)
+
+writer_agent = Agent(
+    name="Writer Agent",
+    llm=my_llm,
+    sys_prompt="Write a concise final response from provided notes.",
+    mode="async",
+)
+
+wf = workflow(
+    name="Research Then Write",
+    nodes=[
+        runnable_node(
+            "research",
+            runnable=research_agent,
+            input_builder=lambda state, context, workflow: state.input,
+            output_key="research_notes",
+            next_node="write",
+        ),
+        runnable_node(
+            "write",
+            runnable=writer_agent,
+            input_builder=lambda state, context, workflow: (
+                f"User request: {state.input}\n\nResearch notes: {state.require('research_notes')}"
+            ),
+            is_final=True,
+        ),
+    ],
+)
+```
+
+This is often the right choice when:
+
+- you already have working agents
+- you want explicit orchestration around them
+- you want deterministic routing, retries, or traceability at the parent level
+
+### 7.5.2 Using a `WorkflowAgent` inside another workflow
+
+Sub-workflows are useful when one stage is itself a multi-step process.
+
+Example:
+
+```python
+from cortex import function_node, runnable_node, workflow
+
+analysis_workflow = workflow(
+    name="Analysis Workflow",
+    nodes=[
+        function_node(
+            "analyze",
+            func=lambda state, context, workflow: {"score": 0.91, "label": "high-priority"},
+            is_final=True,
+        )
+    ],
+)
+
+parent_workflow = workflow(
+    name="Parent Workflow",
+    nodes=[
+        runnable_node(
+            "run_analysis",
+            runnable=analysis_workflow,
+            output_key="analysis_result",
+            next_node="finish",
+        ),
+        function_node(
+            "finish",
+            func=lambda state, context, workflow: {
+                "input": state.input,
+                "analysis": state.require("analysis_result"),
+            },
+            is_final=True,
+        ),
+    ],
+)
+```
+
+This pattern is helpful when:
+
+- one stage has its own internal control flow
+- you want to reuse the same sub-workflow in multiple parent systems
+- you want nested run traces for debugging
+
+### 7.5.3 Building larger systems from existing agents
+
+A practical way to build complex systems in Cortex is:
+
+- keep each specialist as an `Agent`
+- use `WorkflowAgent` as the orchestration layer
+- split deterministic routing/state management into function/router nodes
+- reserve nested agents for work that actually benefits from LLM/tool behavior
+
+A common structure looks like:
+
+```python
+intake -> classify -> choose specialist -> specialist agent -> verify -> finalize
+```
+
+Where:
+
+- `intake` and `verify` are often `function_node(...)`
+- `classify` is often `router_node(...)` or `llm_node(...)`
+- `specialist agent` stages are `runnable_node(...)`
+- `finalize` is often a final `function_node(...)` or `runnable_node(...)`
+
+This separation works well because it keeps:
+
+- orchestration deterministic and inspectable
+- specialist behavior reusable
+- system growth modular instead of monolithic
+
 ### 7.6 Runnable helpers
 
 The runnable layer gives you explicit control over lazy composition:
@@ -739,6 +958,24 @@ The runnable layer gives you explicit control over lazy composition:
   - execute a runnable through the shared resolution/adaptation path
 
 These helpers are primarily useful when you are building runnable composition abstractions or integrating custom runnable builders.
+
+### 7.6.1 When to use each runnable shape
+
+Use:
+
+- `function_node(...)`
+  - for deterministic state transforms, validation, routing preparation, and aggregation
+- `runnable_node(...)`
+  - for existing `Agent`s, `WorkflowAgent`s, or custom runnable-like objects
+- `function_runnable(...)`
+  - when you want a plain function to behave like a runnable child
+- `llm_node(...)`
+  - when you want direct LLM-backed execution without first creating a standalone `Agent`
+
+As a rule of thumb:
+
+- use **nodes** to describe orchestration structure
+- use **runnables** to describe child runtimes that a node can execute
 
 ### 7.7 Usage tracking
 
