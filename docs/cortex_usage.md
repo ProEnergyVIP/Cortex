@@ -67,7 +67,7 @@ Use `WorkflowAgent` when:
 - You need deterministic routing between stages.
 - You want retries, fallbacks, or parallel branches in one runtime.
 - You want orchestration logic to be part of the runtime itself.
-- You want nested runtimes, explicit shared state, and inspectable graph execution.
+- You want nested runnables, explicit shared state, and inspectable graph execution.
 
 ### 1.5 Use preset agent systems when the topology already fits
 
@@ -83,7 +83,7 @@ Use these when:
 
 ---
 
-### 1.6 Function-first workflow and runtime helpers
+### 1.6 Function-first workflow and runnable helpers
 
 The preferred workflow API is function-first:
 
@@ -91,17 +91,17 @@ The preferred workflow API is function-first:
 - `function_node(...)`
 - `router_node(...)`
 - `parallel_node(...)`
-- `runtime_node(...)`
+- `runnable_node(...)`
 - `llm_node(...)`
 
-For explicit runtime composition, Cortex also provides:
+For explicit runnable composition, Cortex also provides:
 
-- `function_runtime(...)`
-- `resolve_runtime(...)`
-- `adapt_runtime(...)`
-- `invoke_runtime(...)`
+- `function_runnable(...)`
+- `resolve_runnable(...)`
+- `adapt_runnable(...)`
+- `invoke_runnable(...)`
 
-Use these when you want to compose agents, workflows, and lazy runtime builders uniformly without introducing factory classes.
+Use these when you want to compose agents, workflows, and lazy runnable builders uniformly without introducing factory classes.
 
 ---
 
@@ -685,25 +685,25 @@ wf = workflow(
 )
 ```
 
-### 7.5 Nested runtimes inside workflows
+### 7.5 Nested runnables inside workflows
 
-Use `runtime_node(...)` when one node should execute another runtime.
+Use `runnable_node(...)` when one node should execute another runnable.
 
-That runtime can be:
+That runnable can be:
 
 - an `Agent`
 - a `WorkflowAgent`
 - a lazy builder returning either of the above
-- a wrapped function runtime from `function_runtime(...)`
+- a wrapped function runnable from `function_runnable(...)`
 
 Example:
 
 ```python
-from cortex import function_runtime, runtime_node, workflow, function_node
+from cortex import function_runnable, runnable_node, workflow, function_node
 
-child_runtime = function_runtime(
-    name="Child Runtime",
-    ask=lambda user_input=None, context=None, usage=None, runtime=None, parent=None: {
+child_runnable = function_runnable(
+    name="Child Runnable",
+    ask=lambda user_input=None, context=None, usage=None, runnable=None, parent=None: {
         "echo": user_input
     },
 )
@@ -711,9 +711,9 @@ child_runtime = function_runtime(
 wf = workflow(
     name="Parent Workflow",
     nodes=[
-        runtime_node(
+        runnable_node(
             "call_child",
-            runtime=child_runtime,
+            runnable=child_runnable,
             output_key="child_result",
             next_node="finish",
         ),
@@ -726,23 +726,23 @@ wf = workflow(
 )
 ```
 
-### 7.6 Runtime helpers
+### 7.6 Runnable helpers
 
-The runtime layer gives you explicit control over lazy composition:
+The runnable layer gives you explicit control over lazy composition:
 
-- `function_runtime(...)`
-  - wrap plain functions as runtime-like objects
+- `function_runnable(...)`
+  - wrap plain functions as runnable-like objects
 
-- `resolve_runtime(...)`
-  - lazily resolve a concrete runtime from a runtime or builder
+- `resolve_runnable(...)`
+  - lazily resolve a concrete runnable from a runnable or builder
 
-- `adapt_runtime(...)`
-  - normalize a resolved runtime into a uniform runtime-shaped object
+- `adapt_runnable(...)`
+  - normalize a resolved runnable into a uniform runnable-shaped object
 
-- `invoke_runtime(...)`
-  - execute a runtime through the shared resolution/adaptation path
+- `invoke_runnable(...)`
+  - execute a runnable through the shared resolution/adaptation path
 
-These helpers are primarily useful when you are building runtime composition abstractions or integrating custom runtime builders.
+These helpers are primarily useful when you are building runnable composition abstractions or integrating custom runnable builders.
 
 ### 7.7 Usage tracking
 

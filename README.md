@@ -3,7 +3,7 @@
 Cortex is a Python framework for building LLM-powered applications with:
 
 - **Runtime primitives** for direct `Agent` and `WorkflowAgent` usage
-- **Function-first workflow and runtime composition helpers**
+- **Function-first workflow and runnable composition helpers**
 - **A preset system** for coordinator-worker orchestration
 
 It is designed so you can start with a single runtime, move up to explicit node-oriented workflows when needed, and use the coordinator preset when that topology fits your problem.
@@ -16,13 +16,13 @@ It is designed so you can start with a single runtime, move up to explicit node-
 
 - **Explicit workflow runtime**
   - Build node-oriented flows with `WorkflowAgent`
-  - Use deterministic routing, retries, fallbacks, parallel branches, and nested runtimes
-  - Compose workflows with function-first helpers such as `workflow(...)`, `function_node(...)`, `router_node(...)`, `parallel_node(...)`, `runtime_node(...)`, and `llm_node(...)`
+  - Use deterministic routing, retries, fallbacks, parallel branches, and nested runnables
+  - Compose workflows with function-first helpers such as `workflow(...)`, `function_node(...)`, `router_node(...)`, `parallel_node(...)`, `runnable_node(...)`, and `llm_node(...)`
 
-- **Runtime composition**
-  - Lazily resolve concrete runtimes, runtime builders, agents, and workflows only when needed
-  - Wrap plain callables as runtimes with `function_runtime(...)`
-  - Use `RuntimeNode` to embed runtimes inside workflow graphs
+- **Runnable composition**
+  - Lazily resolve concrete runnables, runnable builders, agents, and workflows only when needed
+  - Wrap plain callables as runnables with `function_runnable(...)`
+  - Use `RunnableNode` to embed runnables inside workflow graphs
 
 - **Preset systems**
   - `CoordinatorSystem` for flat coordinator-worker delegation
@@ -55,8 +55,8 @@ It is designed so you can start with a single runtime, move up to explicit node-
 Top-level exports include:
 
 - `Agent`, `Tool`, `LLM`
-- `WorkflowAgent`, `workflow`, `function_node`, `router_node`, `parallel_node`, `runtime_node`, `llm_node`
-- `RuntimeNode`, `function_runtime`, `resolve_runtime`, `adapt_runtime`, `invoke_runtime`
+- `WorkflowAgent`, `workflow`, `function_node`, `router_node`, `parallel_node`, `runnable_node`, `llm_node`
+- `RunnableNode`, `function_runnable`, `resolve_runnable`, `adapt_runnable`, `invoke_runnable`
 - `FunctionStep`, `LLMStep`, `RouterStep`, `ParallelStep`
 - `CoordinatorSystem`, `CoordinatorAgentBuilder`, `WorkerAgentBuilder`
 

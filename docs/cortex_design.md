@@ -38,8 +38,8 @@ The workflow and agent-system packages add higher-level runtime layers above thi
 
 - `WorkflowEngine` owns generic node execution, retries, fallback, and tracing.
 - `WorkflowAgent` is the public node-oriented workflow runtime built on top of `WorkflowEngine`.
-- `RuntimeNode` lets workflows compose agents, workflows, and lazy runtime builders uniformly.
-- The runtime layer resolves callables lazily through `resolve_runtime(...)`, `adapt_runtime(...)`, and `invoke_runtime(...)`.
+- `RunnableNode` lets workflows compose agents, workflows, and lazy runnable builders uniformly.
+- The runnable layer resolves callables lazily through `resolve_runnable(...)`, `adapt_runnable(...)`, and `invoke_runnable(...)`.
 
 The agent-system package adds a higher-level multi-agent API above this:
 
@@ -377,16 +377,16 @@ At a high level, the public workflow model now consists of:
 - `FunctionStep`
 - `RouterStep`
 - `LLMStep`
-- `RuntimeNode`
+- `RunnableNode`
 - `WorkflowStep` as a compatibility shim
 - `ParallelStep`
 - `workflow(...)`
 - `function_node(...)`
 - `router_node(...)`
 - `parallel_node(...)`
-- `runtime_node(...)`
+- `runnable_node(...)`
 - `llm_node(...)`
-- `function_runtime(...)`
+- `function_runnable(...)`
 
 ### 8.1 Mental model
 
@@ -401,7 +401,7 @@ A workflow run proceeds like this:
 7. Runtime policy may retry, time out, or fallback to another node.
 8. The final result is returned as a `WorkflowRun`; `async_ask(...)` returns only `final_output`.
 
-This makes control flow explicit while still allowing LLM-powered nodes and nested runtimes inside the graph.
+This makes control flow explicit while still allowing LLM-powered nodes and nested runnables inside the graph.
 
 ### 8.2 Core abstractions
 
@@ -469,20 +469,20 @@ Runs a Python callable against `(state, context, workflow)`. It is useful for de
 - tool-enabled agent execution
 - terminal usage via `LLMStep.final(...)`
 
-#### `RuntimeNode`
+#### `RunnableNode`
 
-`RuntimeNode` is the primary runtime-backed node abstraction. It allows a parent workflow to map parent state into child input, lazily resolve a runtime, invoke it, store child output back into parent state, and expose child-run metadata in traces.
+`RunnableNode` is the primary runnable-backed node abstraction. It allows a parent workflow to map parent state into child input, lazily resolve a runnable, invoke it, store child output back into parent state, and expose child-run metadata in traces.
 
 It composes:
 
-- concrete `Agent` runtimes
-- concrete `WorkflowAgent` runtimes
-- lazy runtime builders
-- wrapped function runtimes built with `function_runtime(...)`
+- concrete `Agent` runnables
+- concrete `WorkflowAgent` runnables
+- lazy runnable builders
+- wrapped function runnables built with `function_runnable(...)`
 
 #### `WorkflowStep`
 
-`WorkflowStep` is now a compatibility shim over `RuntimeNode`. It remains available for older workflow-oriented code but is no longer the primary abstraction.
+`WorkflowStep` is now a compatibility shim over `RunnableNode`. It remains available for older workflow-oriented code but is no longer the primary abstraction.
 
 #### `ParallelStep`
 
@@ -515,36 +515,36 @@ The agent also exposes graph introspection helpers:
 
 These helpers surface node order, declared successors, terminal nodes, and fallback targets for tooling, debugging, and future visualization support.
 
-### 8.5 Runtime composition layer
+### 8.5 Runnable composition layer
 
-The runtime layer exists so workflows can compose agents, workflows, and builders lazily and uniformly.
+The runnable layer exists so workflows can compose functions, agents, workflows, and builders lazily and uniformly.
 
-#### `resolve_runtime(...)`
+#### `resolve_runnable(...)`
 
-`resolve_runtime(...)` repeatedly resolves a runtime-like object from either:
+`resolve_runnable(...)` repeatedly resolves a runnable-like object from either:
 
-- a concrete runtime
-- a callable returning a runtime
-- a callable returning another callable, until a runtime is produced
+- a concrete runnable
+- a callable returning a runnable
+- a callable returning another callable, until a runnable is produced
 
 Only supported kwargs are forwarded to builders, which keeps builder signatures lightweight.
 
-#### `adapt_runtime(...)`
+#### `adapt_runnable(...)`
 
-`adapt_runtime(...)` resolves a concrete runtime and wraps it in a `RuntimeAdapter`, giving callers a uniform runtime-shaped object.
+`adapt_runnable(...)` resolves a concrete runnable and wraps it in a `RunnableAdapter`, giving callers a uniform runnable-shaped object.
 
-#### `invoke_runtime(...)`
+#### `invoke_runnable(...)`
 
-`invoke_runtime(...)` is the shared runtime invocation path used by `RuntimeNode`. It:
+`invoke_runnable(...)` is the shared runnable invocation path used by `RunnableNode`. It:
 
-- resolves and adapts the runtime
+- resolves and adapts the runnable
 - prefers `async_run(...)` when available
 - falls back to `async_ask(...)`
-- returns a structured `RuntimeInvocation`
+- returns a structured `RunnableInvocation`
 
-#### `function_runtime(...)`
+#### `function_runnable(...)`
 
-`function_runtime(...)` builds a `FunctionRuntime`, which is a lightweight adapter for turning plain callables into runtime-like objects. This supports function-first lazy composition without introducing factory classes.
+`function_runnable(...)` builds a `FunctionRunnable`, which is a lightweight adapter for turning plain callables into runnable-like objects. This supports function-first lazy composition without introducing factory classes.
 
 ### 8.6 Observability model
 
@@ -582,7 +582,7 @@ Helper APIs include:
 - `failed_trace()`
 - `to_dict()`
 
-Serialization helpers normalize nested workflow runs and trace metadata into plain Python data, which is especially important for nested runtimes and parallel branches.
+Serialization helpers normalize nested workflow runs and trace metadata into plain Python data, which is especially important for nested runnables and parallel branches.
 
 ### 8.7 Public construction helpers
 
@@ -592,11 +592,11 @@ The preferred public construction style is function-first:
 - `function_node(...)`
 - `router_node(...)`
 - `parallel_node(...)`
-- `runtime_node(...)`
+- `runnable_node(...)`
 - `llm_node(...)`
-- `function_runtime(...)`
+- `function_runnable(...)`
 
-This avoids public factory classes while keeping lazy runtime composition explicit and ergonomic.
+This avoids public factory classes while keeping lazy runnable composition explicit and ergonomic.
 
 ### 8.8 Design constraints
 

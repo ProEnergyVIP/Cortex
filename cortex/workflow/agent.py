@@ -6,8 +6,8 @@ from typing import Any, Optional
 from cortex.message import AgentUsage
 
 from .engine import WorkflowEngine
+from .node import Node
 from .state import WorkflowRun, WorkflowState
-from .step import Step
 
 
 @dataclass
@@ -15,7 +15,7 @@ class WorkflowAgent:
     """Execute a named sequence or graph of workflow nodes against shared state."""
 
     name: str
-    nodes: list[Step]
+    nodes: list[Node]
     start_node: Optional[str] = None
     context: Any = None
     usage: Optional[AgentUsage] = None
@@ -46,15 +46,9 @@ class WorkflowAgent:
         """Return a node by name or raise if the node is unknown."""
         return self._engine.get_node(node_name)
 
-    def get_step(self, step_name: str):
-        return self.get_node(step_name)
-
     def get_next_node_name(self, current_node_name: str) -> Optional[str]:
         """Return the default ordered successor for a node, if any."""
         return self._engine.get_next_node_name(current_node_name)
-
-    def get_next_step_name(self, current_step_name: str) -> Optional[str]:
-        return self.get_next_node_name(current_step_name)
 
     def get_declared_graph(self) -> dict[str, dict[str, Any]]:
         """Return a structured view of the statically declared workflow graph."""
@@ -81,9 +75,6 @@ class WorkflowAgent:
 
     def _validate_declared_node_references(self) -> None:
         self._engine._validate_declared_node_references()
-
-    def _validate_declared_step_references(self) -> None:
-        self._validate_declared_node_references()
 
     async def async_run(
         self,
@@ -123,34 +114,3 @@ class WorkflowAgent:
         run = await self.async_run(user_input, state=state, context=context)
         return run.final_output
 
-    @property
-    def steps(self) -> list[Step]:
-        return self.nodes
-
-    @steps.setter
-    def steps(self, value: list[Step]) -> None:
-        self.nodes = value
-
-    @property
-    def start_step(self) -> Optional[str]:
-        return self.start_node
-
-    @start_step.setter
-    def start_step(self, value: Optional[str]) -> None:
-        self.start_node = value
-
-    @property
-    def steps_by_name(self) -> dict[str, Step]:
-        return self.nodes_by_name
-
-    @steps_by_name.setter
-    def steps_by_name(self, value: dict[str, Step]) -> None:
-        self.nodes_by_name = value
-
-    @property
-    def step_order(self) -> list[str]:
-        return self.node_order
-
-    @step_order.setter
-    def step_order(self, value: list[str]) -> None:
-        self.node_order = value

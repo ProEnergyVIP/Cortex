@@ -3,47 +3,42 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .agent import WorkflowAgent
-from .policy import StepPolicy
-from .runtime import FunctionRuntime
-from .step import FunctionStep, LLMStep, ParallelStep, RouterStep, RuntimeNode
+from .node import FunctionNode, LLMNode, NodePolicy, ParallelNode, RouterNode, RunnableNode
+from .runtime import FunctionRunnable, function_runnable as build_function_runnable
 
 
 def workflow(
     *,
     name: str,
     nodes: Optional[list[Any]] = None,
-    steps: Optional[list[Any]] = None,
     start_node: Optional[str] = None,
-    start_step: Optional[str] = None,
     context: Any = None,
     usage: Any = None,
     max_steps: int = 50,
 ) -> WorkflowAgent:
-    resolved_nodes = steps if steps is not None else nodes
-    if resolved_nodes is None:
-        raise ValueError("workflow(...) requires steps or nodes")
-    resolved_start = start_step if start_step is not None else start_node
+    if nodes is None:
+        raise ValueError("workflow(...) requires nodes")
     return WorkflowAgent(
         name=name,
-        nodes=resolved_nodes,
-        start_node=resolved_start,
+        nodes=nodes,
+        start_node=start_node,
         context=context,
         usage=usage,
         max_steps=max_steps,
     )
 
 
-def function_runtime(
+def function_runnable(
     *,
     ask,
     run=None,
     name: Optional[str] = None,
     context: Any = None,
     usage: Any = None,
-) -> FunctionRuntime:
-    return FunctionRuntime(
-        ask_func=ask,
-        run_func=run,
+) -> FunctionRunnable:
+    return build_function_runnable(
+        ask=ask,
+        run=run,
         name=name,
         context=context,
         usage=usage,
@@ -55,16 +50,14 @@ def function_node(
     func,
     *,
     next_node: Optional[str] = None,
-    next_step: Optional[str] = None,
     output_key: Optional[str] = None,
-    policy: Optional[StepPolicy] = None,
+    policy: Optional[NodePolicy] = None,
     is_final: bool = False,
-) -> FunctionStep:
-    resolved_next = next_step if next_step is not None else next_node
-    return FunctionStep(
+) -> FunctionNode:
+    return FunctionNode(
         name=name,
         func=func,
-        next_step=resolved_next,
+        next_node=next_node,
         output_key=output_key,
         policy=policy,
         is_final=is_final,
@@ -76,42 +69,36 @@ def router_node(
     func,
     *,
     next_node: Optional[str] = None,
-    next_step: Optional[str] = None,
     output_key: Optional[str] = None,
     possible_next_nodes: Optional[list[str]] = None,
-    possible_next_steps: Optional[list[str]] = None,
-    policy: Optional[StepPolicy] = None,
-) -> RouterStep:
-    resolved_next = next_step if next_step is not None else next_node
-    resolved_possible = possible_next_steps if possible_next_steps is not None else possible_next_nodes
-    return RouterStep(
+    policy: Optional[NodePolicy] = None,
+) -> RouterNode:
+    return RouterNode(
         name=name,
         func=func,
-        next_step=resolved_next,
+        next_node=next_node,
         output_key=output_key,
-        possible_next_steps=resolved_possible,
+        possible_next_nodes=possible_next_nodes,
         policy=policy,
     )
 
 
-def runtime_node(
+def runnable_node(
     name: str,
-    runtime,
+    runnable,
     *,
     input_builder=None,
     output_key: Optional[str] = None,
     next_node: Optional[str] = None,
-    next_step: Optional[str] = None,
-    policy: Optional[StepPolicy] = None,
+    policy: Optional[NodePolicy] = None,
     is_final: bool = False,
-) -> RuntimeNode:
-    resolved_next = next_step if next_step is not None else next_node
-    return RuntimeNode(
+) -> RunnableNode:
+    return RunnableNode(
         name=name,
-        runtime=runtime,
+        runnable=runnable,
         input_builder=input_builder,
         output_key=output_key,
-        next_step=resolved_next,
+        next_node=next_node,
         policy=policy,
         is_final=is_final,
     )
@@ -121,22 +108,18 @@ def parallel_node(
     name: str,
     nodes: Optional[list[Any]] = None,
     *,
-    steps: Optional[list[Any]] = None,
     next_node: Optional[str] = None,
-    next_step: Optional[str] = None,
     output_key: Optional[str] = None,
     merge_strategy: str = "error",
-    policy: Optional[StepPolicy] = None,
+    policy: Optional[NodePolicy] = None,
     is_final: bool = False,
-) -> ParallelStep:
-    resolved_steps = steps if steps is not None else nodes
-    if resolved_steps is None:
-        raise ValueError("parallel_node(...) requires steps or nodes")
-    resolved_next = next_step if next_step is not None else next_node
-    return ParallelStep(
+) -> ParallelNode:
+    if nodes is None:
+        raise ValueError("parallel_node(...) requires nodes")
+    return ParallelNode(
         name=name,
-        steps=resolved_steps,
-        next_step=resolved_next,
+        nodes=nodes,
+        next_node=next_node,
         output_key=output_key,
         merge_strategy=merge_strategy,
         policy=policy,
@@ -157,13 +140,11 @@ def llm_node(
     max_attempts: int = 3,
     llm_args: Optional[dict[str, Any]] = None,
     next_node: Optional[str] = None,
-    next_step: Optional[str] = None,
     response_key: Optional[str] = None,
     is_final: bool = False,
-    policy: Optional[StepPolicy] = None,
-) -> LLMStep:
-    resolved_next = next_step if next_step is not None else next_node
-    return LLMStep(
+    policy: Optional[NodePolicy] = None,
+) -> LLMNode:
+    return LLMNode(
         name=name,
         llm=llm,
         prompt=prompt,
@@ -174,7 +155,7 @@ def llm_node(
         check_func=check_func,
         max_attempts=max_attempts,
         llm_args=llm_args,
-        next_step=resolved_next,
+        next_node=next_node,
         response_key=response_key,
         is_final=is_final,
         policy=policy,
