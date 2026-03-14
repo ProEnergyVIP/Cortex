@@ -2,7 +2,9 @@
 """Test that AgentSystemContext can be imported from multiple paths and subclassed."""
 
 import sys
-sys.path.insert(0, '.')
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Test all import paths
 from cortex.agent_system.core.context import AgentSystemContext as C1
