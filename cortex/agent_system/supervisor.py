@@ -27,9 +27,10 @@ from cortex.workflow.runtime import adapt_runnable, invoke_runnable
 class _SupervisorWorker:
     """Normalized internal representation of one worker managed by a supervisor."""
 
-    worker: Any
+    worker: Callable[..., Any]
     name: Optional[str] = None
     description: Optional[str] = None
+    resolved_worker: Any = None
 
 
 def _default_supervisor_prompt(name: str, worker_descriptions: list[str], instructions: Optional[str] = None) -> str:
@@ -67,7 +68,7 @@ def _normalize_supervisor_worker_spec(worker: Any) -> _SupervisorWorker:
     """Normalize one worker spec.
 
     Accepted shapes:
-    - a runnable / agent / workflow-like object
+    - a callable returning a runnable / agent / workflow-like object
     - a dict containing `worker`, plus optional `name` and `description`
     - an already normalized `_SupervisorWorker`
     """
@@ -75,14 +76,18 @@ def _normalize_supervisor_worker_spec(worker: Any) -> _SupervisorWorker:
     if isinstance(worker, _SupervisorWorker):
         return worker
     if isinstance(worker, dict):
-        runnable = worker.get("worker")
-        if runnable is None:
+        worker_builder = worker.get("worker")
+        if worker_builder is None:
             raise ValueError("Supervisor worker specs must include a 'worker' entry")
+        if not callable(worker_builder):
+            raise ValueError("Supervisor worker specs must provide a callable 'worker' builder")
         return _SupervisorWorker(
-            worker=runnable,
+            worker=worker_builder,
             name=worker.get("name"),
             description=worker.get("description"),
         )
+    if not callable(worker):
+        raise ValueError("create_supervisor(...) workers must be callables that return a runnable")
     return _SupervisorWorker(worker=worker)
 
 
@@ -96,9 +101,33 @@ def _normalize_supervisor_tool_name(name: Optional[str], index: int) -> str:
 def _describe_supervisor_worker(spec: _SupervisorWorker, tool_name: str) -> str:
     """Create a human-readable description used in the default supervisor prompt."""
 
-    worker_name = spec.name or getattr(spec.worker, "name", None) or tool_name
+    worker_name = spec.name or getattr(spec.worker, "name", None) or getattr(spec.worker, "__name__", None) or tool_name
     description = spec.description or f"Worker agent '{worker_name}' available through tool '{tool_name}'."
     return f"{worker_name}: {description} (tool: {tool_name})"
+
+
+async def _resolve_supervisor_worker(
+    spec: _SupervisorWorker,
+    *,
+    context: Any = None,
+    usage: Any = None,
+    parent: Any = None,
+) -> Any:
+    """Build and cache a worker runnable the first time it is needed."""
+
+    if spec.resolved_worker is not None:
+        return spec.resolved_worker
+
+    built = _call_with_supported_kwargs(
+        spec.worker,
+        context=context,
+        usage=usage,
+        parent=parent,
+    )
+    if iscoroutine(built):
+        built = await built
+    spec.resolved_worker = built
+    return built
 
 
 def _build_supervisor_worker_tool(
@@ -109,13 +138,22 @@ def _build_supervisor_worker_tool(
 ) -> Tool:
     """Wrap a worker as a tool that accepts a single delegated `task` string."""
 
-    tool_name = _normalize_supervisor_tool_name(spec.name or getattr(spec.worker, "name", None), index)
-    description = spec.description or f"Delegate a task to {spec.name or getattr(spec.worker, 'name', tool_name)}."
+    tool_name = _normalize_supervisor_tool_name(
+        spec.name or getattr(spec.worker, "name", None) or getattr(spec.worker, "__name__", None),
+        index,
+    )
+    description = spec.description or f"Delegate a task to {spec.name or getattr(spec.worker, 'name', getattr(spec.worker, '__name__', tool_name))}."
 
     async def _run_worker(args, tool_context=None, agent=None):
         task = args["task"]
+        worker = await _resolve_supervisor_worker(
+            spec,
+            context=tool_context if tool_context is not None else context,
+            usage=getattr(tool_context, "usage", None) if tool_context is not None else None,
+            parent=agent,
+        )
         invocation = await invoke_runnable(
-            spec.worker,
+            worker,
             task,
             context=tool_context if tool_context is not None else context,
             usage=getattr(tool_context, "usage", None) if tool_context is not None else None,
@@ -141,21 +179,59 @@ def _build_supervisor_worker_tool(
     )
 
 
+def _build_worker_tools(
+    worker_tools: Optional[list[Callable[..., Tool]]],
+    *,
+    context: Any = None,
+    usage: Any = None,
+) -> list[Tool]:
+    """Build extra supervisor-facing tools from builder callables."""
+
+    built_tools: list[Tool] = []
+    for builder in worker_tools or []:
+        if not callable(builder):
+            raise ValueError("create_supervisor(..., worker_tools=...) expects callables that return Tool objects")
+        built = _call_with_supported_kwargs(
+            builder,
+            context=context,
+            usage=usage,
+        )
+        if iscoroutine(built):
+            raise TypeError("create_supervisor(..., worker_tools=...) builders must return Tool objects directly, not coroutines")
+        if not isinstance(built, Tool):
+            raise TypeError("create_supervisor(..., worker_tools=...) builders must return Tool objects")
+        built_tools.append(built)
+    return built_tools
+
+
+def _validate_duplicate_tool_names(tools: list[Tool], *, source: str) -> None:
+    """Raise when a tool collection contains duplicate names."""
+
+    tool_names = [tool.name for tool in tools]
+    duplicate_tool_names = sorted({name for name in tool_names if tool_names.count(name) > 1})
+    if duplicate_tool_names:
+        raise ValueError(
+            f"{source} generated duplicate tool names: " + ", ".join(duplicate_tool_names)
+        )
+
+
 def build_supervisor_tools(
     workers: list[Any],
     *,
+    worker_tools: Optional[list[Callable[..., Tool]]] = None,
     context: Any = None,
+    usage: Any = None,
 ) -> tuple[list[_SupervisorWorker], list[Tool], list[str]]:
     """Build worker tools and prompt descriptions from raw worker specs.
 
     Returns a tuple of:
     - normalized worker specs
-    - worker tools
+    - all supervisor-facing worker tools
     - human-readable worker descriptions for prompts/docs
     """
 
     worker_specs = _normalize_supervisor_workers(workers)
-    worker_tools = [
+    generated_worker_tools = [
         _build_supervisor_worker_tool(
             spec,
             index,
@@ -163,24 +239,26 @@ def build_supervisor_tools(
         )
         for index, spec in enumerate(worker_specs)
     ]
-    tool_names = [tool.name for tool in worker_tools]
-    duplicate_tool_names = sorted({name for name in tool_names if tool_names.count(name) > 1})
-    if duplicate_tool_names:
-        raise ValueError(
-            "create_supervisor(...) generated duplicate worker tool names: "
-            + ", ".join(duplicate_tool_names)
-        )
+    extra_worker_tools = _build_worker_tools(worker_tools, context=context, usage=usage)
+    combined_worker_tools = [*generated_worker_tools, *extra_worker_tools]
+    _validate_duplicate_tool_names(
+        combined_worker_tools,
+        source="create_supervisor(...)",
+    )
     worker_descriptions = [
-        _describe_supervisor_worker(spec, worker_tools[index].name)
+        _describe_supervisor_worker(spec, generated_worker_tools[index].name)
         for index, spec in enumerate(worker_specs)
     ]
-    return worker_specs, worker_tools, worker_descriptions
+    return worker_specs, combined_worker_tools, worker_descriptions
 
 
 def _get_supervisor_worker_key(spec: _SupervisorWorker, index: int) -> str:
     """Return the canonical worker key used in workflow delegation payloads."""
 
-    return _normalize_supervisor_tool_name(spec.name or getattr(spec.worker, "name", None), index)
+    return _normalize_supervisor_tool_name(
+        spec.name or getattr(spec.worker, "name", None) or getattr(spec.worker, "__name__", None),
+        index,
+    )
 
 
 async def invoke_supervisor_workers(
@@ -211,11 +289,17 @@ async def invoke_supervisor_workers(
     async def _run_delegation(item):
         worker_key = item["worker"]
         task = item["task"]
+        worker = await _resolve_supervisor_worker(
+            worker_map[worker_key],
+            context=context,
+            usage=usage,
+            parent=parent,
+        )
         try:
             # Prefer `invoke_runnable(...)` so run-capable workers preserve nested
             # run metadata when available.
             invocation = await invoke_runnable(
-                worker_map[worker_key].worker,
+                worker,
                 task,
                 context=context,
                 usage=usage,
@@ -225,7 +309,7 @@ async def invoke_supervisor_workers(
             if "does not support async_run" not in str(exc):
                 raise
             adapted_worker = await adapt_runnable(
-                worker_map[worker_key].worker,
+                worker,
                 context=context,
                 usage=usage,
                 parent=parent,
@@ -264,6 +348,7 @@ def create_supervisor(
     *,
     name: str,
     workers: list[Any],
+    worker_tools: Optional[list[Callable[..., Tool]]] = None,
     llm: Any = None,
     sys_prompt: Optional[str] = None,
     instructions: Optional[str] = None,
@@ -272,7 +357,7 @@ def create_supervisor(
     context: Any = None,
     usage: Any = None,
 ) -> Agent | WorkflowAgent:
-    """Create a supervisor over a set of worker agents.
+    """Create a supervisor over a set of lazily built worker runnables.
 
     There are two supported modes:
 
@@ -281,15 +366,18 @@ def create_supervisor(
     - Workflow supervisor mode: pass `workflow_builder`. The builder is called after
       worker tools are prepared and must return a `WorkflowAgent`.
 
-    Worker inputs can be either runnable objects directly or dict specs like:
+    Worker inputs must be callables that lazily return a runnable, or dict specs like:
 
     ```python
     {
-        "worker": research_agent,
+        "worker": build_research_agent,
         "name": "Research Worker",  # optional
         "description": "Researches facts and gathers information.",
     }
     ```
+
+    Extra `worker_tools` can also be supplied as callables that return `Tool` objects.
+    Those tools are appended after the tools generated from the lazy worker builders.
 
     In workflow mode, the builder is called with a filtered subset of:
 
@@ -312,13 +400,20 @@ def create_supervisor(
 
     worker_specs, worker_tools, worker_descriptions = build_supervisor_tools(
         workers,
+        worker_tools=worker_tools,
         context=context,
+        usage=usage,
     )
     if llm is not None:
+        supervisor_tools = [*(tools or []), *worker_tools]
+        _validate_duplicate_tool_names(
+            supervisor_tools,
+            source="create_supervisor(...)",
+        )
         supervisor_agent = Agent(
             name=name,
             llm=llm,
-            tools=[*(tools or []), *worker_tools],
+            tools=supervisor_tools,
             sys_prompt=sys_prompt or _default_supervisor_prompt(name, worker_descriptions, instructions=instructions),
             context=context,
             json_reply=False,
