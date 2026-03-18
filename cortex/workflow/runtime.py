@@ -41,6 +41,7 @@ class RunResultLike(Protocol):
     engine_name: Optional[str]
 
 
+@dataclass
 class RunnableInvocation:
     """Normalized output returned by `invoke_runnable(...)`."""
 
@@ -211,6 +212,14 @@ def get_run_output(run: Any) -> Any:
     return getattr(run, "final_output", run)
 
 
+def supports_async_run(runnable: Any) -> bool:
+    """Return whether a runnable can be safely invoked via `async_run(...)`."""
+
+    if isinstance(runnable, FunctionRunnable):
+        return runnable.run_func is not None
+    return isinstance(runnable, RunCapableRunnableLike)
+
+
 async def invoke_runnable(
     runnable: Any,
     user_input: Any = None,
@@ -228,9 +237,14 @@ async def invoke_runnable(
         parent=parent,
     )
 
-    if isinstance(adapted_runnable.runnable, RunCapableRunnableLike):
+    if supports_async_run(adapted_runnable.runnable):
         # Structured runs preserve nested run metadata for workflow traces.
-        runnable_run = await adapted_runnable.async_run(user_input, context=context)
+        runnable_run = await adapted_runnable.async_run(
+            user_input,
+            context=context,
+            usage=usage,
+            parent=parent,
+        )
         runnable_name = (
             get_run_name(runnable_run)
             if isinstance(runnable_run, RunResultLike) or hasattr(runnable_run, "final_output")
@@ -243,7 +257,12 @@ async def invoke_runnable(
         )
 
     # Ask-only runnables still participate uniformly, but do not produce nested run data.
-    output = await adapted_runnable.async_ask(user_input, context=context)
+    output = await adapted_runnable.async_ask(
+        user_input,
+        context=context,
+        usage=usage,
+        parent=parent,
+    )
     return RunnableInvocation(
         output=output,
         runnable_name=adapted_runnable.name,
