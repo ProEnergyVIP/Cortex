@@ -454,11 +454,11 @@ class WorkflowEngine:
                         try:
                             if node.policy.timeout_seconds is not None:
                                 result = await asyncio.wait_for(
-                                    node.run(state, context=context, workflow=runtime),
+                                    node.run(state.data, context=state.context, state=state, workflow=runtime),
                                     timeout=node.policy.timeout_seconds,
                                 )
                             else:
-                                result = await node.run(state, context=context, workflow=runtime)
+                                result = await node.run(state.data, context=state.context, state=state, workflow=runtime)
                             break
                         except Exception as e:
                             # Nodes may attach structured trace metadata to exceptions.

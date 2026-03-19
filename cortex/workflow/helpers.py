@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from inspect import signature
 from typing import Any, Callable, Optional
 
 from cortex.LLMFunc import llmfunc
@@ -40,38 +39,13 @@ def workflow(
     )
 
 
-def _call_with_supported_args(func, *args, **kwargs):
-    sig = signature(func)
-    accepted_positional = []
-    remaining_args = list(args)
-    for param in sig.parameters.values():
-        if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD) and remaining_args:
-            accepted_positional.append(remaining_args.pop(0))
-    accepted_kwargs = {}
-    for name, param in sig.parameters.items():
-        if param.kind == param.VAR_KEYWORD:
-            accepted_kwargs = kwargs
-            break
-        if param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY) and name in kwargs:
-            accepted_kwargs[name] = kwargs[name]
-    return func(*accepted_positional, **accepted_kwargs)
-
-
 async def _normalize_message_input(input_builder, state, context, workflow):
-    state_context = getattr(state, "context", None)
-    state_memory = getattr(state, "memory", None)
     if input_builder is not None:
-        built = _call_with_supported_args(
-            input_builder,
-            state,
-            workflow,
-            context=state_context,
-            memory=state_memory,
-        )
+        built = input_builder(state.data, context, state=state)
         if hasattr(built, "__await__"):
             built = await built
     else:
-        built = state.input
+        built = state.data
 
     if isinstance(built, list):
         return built
@@ -89,16 +63,8 @@ def function_node(
     policy: Optional[NodePolicy] = None,
     is_final: bool = False,
 ) -> RunnableNode:
-    async def _ask(user_input=None, *, context=None, usage=None, parent=None):
-        state = user_input
-        result = _call_with_supported_args(
-            func,
-            state,
-            parent,
-            context=getattr(state, "context", None),
-            usage=getattr(state, "usage", None),
-            memory=getattr(state, "memory", None),
-        )
+    async def _ask(user_input=None, *, state=None, context=None, usage=None, parent=None):
+        result = func(user_input, context, state=state)
         if hasattr(result, "__await__"):
             result = await result
         return result
@@ -106,7 +72,7 @@ def function_node(
     return RunnableNode(
         name=name,
         runnable=function_runnable(name=name, ask=_ask),
-        input_builder=lambda state, context, workflow: state,
+        input_builder=lambda user_input, context, state=None: user_input,
         output_key=output_key,
         next_node=next_node,
         policy=policy,
@@ -194,18 +160,10 @@ def llm_node(
     is_final: bool = False,
     policy: Optional[NodePolicy] = None,
 ) -> RunnableNode:
-    async def _ask(user_input=None, *, context=None, usage=None, parent=None):
-        state = user_input
+    async def _ask(user_input=None, *, state=None, context=None, usage=None, parent=None):
         resolved_prompt = prompt
         if callable(prompt):
-            resolved_prompt = _call_with_supported_args(
-                prompt,
-                state,
-                parent,
-                context=getattr(state, "context", None),
-                usage=getattr(state, "usage", None),
-                memory=getattr(state, "memory", None),
-            )
+            resolved_prompt = prompt(user_input, context, state=state)
             if hasattr(resolved_prompt, "__await__"):
                 resolved_prompt = await resolved_prompt
 
@@ -242,7 +200,7 @@ def llm_node(
     return RunnableNode(
         name=name,
         runnable=function_runnable(name=name, ask=_ask),
-        input_builder=lambda state, context, workflow: state,
+        input_builder=lambda user_input, context, state=None: user_input,
         output_key=output_key,
         next_node=next_node,
         policy=policy,

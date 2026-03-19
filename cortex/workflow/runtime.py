@@ -19,8 +19,6 @@ class AskCapableRunnableLike(Protocol):
     """Protocol for runnable-like objects that can answer asynchronously."""
 
     name: Optional[str]
-    context: Any
-    usage: Optional[AgentUsage]
 
     async def async_ask(self, user_input: Any = None, **kwargs) -> Any:
         ...
@@ -60,24 +58,24 @@ class RunnableAdapter:
     def name(self) -> Optional[str]:
         return getattr(self.runnable, "name", None)
 
-    @property
-    def context(self) -> Any:
-        return getattr(self.runnable, "context", None)
-
-    @property
-    def usage(self) -> Optional[AgentUsage]:
-        return getattr(self.runnable, "usage", None)
-
     async def async_ask(self, user_input: Any = None, **kwargs) -> Any:
         """Forward `async_ask(...)` to the wrapped runnable."""
 
-        return await self.runnable.async_ask(user_input, **kwargs)
+        return await _call_with_supported_kwargs(
+            self.runnable.async_ask,
+            user_input=user_input,
+            **kwargs,
+        )
 
     async def async_run(self, user_input: Any = None, **kwargs) -> Any:
         """Forward `async_run(...)` when the wrapped runnable supports it."""
 
         if isinstance(self.runnable, RunCapableRunnableLike):
-            return await self.runnable.async_run(user_input, **kwargs)
+            return await _call_with_supported_kwargs(
+                self.runnable.async_run,
+                user_input=user_input,
+                **kwargs,
+            )
         raise TypeError("Adapted runnable does not support async_run(...)")
 
 
@@ -96,8 +94,6 @@ class FunctionRunnable:
     ask_func: Any
     run_func: Any = None
     name: Optional[str] = None
-    context: Any = None
-    usage: Optional[AgentUsage] = None
 
     async def async_ask(self, user_input: Any = None, **kwargs) -> Any:
         """Invoke the ask function with only the supported keyword arguments."""
@@ -105,8 +101,8 @@ class FunctionRunnable:
         return await _call_with_supported_kwargs(
             self.ask_func,
             user_input=user_input,
-            context=kwargs.get("context", self.context),
-            usage=kwargs.get("usage", self.usage),
+            state=kwargs.get("state"),
+            context=kwargs.get("context"),
             parent=kwargs.get("parent"),
         )
 
@@ -118,8 +114,8 @@ class FunctionRunnable:
         return await _call_with_supported_kwargs(
             self.run_func,
             user_input=user_input,
-            context=kwargs.get("context", self.context),
-            usage=kwargs.get("usage", self.usage),
+            state=kwargs.get("state"),
+            context=kwargs.get("context"),
             runnable=self,
             parent=kwargs.get("parent"),
         )
@@ -169,8 +165,6 @@ async def resolve_runnable(
         return FunctionRunnable(
             ask_func=current,
             name=getattr(current, "__name__", None),
-            context=context,
-            usage=usage,
         )
 
 
@@ -224,6 +218,7 @@ async def invoke_runnable(
     runnable: Any,
     user_input: Any = None,
     *,
+    state: Any = None,
     context: Any = None,
     usage: Optional[AgentUsage] = None,
     parent: Any = None,
@@ -241,6 +236,7 @@ async def invoke_runnable(
         # Structured runs preserve nested run metadata for workflow traces.
         runnable_run = await adapted_runnable.async_run(
             user_input,
+            state=state,
             context=context,
             usage=usage,
             parent=parent,
@@ -259,6 +255,7 @@ async def invoke_runnable(
     # Ask-only runnables still participate uniformly, but do not produce nested run data.
     output = await adapted_runnable.async_ask(
         user_input,
+        state=state,
         context=context,
         usage=usage,
         parent=parent,
@@ -274,8 +271,6 @@ def function_runnable(
     ask,
     run=None,
     name: Optional[str] = None,
-    context: Any = None,
-    usage: Optional[AgentUsage] = None,
 ) -> FunctionRunnable:
     """Create a `FunctionRunnable` from plain callables."""
 
@@ -283,6 +278,4 @@ def function_runnable(
         ask_func=ask,
         run_func=run,
         name=name,
-        context=context,
-        usage=usage,
     )
