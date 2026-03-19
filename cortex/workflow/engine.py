@@ -71,6 +71,8 @@ class EngineState:
 
     input: Any = None
     data: dict[str, Any] = field(default_factory=dict)
+    context: Any = None
+    usage: Any = None
     memory: Any = None
     last_output: Any = None
     final_output: Any = None
@@ -126,6 +128,8 @@ class EngineState:
         return {
             "input": _serialize_value(self.input),
             "data": _serialize_value(dict(self.data)),
+            "context": _serialize_value(self.context),
+            "usage": _serialize_value(self.usage),
             "last_output": _serialize_value(self.last_output),
             "final_output": _serialize_value(self.final_output),
             "current_node": self.current_node,
@@ -139,6 +143,8 @@ class EngineState:
         values = {
             "input": self.input,
             "data": dict(self.data),
+            "context": self.context,
+            "usage": self.usage,
             "memory": self.memory,
             "last_output": self.last_output,
             "final_output": self.final_output,
@@ -156,6 +162,8 @@ class WorkflowStateProtocol(Protocol):
 
     input: Any
     data: dict[str, Any]
+    context: Any
+    usage: Any
     memory: Any
     last_output: Any
     final_output: Any
@@ -377,9 +385,18 @@ class WorkflowEngine:
             return [output]
         return [AIMessage(content=str(output))]
 
-    def _attach_runtime_memory(self, state: WorkflowStateProtocol, *, memory: Any) -> None:
-        """Expose the configured memory object on workflow state for node access."""
+    def _attach_runtime_resources(
+        self,
+        state: WorkflowStateProtocol,
+        *,
+        context: Any,
+        usage: Any,
+        memory: Any,
+    ) -> None:
+        """Expose shared workflow runtime resources on state for node access."""
 
+        state.context = context
+        state.usage = usage
         state.memory = memory
 
     async def async_run(
@@ -396,8 +413,15 @@ class WorkflowEngine:
         state = state or self.create_state(user_input)
         if user_input is not None and state.input is None:
             state.input = user_input
+        runtime_context = context if context is not None else getattr(runtime, "context", None)
+        runtime_usage = getattr(runtime, "usage", None)
         memory = getattr(runtime, "memory", None)
-        self._attach_runtime_memory(state, memory=memory)
+        self._attach_runtime_resources(
+            state,
+            context=runtime_context,
+            usage=runtime_usage,
+            memory=memory,
+        )
         run.state = state
 
         current_node_name = self.start_node

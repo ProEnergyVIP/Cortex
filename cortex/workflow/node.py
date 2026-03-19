@@ -207,8 +207,9 @@ class RouterNode(Node):
         result = _call_with_supported_kwargs(
             self.func,
             state,
-            context,
             workflow,
+            context=getattr(state, "context", None),
+            usage=getattr(state, "usage", None),
             memory=getattr(state, "memory", None),
         )
         if iscoroutine(result):
@@ -281,10 +282,11 @@ class RunnableNode(Node):
                 lambda *args: _call_with_supported_kwargs(
                     self.input_builder,
                     *args,
+                    context=getattr(state, "context", None),
+                    usage=getattr(state, "usage", None),
                     memory=getattr(state, "memory", None),
                 ),
                 state,
-                context,
                 workflow,
             )
             if self.input_builder is not None
@@ -293,8 +295,8 @@ class RunnableNode(Node):
         child_invocation = await invoke_runnable(
             self.runnable,
             child_input,
-            context=context,
-            usage=getattr(workflow, "usage", None),
+            context=getattr(state, "context", None),
+            usage=getattr(state, "usage", None),
             parent=workflow,
         )
         result = child_invocation.output

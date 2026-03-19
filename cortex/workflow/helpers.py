@@ -58,9 +58,16 @@ def _call_with_supported_args(func, *args, **kwargs):
 
 
 async def _normalize_message_input(input_builder, state, context, workflow):
-    memory = getattr(state, "memory", None)
+    state_context = getattr(state, "context", None)
+    state_memory = getattr(state, "memory", None)
     if input_builder is not None:
-        built = _call_with_supported_args(input_builder, state, context, workflow, memory=memory)
+        built = _call_with_supported_args(
+            input_builder,
+            state,
+            workflow,
+            context=state_context,
+            memory=state_memory,
+        )
         if hasattr(built, "__await__"):
             built = await built
     else:
@@ -84,8 +91,14 @@ def function_node(
 ) -> RunnableNode:
     async def _ask(user_input=None, *, context=None, usage=None, parent=None):
         state = user_input
-        memory = getattr(state, "memory", None)
-        result = _call_with_supported_args(func, state, context, parent, memory=memory)
+        result = _call_with_supported_args(
+            func,
+            state,
+            parent,
+            context=getattr(state, "context", None),
+            usage=getattr(state, "usage", None),
+            memory=getattr(state, "memory", None),
+        )
         if hasattr(result, "__await__"):
             result = await result
         return result
@@ -183,10 +196,16 @@ def llm_node(
 ) -> RunnableNode:
     async def _ask(user_input=None, *, context=None, usage=None, parent=None):
         state = user_input
-        memory = getattr(state, "memory", None)
         resolved_prompt = prompt
         if callable(prompt):
-            resolved_prompt = _call_with_supported_args(prompt, state, context, parent, memory=memory)
+            resolved_prompt = _call_with_supported_args(
+                prompt,
+                state,
+                parent,
+                context=getattr(state, "context", None),
+                usage=getattr(state, "usage", None),
+                memory=getattr(state, "memory", None),
+            )
             if hasattr(resolved_prompt, "__await__"):
                 resolved_prompt = await resolved_prompt
 
@@ -199,11 +218,11 @@ def llm_node(
                 llm=llm,
                 tools=tools,
                 sys_prompt=resolved_prompt,
-                context=context,
+                context=getattr(state, "context", None),
                 json_reply=False,
                 mode="async",
             )
-            result = await agent.async_ask(messages, usage=usage)
+            result = await agent.async_ask(messages, usage=getattr(state, "usage", None))
         else:
             func_runnable = llmfunc(
                 llm,
@@ -214,7 +233,7 @@ def llm_node(
                 llm_args=llm_args or {},
                 async_mode=True,
             )
-            result = await func_runnable(messages, usage=usage)
+            result = await func_runnable(messages, usage=getattr(state, "usage", None))
 
         if response_key and isinstance(result, dict):
             return result.get(response_key)
