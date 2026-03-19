@@ -10,7 +10,7 @@ from cortex.message import Message, UserMessage
 from .agent import WorkflowAgent
 from .engine import WorkflowStateProtocol
 from .node import NodePolicy, ParallelNode, RouterNode, RunnableNode
-from .runtime import FunctionRunnable, function_runnable as build_function_runnable
+from .runtime import function_runnable
 
 
 def workflow(
@@ -37,23 +37,6 @@ def workflow(
         max_steps=max_steps,
         state_type=state_type,
         state_factory=state_factory,
-    )
-
-
-def function_runnable(
-    *,
-    ask,
-    run=None,
-    name: Optional[str] = None,
-    context: Any = None,
-    usage: Any = None,
-) -> FunctionRunnable:
-    return build_function_runnable(
-        ask=ask,
-        run=run,
-        name=name,
-        context=context,
-        usage=usage,
     )
 
 

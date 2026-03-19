@@ -5,7 +5,7 @@ adapters, and shared types that make up the supported `cortex.workflow` interfac
 """
 
 from .agent import WorkflowAgent
-from .helpers import function_node, function_runnable, llm_node, parallel_node, router_node, runnable_node, workflow
+from .helpers import function_node, llm_node, parallel_node, router_node, runnable_node, workflow
 from .node import FailureStrategy, Node, NodePolicy, ParallelNode, RouterNode, RunnableNode, WorkflowNodeResult
 from .runtime import (
     AskCapableRunnableLike,
@@ -16,6 +16,7 @@ from .runtime import (
     RunCapableRunnableLike,
     RunResultLike,
     adapt_runnable,
+    function_runnable,
     get_run_name,
     get_runnable_name,
     invoke_runnable,
