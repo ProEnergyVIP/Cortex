@@ -25,6 +25,7 @@ class WorkflowAgent:
     start_node: Optional[str] = None
     context: Any = None
     usage: Optional[AgentUsage] = None
+    memory: Any = None
     max_steps: int = 50
     state_type: Optional[type[WorkflowStateProtocol]] = None
     state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None
@@ -48,7 +49,7 @@ class WorkflowAgent:
 
     def create_state(self, user_input: Any = None, **kwargs) -> WorkflowState:
         """Create a new workflow state initialized with user input and extra values."""
-        return self._engine.create_state(user_input, **kwargs)
+        return self._engine.create_state(user_input, memory=self.memory, **kwargs)
 
     def get_node(self, node_name: str):
         """Return a node by name or raise if the node is unknown."""

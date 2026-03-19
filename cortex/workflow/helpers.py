@@ -20,6 +20,7 @@ def workflow(
     start_node: Optional[str] = None,
     context: Any = None,
     usage: Any = None,
+    memory: Any = None,
     max_steps: int = 50,
     state_type: Optional[type[WorkflowStateProtocol]] = None,
     state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None,
@@ -32,6 +33,7 @@ def workflow(
         start_node=start_node,
         context=context,
         usage=usage,
+        memory=memory,
         max_steps=max_steps,
         state_type=state_type,
         state_factory=state_factory,
@@ -73,8 +75,9 @@ def _call_with_supported_args(func, *args, **kwargs):
 
 
 async def _normalize_message_input(input_builder, state, context, workflow):
+    memory = getattr(state, "memory", None)
     if input_builder is not None:
-        built = _call_with_supported_args(input_builder, state, context, workflow)
+        built = _call_with_supported_args(input_builder, state, context, workflow, memory=memory)
         if hasattr(built, "__await__"):
             built = await built
     else:
@@ -98,7 +101,8 @@ def function_node(
 ) -> RunnableNode:
     async def _ask(user_input=None, *, context=None, usage=None, parent=None):
         state = user_input
-        result = _call_with_supported_args(func, state, context, parent)
+        memory = getattr(state, "memory", None)
+        result = _call_with_supported_args(func, state, context, parent, memory=memory)
         if hasattr(result, "__await__"):
             result = await result
         return result
@@ -196,9 +200,10 @@ def llm_node(
 ) -> RunnableNode:
     async def _ask(user_input=None, *, context=None, usage=None, parent=None):
         state = user_input
+        memory = getattr(state, "memory", None)
         resolved_prompt = prompt
         if callable(prompt):
-            resolved_prompt = _call_with_supported_args(prompt, state, context, parent)
+            resolved_prompt = _call_with_supported_args(prompt, state, context, parent, memory=memory)
             if hasattr(resolved_prompt, "__await__"):
                 resolved_prompt = await resolved_prompt
 

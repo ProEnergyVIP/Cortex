@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
+from inspect import isawaitable
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
+
+from cortex.message import AIMessage, Message, UserMessage
 
 from .node import EngineNode
 
@@ -68,6 +71,7 @@ class EngineState:
 
     input: Any = None
     data: dict[str, Any] = field(default_factory=dict)
+    memory: Any = None
     last_output: Any = None
     final_output: Any = None
     current_node: Optional[str] = None
@@ -135,6 +139,7 @@ class EngineState:
         values = {
             "input": self.input,
             "data": dict(self.data),
+            "memory": self.memory,
             "last_output": self.last_output,
             "final_output": self.final_output,
             "current_node": self.current_node,
@@ -151,6 +156,7 @@ class WorkflowStateProtocol(Protocol):
 
     input: Any
     data: dict[str, Any]
+    memory: Any
     last_output: Any
     final_output: Any
     current_node: Optional[str]
@@ -340,6 +346,42 @@ class WorkflowEngine:
             formatted = ", ".join(dead_end_nodes)
             raise ValueError(f"Workflow contains non-terminal dead-end nodes: {formatted}")
 
+    async def _persist_conversation(self, memory: Any, messages: list[Message]) -> None:
+        """Persist one conversation round to either sync or async memory objects."""
+
+        if memory is None or not hasattr(memory, "add_messages"):
+            return
+        added = memory.add_messages(messages)
+        if isawaitable(added):
+            await added
+
+    def _normalize_conversation_input(self, user_input: Any) -> list[Message]:
+        """Convert workflow input into memory-ready conversation messages."""
+
+        if user_input is None:
+            return []
+        if isinstance(user_input, list) and all(isinstance(item, Message) for item in user_input):
+            return list(user_input)
+        if isinstance(user_input, Message):
+            return [user_input]
+        return [UserMessage(content=str(user_input))]
+
+    def _normalize_conversation_output(self, output: Any) -> list[Message]:
+        """Convert final workflow output into memory-ready assistant messages."""
+
+        if output is None:
+            return []
+        if isinstance(output, list) and all(isinstance(item, Message) for item in output):
+            return list(output)
+        if isinstance(output, Message):
+            return [output]
+        return [AIMessage(content=str(output))]
+
+    def _attach_runtime_memory(self, state: WorkflowStateProtocol, *, memory: Any) -> None:
+        """Expose the configured memory object on workflow state for node access."""
+
+        state.memory = memory
+
     async def async_run(
         self,
         user_input: Any = None,
@@ -354,6 +396,8 @@ class WorkflowEngine:
         state = state or self.create_state(user_input)
         if user_input is not None and state.input is None:
             state.input = user_input
+        memory = getattr(runtime, "memory", None)
+        self._attach_runtime_memory(state, memory=memory)
         run.state = state
 
         current_node_name = self.start_node
@@ -455,6 +499,15 @@ class WorkflowEngine:
                 # successful completion.
                 run.status = "completed"
                 run.final_output = state.final_output if state.final_output is not None else state.last_output
+
+            if run.status == "completed":
+                await self._persist_conversation(
+                    memory,
+                    [
+                        *self._normalize_conversation_input(state.input),
+                        *self._normalize_conversation_output(run.final_output),
+                    ],
+                )
 
             return run
         finally:

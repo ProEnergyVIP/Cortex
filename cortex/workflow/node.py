@@ -71,6 +71,25 @@ async def _resolve_callable(value, *args):
     return value
 
 
+def _call_with_supported_kwargs(func, *args, **kwargs):
+    """Invoke a callable with positional args plus only the keyword args it accepts."""
+
+    sig = signature(func)
+    accepted_positional = []
+    remaining_args = list(args)
+    for param in sig.parameters.values():
+        if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD) and remaining_args:
+            accepted_positional.append(remaining_args.pop(0))
+    accepted_kwargs = {}
+    for name, param in sig.parameters.items():
+        if param.kind == param.VAR_KEYWORD:
+            accepted_kwargs = kwargs
+            break
+        if param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY) and name in kwargs:
+            accepted_kwargs[name] = kwargs[name]
+    return func(*accepted_positional, **accepted_kwargs)
+
+
 class WorkflowNodeError(Exception):
     """Workflow execution error that carries structured trace metadata."""
 
@@ -185,7 +204,13 @@ class RouterNode(Node):
     async def run(self, state, *, context: Any = None, workflow: Any = None) -> WorkflowNodeResult:
         """Execute the router and normalize its output into a workflow result."""
 
-        result = self.func(state, context, workflow)
+        result = _call_with_supported_kwargs(
+            self.func,
+            state,
+            context,
+            workflow,
+            memory=getattr(state, "memory", None),
+        )
         if iscoroutine(result):
             result = await result
 
@@ -251,7 +276,20 @@ class RunnableNode(Node):
     async def run(self, state, *, context: Any = None, workflow: Any = None) -> WorkflowNodeResult:
         """Build child input, invoke the runnable, and normalize the child output."""
 
-        child_input = await _resolve_callable(self.input_builder, state, context, workflow) if self.input_builder is not None else state.input
+        child_input = (
+            await _resolve_callable(
+                lambda *args: _call_with_supported_kwargs(
+                    self.input_builder,
+                    *args,
+                    memory=getattr(state, "memory", None),
+                ),
+                state,
+                context,
+                workflow,
+            )
+            if self.input_builder is not None
+            else state.input
+        )
         child_invocation = await invoke_runnable(
             self.runnable,
             child_input,
