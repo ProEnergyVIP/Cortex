@@ -271,19 +271,45 @@ class WorkflowEngine:
     def create_state(self, user_input: Any = None, **kwargs) -> WorkflowStateProtocol:
         """Create a fresh workflow state seeded with user input and extra values."""
 
+        state_attribute_names = {
+            "input",
+            "context",
+            "usage",
+            "memory",
+            "last_output",
+            "final_output",
+            "current_node",
+            "completed_nodes",
+            "metadata",
+            "data",
+        }
+        state_overrides = {key: value for key, value in kwargs.items() if key in state_attribute_names}
+        initial_data = {key: value for key, value in kwargs.items() if key not in state_attribute_names}
+
         if self.state_factory is not None:
-            state = self.state_factory(user_input=user_input, initial_data=dict(kwargs))
+            state = self.state_factory(user_input=user_input, initial_data=initial_data)
         else:
             state_cls = self.state_type or EngineState
             state = state_cls(input=user_input)
-            if kwargs:
-                state.update(kwargs)
+        if getattr(state, "input", None) is None:
+            state.input = user_input
         if not isinstance(state, WorkflowStateProtocol):
             raise TypeError("Workflow state must satisfy WorkflowStateProtocol")
-        if kwargs:
-            missing_keys = [key for key, value in kwargs.items() if state.get(key) != value]
-            if missing_keys:
-                state.update({key: kwargs[key] for key in missing_keys})
+        if state_overrides:
+            for key, value in state_overrides.items():
+                if getattr(state, key) != value:
+                    setattr(state, key, value)
+        if initial_data:
+            data_updates = {}
+            for key, value in initial_data.items():
+                if state.get(key) != value:
+                    data_updates[key] = value
+            if user_input is not None and state.get("input") is None:
+                data_updates["input"] = user_input
+            if data_updates:
+                state.update(data_updates)
+        elif user_input is not None and state.get("input") is None:
+            state.update({"input": user_input})
         return state
 
     def get_node(self, node_name: str):
@@ -413,6 +439,8 @@ class WorkflowEngine:
         state = state or self.create_state(user_input)
         if user_input is not None and state.input is None:
             state.input = user_input
+        if user_input is not None and state.get("input") is None:
+            state.update({"input": user_input})
         runtime_context = context if context is not None else getattr(runtime, "context", None)
         runtime_usage = getattr(runtime, "usage", None)
         memory = getattr(runtime, "memory", None)
@@ -451,14 +479,15 @@ class WorkflowEngine:
                         # remains easy to inspect.
                         attempt_count += 1
                         trace.attempt_count = attempt_count
+                        node_input = state.data if state.data else state.input
                         try:
                             if node.policy.timeout_seconds is not None:
                                 result = await asyncio.wait_for(
-                                    node.run(state.data, context=state.context, state=state, workflow=runtime),
+                                    node.run(node_input, context=state.context, state=state, workflow=runtime),
                                     timeout=node.policy.timeout_seconds,
                                 )
                             else:
-                                result = await node.run(state.data, context=state.context, state=state, workflow=runtime)
+                                result = await node.run(node_input, context=state.context, state=state, workflow=runtime)
                             break
                         except Exception as e:
                             # Nodes may attach structured trace metadata to exceptions.

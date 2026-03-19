@@ -142,6 +142,60 @@ async def _call_with_supported_kwargs(func, **kwargs):
     return result
 
 
+async def invoke_workflow_callback(
+    func,
+    *,
+    user_input: Any = None,
+    context: Any = None,
+    state: Any = None,
+    workflow: Any = None,
+):
+    """Invoke workflow callbacks with compatibility for both modern and legacy signatures."""
+
+    sig = signature(func)
+    params = list(sig.parameters.values())
+    positional_params = [
+        param
+        for param in params
+        if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD)
+    ]
+    legacy_state_first = bool(positional_params) and positional_params[0].name == "state" and "user_input" not in sig.parameters
+
+    modern_values = {
+        "user_input": user_input,
+        "context": context,
+        "state": state,
+        "workflow": workflow,
+    }
+    legacy_values = {
+        "state": state,
+        "context": context,
+        "workflow": workflow,
+        "user_input": user_input,
+    }
+
+    positional_args = []
+    accepted_kwargs = {}
+    for param in params:
+        if param.kind == param.VAR_POSITIONAL:
+            continue
+        if param.kind == param.VAR_KEYWORD:
+            accepted_kwargs = legacy_values if legacy_state_first else modern_values
+            break
+        value_map = legacy_values if legacy_state_first else modern_values
+        if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD):
+            if param.name in value_map:
+                positional_args.append(value_map[param.name])
+            continue
+        if param.kind == param.KEYWORD_ONLY and param.name in value_map:
+            accepted_kwargs[param.name] = value_map[param.name]
+
+    result = func(*positional_args, **accepted_kwargs)
+    if iscoroutine(result):
+        return await result
+    return result
+
+
 async def resolve_runnable(runnable: Any) -> RunnableLike:
     """Resolve a runnable-like object from either a concrete runnable or a callable."""
 

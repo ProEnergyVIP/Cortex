@@ -8,11 +8,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import asyncio
-from asyncio import iscoroutine
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional, Protocol
 
-from .runtime import invoke_runnable
+from .runtime import invoke_runnable, invoke_workflow_callback
 from .types import InputBuilder, RouterFunction
 
 FailureStrategy = Literal["raise", "fallback"]
@@ -57,14 +56,29 @@ class EngineNode(Protocol):
         ...
 
 
+def _get_effective_user_input(state, explicit_user_input: Any = None) -> Any:
+    """Return the best available workflow callback input for the current execution step."""
+
+    if explicit_user_input is not None:
+        return explicit_user_input
+    if state is None:
+        return None
+    if getattr(state, "data", None):
+        return state.data
+    return getattr(state, "input", None)
+
+
 async def _resolve_callable(value, state):
     """Resolve a static value or invoke a sync/async builder with user input, context, and state."""
 
     if callable(value):
-        result = value(state.data, getattr(state, "context", None), state=state)
-        if iscoroutine(result):
-            return await result
-        return result
+        callback_input = _get_effective_user_input(state)
+        return await invoke_workflow_callback(
+            value,
+            user_input=callback_input,
+            context=getattr(state, "context", None),
+            state=state,
+        )
     return value
 
 
@@ -182,9 +196,14 @@ class RouterNode(Node):
     async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None) -> WorkflowNodeResult:
         """Execute the router and normalize its output into a workflow result."""
 
-        result = self.func(user_input, context, state=state)
-        if iscoroutine(result):
-            result = await result
+        callback_input = _get_effective_user_input(state, user_input)
+        result = await invoke_workflow_callback(
+            self.func,
+            user_input=callback_input,
+            context=context,
+            state=state,
+            workflow=workflow,
+        )
 
         if isinstance(result, WorkflowNodeResult):
             return result
@@ -248,10 +267,11 @@ class RunnableNode(Node):
     async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None) -> WorkflowNodeResult:
         """Build child input, invoke the runnable, and normalize the child output."""
 
+        callback_input = _get_effective_user_input(state, user_input)
         child_input = (
             await _resolve_callable(self.input_builder, state)
             if self.input_builder is not None
-            else user_input
+            else callback_input
         )
         child_invocation = await invoke_runnable(
             self.runnable,
@@ -355,6 +375,8 @@ class ParallelNode(Node):
     async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None) -> WorkflowNodeResult:
         """Run child nodes concurrently and merge their outputs into one result."""
 
+        branch_user_input = _get_effective_user_input(state, user_input)
+
         async def _run_child(node: Node):
             # Each branch gets a copy of state so concurrent child execution does not mutate
             # shared state in place.
@@ -362,7 +384,7 @@ class ParallelNode(Node):
                 current_node=node.name,
             )
             try:
-                result = await node.run(branch_state.data, context=context, state=branch_state, workflow=workflow)
+                result = await node.run(branch_user_input, context=context, state=branch_state, workflow=workflow)
             except Exception as e:
                 raise WorkflowNodeError(
                     f"ParallelNode '{self.name}' branch '{node.name}' failed: {e}",

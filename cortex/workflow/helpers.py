@@ -9,7 +9,7 @@ from cortex.message import Message, UserMessage
 from .agent import WorkflowAgent
 from .engine import WorkflowStateProtocol
 from .node import NodePolicy, ParallelNode, RouterNode, RunnableNode
-from .runtime import function_runnable
+from .runtime import function_runnable, invoke_workflow_callback
 
 
 def workflow(
@@ -40,12 +40,17 @@ def workflow(
 
 
 async def _normalize_message_input(input_builder, state, context, workflow):
+    callback_input = state.data if state.data else state.input
     if input_builder is not None:
-        built = input_builder(state.data, context, state=state)
-        if hasattr(built, "__await__"):
-            built = await built
+        built = await invoke_workflow_callback(
+            input_builder,
+            user_input=callback_input,
+            context=context,
+            state=state,
+            workflow=workflow,
+        )
     else:
-        built = state.data
+        built = callback_input
 
     if isinstance(built, list):
         return built
@@ -64,10 +69,13 @@ def function_node(
     is_final: bool = False,
 ) -> RunnableNode:
     async def _ask(user_input=None, *, state=None, context=None, usage=None, parent=None):
-        result = func(user_input, context, state=state)
-        if hasattr(result, "__await__"):
-            result = await result
-        return result
+        return await invoke_workflow_callback(
+            func,
+            user_input=user_input,
+            context=context,
+            state=state,
+            workflow=parent,
+        )
 
     return RunnableNode(
         name=name,
@@ -163,9 +171,13 @@ def llm_node(
     async def _ask(user_input=None, *, state=None, context=None, usage=None, parent=None):
         resolved_prompt = prompt
         if callable(prompt):
-            resolved_prompt = prompt(user_input, context, state=state)
-            if hasattr(resolved_prompt, "__await__"):
-                resolved_prompt = await resolved_prompt
+            resolved_prompt = await invoke_workflow_callback(
+                prompt,
+                user_input=user_input,
+                context=context,
+                state=state,
+                workflow=parent,
+            )
 
         messages = await _normalize_message_input(input_builder, state, context, parent)
 

@@ -9,9 +9,11 @@ NodeUpdates: TypeAlias = dict[str, Any]
 WorkflowMessageInput: TypeAlias = Union[Message, list[Message], Any]
 
 PromptBuilderResult: TypeAlias = str
+WorkflowCallbackResult: TypeAlias = Any
+WorkflowContextCallback: TypeAlias = Callable[..., Union[WorkflowCallbackResult, Awaitable[WorkflowCallbackResult]]]
 PromptBuilder: TypeAlias = Callable[..., Union[PromptBuilderResult, Awaitable[PromptBuilderResult]]]
-InputBuilder: TypeAlias = Callable[..., Union[WorkflowMessageInput, Awaitable[WorkflowMessageInput]]]
+InputBuilder: TypeAlias = WorkflowContextCallback
 NodeFunctionResult: TypeAlias = Any
-NodeFunction: TypeAlias = Callable[..., Union[NodeFunctionResult, Awaitable[NodeFunctionResult]]]
+NodeFunction: TypeAlias = WorkflowContextCallback
 RouterFunctionResult: TypeAlias = Any
-RouterFunction: TypeAlias = Callable[..., Union[RouterFunctionResult, Awaitable[RouterFunctionResult]]]
+RouterFunction: TypeAlias = WorkflowContextCallback
