@@ -308,12 +308,7 @@ async def invoke_supervisor_workers(
         except TypeError as exc:
             if "does not support async_run" not in str(exc):
                 raise
-            adapted_worker = await adapt_runnable(
-                worker,
-                context=context,
-                usage=usage,
-                parent=parent,
-            )
+            adapted_worker = await adapt_runnable(worker)
             output = await adapted_worker.async_ask(task, context=context, usage=usage, parent=parent)
             runnable_name = adapted_worker.name
         else:

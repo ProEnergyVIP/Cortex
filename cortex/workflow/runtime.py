@@ -142,13 +142,7 @@ async def _call_with_supported_kwargs(func, **kwargs):
     return result
 
 
-async def resolve_runnable(
-    runnable: Any,
-    *,
-    context: Any = None,
-    usage: Optional[AgentUsage] = None,
-    parent: Any = None,
-) -> RunnableLike:
+async def resolve_runnable(runnable: Any) -> RunnableLike:
     """Resolve a runnable-like object from either a concrete runnable or a callable."""
 
     current = runnable
@@ -170,19 +164,10 @@ async def resolve_runnable(
 
 async def adapt_runnable(
     runnable: Any,
-    *,
-    context: Any = None,
-    usage: Optional[AgentUsage] = None,
-    parent: Any = None,
 ) -> RunnableAdapter:
     """Resolve a runnable and wrap it in a uniform adapter."""
 
-    resolved_runnable = await resolve_runnable(
-        runnable,
-        context=context,
-        usage=usage,
-        parent=parent,
-    )
+    resolved_runnable = await resolve_runnable(runnable)
     return RunnableAdapter(runnable=resolved_runnable)
 
 
@@ -225,12 +210,7 @@ async def invoke_runnable(
 ) -> RunnableInvocation:
     """Invoke a runnable, preferring `async_run(...)` when available."""
 
-    adapted_runnable = await adapt_runnable(
-        runnable,
-        context=context,
-        usage=usage,
-        parent=parent,
-    )
+    adapted_runnable = await adapt_runnable(runnable)
 
     if supports_async_run(adapted_runnable.runnable):
         # Structured runs preserve nested run metadata for workflow traces.
