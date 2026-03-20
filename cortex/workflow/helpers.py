@@ -8,10 +8,7 @@ from cortex.message import Message, UserMessage
 
 from .agent import WorkflowAgent
 from .engine import WorkflowStateProtocol
-from .node import NodePolicy, ParallelNode, RouterNode, RunnableNode
-from .runtime import function_runnable, invoke_workflow_callback
-
-
+from .node import FunctionNode, NodePolicy, ParallelNode, RouterNode, invoke_workflow_callback
 def workflow(
     *,
     name: str,
@@ -64,24 +61,16 @@ def function_node(
     func,
     *,
     next_node: Optional[str] = None,
-    output_key: Optional[str] = None,
     policy: Optional[NodePolicy] = None,
     is_final: bool = False,
-) -> RunnableNode:
-    async def _ask(user_input=None, *, state=None, context=None, usage=None, parent=None):
-        return await invoke_workflow_callback(
-            func,
-            user_input=user_input,
-            context=context,
-            state=state,
-            workflow=parent,
-        )
-
-    return RunnableNode(
+) -> FunctionNode:
+    """Create a node that executes a plain function with the simplified contract.
+    
+    The function should have the signature: async def func(data: dict, context) -> dict
+    """
+    return FunctionNode(
         name=name,
-        runnable=function_runnable(name=name, ask=_ask),
-        input_builder=lambda user_input, context, state=None: user_input,
-        output_key=output_key,
+        func=func,
         next_node=next_node,
         policy=policy,
         is_final=is_final,
@@ -104,27 +93,6 @@ def router_node(
         output_key=output_key,
         possible_next_nodes=possible_next_nodes,
         policy=policy,
-    )
-
-
-def runnable_node(
-    name: str,
-    runnable,
-    *,
-    input_builder=None,
-    output_key: Optional[str] = None,
-    next_node: Optional[str] = None,
-    policy: Optional[NodePolicy] = None,
-    is_final: bool = False,
-) -> RunnableNode:
-    return RunnableNode(
-        name=name,
-        runnable=runnable,
-        input_builder=input_builder,
-        output_key=output_key,
-        next_node=next_node,
-        policy=policy,
-        is_final=is_final,
     )
 
 
@@ -167,20 +135,34 @@ def llm_node(
     response_key: Optional[str] = None,
     is_final: bool = False,
     policy: Optional[NodePolicy] = None,
-) -> RunnableNode:
-    async def _ask(user_input=None, *, state=None, context=None, usage=None, parent=None):
+) -> FunctionNode:
+    """Create a node that executes an LLM with the simplified contract."""
+    
+    async def _llm_function(data: dict, context) -> dict:
+        # Resolve prompt if it's callable
         resolved_prompt = prompt
         if callable(prompt):
+            # Create a mock state for the callback
+            class MockState:
+                def __init__(self, data_dict):
+                    self.data = data_dict
+                    self.context = context
+                def get(self, key, default=None):
+                    return self.data.get(key, default)
+            mock_state = MockState(data)
+            
             resolved_prompt = await invoke_workflow_callback(
                 prompt,
-                user_input=user_input,
+                user_input=data,
                 context=context,
-                state=state,
-                workflow=parent,
+                state=mock_state,
+                workflow=None,
             )
 
-        messages = await _normalize_message_input(input_builder, state, context, parent)
+        # Normalize messages
+        messages = await _normalize_message_input(input_builder, mock_state, context, None)
 
+        # Execute LLM
         if tools:
             if result_shape or check_func:
                 raise ValueError("llm_node with tools does not support result_shape or check_func in this version")
@@ -188,11 +170,11 @@ def llm_node(
                 llm=llm,
                 tools=tools,
                 sys_prompt=resolved_prompt,
-                context=getattr(state, "context", None),
+                context=context,
                 json_reply=False,
                 mode="async",
             )
-            result = await agent.async_ask(messages, usage=getattr(state, "usage", None))
+            result = await agent.async_ask(messages, usage=getattr(mock_state, "usage", None))
         else:
             func_runnable = llmfunc(
                 llm,
@@ -201,19 +183,23 @@ def llm_node(
                 check_func=check_func,
                 max_attempts=max_attempts,
                 llm_args=llm_args or {},
-                async_mode=True,
             )
-            result = await func_runnable(messages, usage=getattr(state, "usage", None))
+            result = await func_runnable.async_ask(messages, usage=getattr(mock_state, "usage", None))
 
-        if response_key and isinstance(result, dict):
-            return result.get(response_key)
-        return result
-
-    return RunnableNode(
+        # Return updates
+        updates = {}
+        if output_key is not None:
+            updates[output_key] = result
+        elif response_key is not None:
+            updates[response_key] = result
+        else:
+            updates["_output"] = result
+            
+        return updates
+    
+    return FunctionNode(
         name=name,
-        runnable=function_runnable(name=name, ask=_ask),
-        input_builder=lambda user_input, context, state=None: user_input,
-        output_key=output_key,
+        func=_llm_function,
         next_node=next_node,
         policy=policy,
         is_final=is_final,

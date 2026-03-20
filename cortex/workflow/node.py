@@ -6,13 +6,44 @@ used by the workflow engine: routing nodes, runnable-backed nodes, and parallel 
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import asyncio
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional, Protocol
 
-from .runtime import invoke_runnable, invoke_workflow_callback
-from .types import InputBuilder, RouterFunction
+from .types import RouterFunction
+
+
+async def invoke_workflow_callback(
+    func,
+    *,
+    user_input: Any = None,
+    context: Any = None,
+    state: Any = None,
+    workflow: Any = None,
+):
+    """Invoke a workflow callback with flexible signature support."""
+    import inspect
+    
+    sig = inspect.signature(func)
+    params = sig.parameters
+    
+    # Build arguments based on what the function accepts
+    kwargs = {}
+    if "user_input" in params:
+        kwargs["user_input"] = user_input
+    if "context" in params:
+        kwargs["context"] = context
+    if "state" in params:
+        kwargs["state"] = state
+    if "workflow" in params:
+        kwargs["workflow"] = workflow
+        
+    # Call the function
+    if inspect.iscoroutinefunction(func):
+        return await func(**kwargs)
+    else:
+        return func(**kwargs)
 
 FailureStrategy = Literal["raise", "fallback"]
 
@@ -217,46 +248,38 @@ class RouterNode(Node):
         return WorkflowNodeResult(updates=updates, output=output, next_node=next_node)
 
 
-class RunnableNode(Node):
-    """Execute a nested runnable and map its output back into workflow state."""
+class FunctionNode(Node):
+    """Execute a plain function and merge its returned updates into workflow state."""
 
     def __init__(
         self,
         name: str,
-        runnable,
+        func,
         *,
-        input_builder: Optional[InputBuilder] = None,
-        output_key: Optional[str] = None,
+        is_final: bool = False,
         next_node: Optional[str] = None,
         policy: Optional[NodePolicy] = None,
-        is_final: bool = False,
     ):
         super().__init__(name=name, next_node=next_node, policy=policy)
-        self.runnable = runnable
-        self.input_builder = input_builder
-        self.output_key = output_key
+        self.func = func
         self.is_final = is_final
 
         if self.is_final and self.next_node is not None:
-            raise ValueError("Final RunnableNodes cannot declare next_node")
+            raise ValueError("Final FunctionNodes cannot declare next_node")
 
     @classmethod
     def final(
         cls,
         name: str,
-        runnable,
+        func,
         *,
-        input_builder: Optional[InputBuilder] = None,
-        output_key: Optional[str] = None,
         policy: Optional[NodePolicy] = None,
-    ) -> "RunnableNode":
-        """Construct a terminal runnable node."""
+    ) -> "FunctionNode":
+        """Construct a terminal function node."""
 
         return cls(
             name=name,
-            runnable=runnable,
-            input_builder=input_builder,
-            output_key=output_key,
+            func=func,
             policy=policy,
             is_final=True,
         )
@@ -265,60 +288,37 @@ class RunnableNode(Node):
         return self.is_final
 
     async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None) -> WorkflowNodeResult:
-        """Build child input, invoke the runnable, and normalize the child output."""
+        """Execute the function with current data and merge returned updates."""
 
-        callback_input = _get_effective_user_input(state, user_input)
-        child_input = (
-            await _resolve_callable(self.input_builder, state)
-            if self.input_builder is not None
-            else callback_input
-        )
-        child_invocation = await invoke_runnable(
-            self.runnable,
-            child_input,
-            state=state,
-            context=context,
-            usage=getattr(state, "usage", None) if state is not None else None,
-            parent=workflow,
-        )
-        result = child_invocation.output
-        if isinstance(result, WorkflowNodeResult):
-            # Child workflows may already return a fully normalized node result. In that
-            # case, this wrapper only fills in defaults and attaches nested trace metadata.
-            if result.next_node is None:
-                result.next_node = self.next_node
-            if self.is_final and not result.stop:
-                result.stop = True
-                if result.final_output is None:
-                    result.final_output = result.output
-            if child_invocation.run is not None:
-                result.trace_data = {
-                    **result.trace_data,
-                    "child_runnable_name": child_invocation.runnable_name,
-                    "child_run": child_invocation.run,
-                }
-            elif child_invocation.runnable_name is not None:
-                result.trace_data = {
-                    **result.trace_data,
-                    "child_runnable_name": child_invocation.runnable_name,
-                }
-            return result
+        # Create a mutable copy of current state data
+        current_data = dict(state.data) if state else {}
 
-        # Plain outputs are wrapped into a standard result so the engine only has to reason
-        # about one result shape.
-        child_trace_payload = {"child_runnable_name": child_invocation.runnable_name}
-        if child_invocation.run is not None:
-            child_trace_payload["child_run"] = child_invocation.run
-        updates = {self.output_key: result} if self.output_key is not None else {}
-        final_output = result if self.is_final else None
-        return WorkflowNodeResult(
-            updates=updates,
-            output=result,
-            next_node=self.next_node,
-            stop=self.is_final,
-            final_output=final_output,
-            trace_data=child_trace_payload,
-        )
+        # Call the function with the simplified contract
+        if asyncio.iscoroutinefunction(self.func):
+            updates = await self.func(current_data, context)
+        else:
+            updates = self.func(current_data, context)
+            if asyncio.iscoroutine(updates):
+                updates = await updates
+
+        # Ensure we have a dict of updates
+        if updates is None:
+            updates = {}
+        elif not isinstance(updates, dict):
+            # If function returned a single value, store it as _output
+            updates = {"_output": updates}
+
+        # Merge updates into state data
+        if state:
+            state.update(updates)
+
+        # Build result
+        result_updates = dict(updates)
+        output = result_updates.get("_output")
+        if "_output" in result_updates:
+            del result_updates["_output"]
+
+        return WorkflowNodeResult(updates=result_updates, output=output)
 
 
 class ParallelNode(Node):

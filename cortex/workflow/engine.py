@@ -67,35 +67,77 @@ class EngineTrace:
 
 @dataclass
 class EngineState:
-    """Mutable workflow state shared across all nodes in a single run."""
+    """Minimal workflow state with only essential engine fields."""
 
-    input: Any = None
+    # User-mutable data bag (the only field user code should modify)
     data: dict[str, Any] = field(default_factory=dict)
+
+    # Essential engine fields (read-only for user code)
     context: Any = None
     usage: Any = None
     memory: Any = None
-    last_output: Any = None
-    final_output: Any = None
     current_node: Optional[str] = None
     completed_nodes: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
+
+    # Derived fields that are stored in state.data with reserved keys
+    @property
+    def input(self) -> Any:
+        """Original workflow input from state.data."""
+        return self.data.get("input")
+
+    @property
+    def last_output(self) -> Any:
+        """Last node output from state.data."""
+        return self.data.get("_last_output")
+
+    @property
+    def final_output(self) -> Any:
+        """Terminal workflow output from state.data."""
+        return self.data.get("_final_output")
+
+    def set_input(self, value: Any) -> None:
+        """Set the original workflow input in state.data."""
+        self.data["input"] = value
+
+    def set_last_output(self, value: Any) -> None:
+        """Set the last node output in state.data."""
+        self.data["_last_output"] = value
+
+    def set_final_output(self, value: Any) -> None:
+        """Set the terminal workflow output in state.data."""
+        self.data["_final_output"] = value
 
     def get(self, key: str, default: Any = None) -> Any:
         """Read a value from the workflow data bag."""
-
         return self.data.get(key, default)
 
     def has(self, key: str) -> bool:
-        """Return whether a key exists in the workflow data bag."""
-
+        """Check if a key exists in the workflow data bag."""
         return key in self.data
 
-    def require(self, key: str) -> Any:
-        """Read a required value or raise when the key is missing."""
+    def update(self, updates: dict[str, Any]) -> None:
+        """Merge updates into the workflow data bag with reserved key handling."""
+        for key, value in updates.items():
+            if key == "input":
+                # Never overwrite original input
+                continue
+            elif key == "_final_output":
+                # Only allow final nodes to set this
+                self.data[key] = value
+            else:
+                # Normal merge for all other keys including "_last_output"
+                self.data[key] = value
 
-        if key not in self.data:
-            raise KeyError(f"Workflow state is missing required key: {key}")
-        return self.data[key]
+    def record_output(self, value: Any) -> Any:
+        """Record the terminal workflow output and mirror it to last_output."""
+        self.set_final_output(value)
+        self.set_last_output(value)
+        return value
+
+    def set_output(self, value: Any) -> Any:
+        """Set the last node output in state.data."""
+        self.set_last_output(value)
+        return value
 
     def set(self, key: str, value: Any) -> Any:
         """Store a value in the workflow data bag and return it."""
@@ -103,54 +145,28 @@ class EngineState:
         self.data[key] = value
         return value
 
-    def update(self, values: Optional[dict[str, Any]]) -> None:
-        """Merge new values into the workflow data bag."""
-
-        if values:
-            self.data.update(values)
-
-    def set_output(self, value: Any) -> Any:
-        """Record the most recent node output."""
-
-        self.last_output = value
-        return value
-
-    def set_final_output(self, value: Any) -> Any:
-        """Record the terminal workflow output and mirror it to `last_output`."""
-
-        self.final_output = value
-        self.last_output = value
-        return value
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable snapshot of the current state."""
 
         return {
-            "input": _serialize_value(self.input),
             "data": _serialize_value(dict(self.data)),
             "context": _serialize_value(self.context),
             "usage": _serialize_value(self.usage),
-            "last_output": _serialize_value(self.last_output),
-            "final_output": _serialize_value(self.final_output),
             "current_node": self.current_node,
             "completed_nodes": list(self.completed_nodes),
-            "metadata": _serialize_value(dict(self.metadata)),
         }
 
     def clone(self, **overrides) -> "EngineState":
         """Return a shallow structural copy of the state with optional field overrides."""
 
         values = {
-            "input": self.input,
             "data": dict(self.data),
             "context": self.context,
             "usage": self.usage,
             "memory": self.memory,
-            "last_output": self.last_output,
-            "final_output": self.final_output,
             "current_node": self.current_node,
             "completed_nodes": list(self.completed_nodes),
-            "metadata": dict(self.metadata),
         }
         values.update(overrides)
         return type(self)(**values)
@@ -160,37 +176,18 @@ class EngineState:
 class WorkflowStateProtocol(Protocol):
     """Structural contract for workflow state objects used by the engine and nodes."""
 
-    input: Any
     data: dict[str, Any]
     context: Any
     usage: Any
     memory: Any
-    last_output: Any
-    final_output: Any
     current_node: Optional[str]
     completed_nodes: list[str]
-    metadata: dict[str, Any]
 
-    def get(self, key: str, default: Any = None) -> Any:
-        ...
-
-    def has(self, key: str) -> bool:
-        ...
-
-    def require(self, key: str) -> Any:
-        ...
-
-    def set(self, key: str, value: Any) -> Any:
-        ...
-
-    def update(self, values: Optional[dict[str, Any]]) -> None:
-        ...
-
-    def set_output(self, value: Any) -> Any:
-        ...
-
-    def set_final_output(self, value: Any) -> Any:
-        ...
+    def get(self, key: str, default: Any = None) -> Any: ...
+    def has(self, key: str) -> bool: ...
+    def update(self, updates: dict[str, Any]) -> None: ...
+    def set_output(self, value: Any) -> Any: ...
+    def set_final_output(self, value: Any) -> Any: ...
 
     def to_dict(self) -> dict[str, Any]:
         ...
@@ -272,15 +269,11 @@ class WorkflowEngine:
         """Create a fresh workflow state seeded with user input and extra values."""
 
         state_attribute_names = {
-            "input",
             "context",
             "usage",
             "memory",
-            "last_output",
-            "final_output",
             "current_node",
             "completed_nodes",
-            "metadata",
             "data",
         }
         state_overrides = {key: value for key, value in kwargs.items() if key in state_attribute_names}
@@ -290,9 +283,9 @@ class WorkflowEngine:
             state = self.state_factory(user_input=user_input, initial_data=initial_data)
         else:
             state_cls = self.state_type or EngineState
-            state = state_cls(input=user_input)
-        if getattr(state, "input", None) is None:
-            state.input = user_input
+            state = state_cls()
+        if user_input is not None and not state.get("input"):
+            state.set_input(user_input)
         if not isinstance(state, WorkflowStateProtocol):
             raise TypeError("Workflow state must satisfy WorkflowStateProtocol")
         if state_overrides:
@@ -437,9 +430,9 @@ class WorkflowEngine:
 
         run = EngineRun(engine_name=self.name, started_at=datetime.now(), status="running")
         state = state or self.create_state(user_input)
-        if user_input is not None and state.input is None:
-            state.input = user_input
-        if user_input is not None and state.get("input") is None:
+        if user_input is not None and not state.data.get("input"):
+            state.set_input(user_input)
+        if user_input is not None and not state.get("input"):
             state.update({"input": user_input})
         runtime_context = context if context is not None else getattr(runtime, "context", None)
         runtime_usage = getattr(runtime, "usage", None)
