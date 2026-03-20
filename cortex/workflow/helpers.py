@@ -141,21 +141,6 @@ def llm_node(
     """
 
     async def _llm_function(data: dict, context, memory=None) -> dict:
-        class _DataView:
-            def __init__(self, d, ctx, mem):
-                self.data = d
-                self.context = ctx
-                self.memory = mem
-                self.input = d.get("input")
-            def get(self, key, default=None):
-                return self.data.get(key, default)
-            def require(self, key):
-                if key not in self.data:
-                    raise KeyError(f"Required key '{key}' not found in state data")
-                return self.data[key]
-
-        view = _DataView(data, context, memory)
-
         resolved_prompt = prompt
         if callable(prompt):
             resolved_prompt = await invoke_workflow_callback(
@@ -163,10 +148,9 @@ def llm_node(
                 user_input=data,
                 context=context,
                 memory=memory,
-                state=view,
             )
 
-        messages = await _normalize_message_input(input_builder, view, context, memory)
+        messages = await _normalize_message_input(input_builder, data, context, memory)
 
         if tools:
             if result_shape or check_func:
@@ -189,7 +173,7 @@ def llm_node(
                 max_attempts=max_attempts,
                 llm_args=llm_args or {},
             )
-            result = await func_runnable.async_ask(messages, usage=None)
+            result = await func_runnable(messages, usage=None)
 
         updates = {}
         if output_key is not None:
