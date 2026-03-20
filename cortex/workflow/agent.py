@@ -9,8 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from cortex.message import AgentUsage
-
 from .engine import WorkflowEdge, WorkflowEngine, WorkflowStateProtocol
 from .node import NodeSpec
 from .state import WorkflowRun, WorkflowState
@@ -25,8 +23,6 @@ class WorkflowAgent:
     edges: list[WorkflowEdge] = field(default_factory=list)
     start_node: Optional[str] = None
     context: Any = None
-    usage: Optional[AgentUsage] = None
-    memory: Any = None
     max_steps: int = 50
     state_type: Optional[type[WorkflowStateProtocol]] = None
     state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None
@@ -184,7 +180,7 @@ class WorkflowAgent:
 
     def create_state(self, user_input: Any = None, **kwargs) -> WorkflowState:
         """Create a new workflow state initialized with user input and extra values."""
-        return self._require_engine().create_state(user_input, memory=self.memory, **kwargs)
+        return self._require_engine().create_state(user_input, **kwargs)
 
     def get_node(self, node_name: str):
         """Return a node by name or raise if the node is unknown."""
@@ -201,15 +197,31 @@ class WorkflowAgent:
     def describe_graph(self) -> dict[str, Any]:
         """Return a high-level graph description suitable for inspection or tooling."""
         if self._engine is None:
+            edges = [{"source": edge.source, "target": edge.target} for edge in self.edges]
+            graph: dict[str, dict[str, Any]] = {
+                node.name: {
+                    "kind": node.kind,
+                    "is_terminal": node.is_terminal(),
+                    "declared_next_nodes": sorted(node.declared_next_nodes()),
+                    "edge_next_nodes": [],
+                }
+                for node in self.nodes
+            }
+            for edge in self.edges:
+                if edge.source in graph:
+                    graph[edge.source]["edge_next_nodes"].append(edge.target)
             return {
                 "name": self.name,
                 "start_node": self.start_node,
-                "node_order": [],
-                "edges": [],
-                "terminal_nodes": [],
-                "graph": {},
+                "node_order": [node.name for node in self.nodes],
+                "edges": edges,
+                "terminal_nodes": [node.name for node in self.nodes if node.is_terminal()],
+                "graph": graph,
+                "is_built": False,
             }
-        return self._engine.describe_graph()
+        description = self._engine.describe_graph()
+        description["is_built"] = True
+        return description
 
     def _validate_declared_node_references(self) -> None:
         """Re-run graph validation on the underlying engine."""

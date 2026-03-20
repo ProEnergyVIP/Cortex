@@ -369,16 +369,15 @@ class WorkflowEngine:
         spec: NodeSpec,
         state: WorkflowStateProtocol,
         context: Any,
-        workflow: Any,
     ) -> WorkflowNodeResult:
         """Dispatch node execution based on kind."""
 
         if spec.kind == "function":
             return await self._execute_function(spec, state, context)
         elif spec.kind == "router":
-            return await self._execute_router(spec, state, context, workflow)
+            return await self._execute_router(spec, state, context)
         elif spec.kind == "parallel":
-            return await self._execute_parallel(spec, state, context, workflow)
+            return await self._execute_parallel(spec, state, context)
         raise ValueError(f"Unknown node kind: {spec.kind}")
 
     async def _execute_function(
@@ -417,7 +416,6 @@ class WorkflowEngine:
         spec: NodeSpec,
         state: WorkflowStateProtocol,
         context: Any,
-        workflow: Any,
     ) -> WorkflowNodeResult:
         """Run a router function that decides the next node."""
 
@@ -427,7 +425,7 @@ class WorkflowEngine:
             user_input=callback_input,
             context=context,
             state=state,
-            workflow=workflow,
+            workflow=self,
         )
 
         if isinstance(result, WorkflowNodeResult):
@@ -445,7 +443,6 @@ class WorkflowEngine:
         spec: NodeSpec,
         state: WorkflowStateProtocol,
         context: Any,
-        workflow: Any,
     ) -> WorkflowNodeResult:
         """Run parallel branches concurrently and merge their outputs."""
 
@@ -626,11 +623,11 @@ class WorkflowEngine:
                         try:
                             if spec.policy.timeout_seconds is not None:
                                 result = await asyncio.wait_for(
-                                    self._execute_node(spec, state, state.context, None),
+                                    self._execute_node(spec, state, state.context),
                                     timeout=spec.policy.timeout_seconds,
                                 )
                             else:
-                                result = await self._execute_node(spec, state, state.context, None)
+                                result = await self._execute_node(spec, state, state.context)
                             break
                         except Exception as e:
                             # Nodes may attach structured trace metadata to exceptions.
@@ -696,7 +693,16 @@ class WorkflowEngine:
                 run.status = "completed"
                 run.final_output = state.final_output if state.final_output is not None else state.last_output
 
-            
+            if run.status == "completed":
+                memory = getattr(state.context, "memory", None) if state.context is not None else None
+                await self._persist_conversation(
+                    memory,
+                    [
+                        *self._normalize_conversation_input(state.input),
+                        *self._normalize_conversation_output(run.final_output),
+                    ],
+                )
+
             return run
         finally:
             run.finished_at = datetime.now()
