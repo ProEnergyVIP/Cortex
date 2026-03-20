@@ -43,7 +43,10 @@ def workflow(
 
 
 async def _normalize_message_input(input_builder, state, context, memory):
-    callback_input = state.data if state.data else state.input
+    if isinstance(state, dict):
+        callback_input = state
+    else:
+        callback_input = state.data if getattr(state, "data", None) else getattr(state, "input", None)
     if input_builder is not None:
         built = await invoke_workflow_callback(
             input_builder,
