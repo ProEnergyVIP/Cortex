@@ -31,12 +31,14 @@ class WorkflowAgent:
     state_type: Optional[type[WorkflowStateProtocol]] = None
     state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None
     _engine: Optional[WorkflowEngine] = field(init=False, repr=False, default=None)
+    _graph_dirty: bool = field(init=False, repr=False, default=False)
 
     def __post_init__(self):
         """Build the underlying engine and mirror its validated graph metadata."""
 
         if not self.nodes:
             self._engine = None
+            self._graph_dirty = False
             self.nodes_by_name = {}
             self.node_order = []
             return
@@ -55,17 +57,44 @@ class WorkflowAgent:
         self.start_node = self._engine.start_node
         self.nodes_by_name = self._engine.nodes_by_name
         self.node_order = self._engine.node_order
+        self._graph_dirty = False
 
     def _rebuild_engine(self) -> None:
         """Rebuild the underlying engine after graph mutations."""
 
         self.__post_init__()
 
+    def _mark_graph_dirty(self) -> None:
+        """Mark graph metadata as stale until ``build()`` is called."""
+
+        self._graph_dirty = True
+        self._engine = None
+        self.nodes_by_name = {node.name: node for node in self.nodes}
+        self.node_order = [node.name for node in self.nodes]
+
+    def build(self) -> "WorkflowAgent":
+        """Finalize graph construction and build the underlying engine.
+
+        Call this after finishing ``add_node(...)`` / ``add_edge(...)`` mutations.
+        """
+
+        self._rebuild_engine()
+        return self
+
+    def finalize(self) -> "WorkflowAgent":
+        """Alias for ``build()``."""
+
+        return self.build()
+
     def _require_engine(self) -> WorkflowEngine:
         """Return the built engine or raise when the graph is still empty."""
 
         if self._engine is None:
-            raise ValueError("Workflow graph is empty; add at least one node before using it")
+            if not self.nodes:
+                raise ValueError("Workflow graph is empty; add at least one node before using it")
+            raise ValueError("Workflow graph is not built; call workflow.build() after finishing graph mutations")
+        if self._graph_dirty:
+            raise ValueError("Workflow graph is not built; call workflow.build() after finishing graph mutations")
         return self._engine
 
     def add_node(self, name_or_spec, func=None, *, start: bool = False, **kwargs) -> "WorkflowAgent":
@@ -88,7 +117,7 @@ class WorkflowAgent:
         self.nodes.append(spec)
         if start or self.start_node is None:
             self.start_node = spec.name
-        self._rebuild_engine()
+        self._mark_graph_dirty()
         return self
 
     def add_nodes(self, *specs: NodeSpec) -> "WorkflowAgent":
@@ -98,7 +127,7 @@ class WorkflowAgent:
             self.nodes.append(spec)
         if self.start_node is None and self.nodes:
             self.start_node = self.nodes[0].name
-        self._rebuild_engine()
+        self._mark_graph_dirty()
         return self
 
     def node(self, name: Optional[str] = None, **kwargs):
@@ -138,7 +167,7 @@ class WorkflowAgent:
         source_name = source.name if hasattr(source, "name") else str(source)
         target_name = target.name if hasattr(target, "name") else str(target)
         self.edges.append(WorkflowEdge(source=source_name, target=target_name))
-        self._rebuild_engine()
+        self._mark_graph_dirty()
         return self
 
     def connect(self, source: str | NodeSpec, target: str | NodeSpec) -> "WorkflowAgent":
@@ -150,7 +179,7 @@ class WorkflowAgent:
         """Set the workflow start node explicitly."""
 
         self.start_node = node.name if hasattr(node, "name") else str(node)
-        self._rebuild_engine()
+        self._mark_graph_dirty()
         return self
 
     def create_state(self, user_input: Any = None, **kwargs) -> WorkflowState:
