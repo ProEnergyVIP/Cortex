@@ -101,19 +101,35 @@ class WorkflowAgent:
         self._rebuild_engine()
         return self
 
-    def node(self, name: str, **kwargs):
+    def node(self, name: Optional[str] = None, **kwargs):
         """Decorator that registers a function as a workflow node.
 
         Usage::
 
-            @wf.node("step_a")
+            @wf.node
             async def step_a(data, context):
+                return {"result": "done"}
+
+            @wf.node("custom_step")
+            async def step_b(data, context):
                 return {"result": "done"}
         """
 
-        def decorator(func):
-            self.add_node(NodeSpec(name=name, func=func, **kwargs))
+        def decorator(inner_func):
+            node_name = name or inner_func.__name__
+            self.add_node(NodeSpec(name=node_name, func=inner_func, **kwargs))
+            return inner_func
+
+        if callable(name):
+            func = name
+            self.add_node(NodeSpec(name=func.__name__, func=func, **kwargs))
             return func
+
+        if name is not None and not isinstance(name, str):
+            raise TypeError("@wf.node name must be a string when provided")
+
+        if name is None:
+            return decorator
         return decorator
 
     def add_edge(self, source: str | NodeSpec, target: str | NodeSpec) -> "WorkflowAgent":
