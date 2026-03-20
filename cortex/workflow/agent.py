@@ -232,7 +232,6 @@ class WorkflowAgent:
             user_input,
             state=workflow_state,
             context=active_context,
-            runtime=self,
         )
 
     async def async_ask(

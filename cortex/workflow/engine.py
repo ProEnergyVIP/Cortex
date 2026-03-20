@@ -576,27 +576,13 @@ class WorkflowEngine:
             return [output]
         return [AIMessage(content=str(output))]
 
-    def _attach_runtime_resources(
-        self,
-        state: WorkflowStateProtocol,
-        *,
-        context: Any,
-        usage: Any,
-        memory: Any,
-    ) -> None:
-        """Expose shared workflow runtime resources on state for node access."""
-
-        state.context = context
-        state.usage = usage
-        state.memory = memory
-
+    
     async def async_run(
         self,
         user_input: Any = None,
         *,
         state: Optional[WorkflowStateProtocol] = None,
         context: Any = None,
-        runtime: Any = None,
     ) -> EngineRun:
         """Run the workflow from `start_node` until a node stops or the graph ends."""
 
@@ -607,15 +593,7 @@ class WorkflowEngine:
             state.set_input(user_input)
         if user_input is not None and not state.get("input"):
             state.update({"input": user_input})
-        runtime_context = context if context is not None else getattr(runtime, "context", None)
-        runtime_usage = getattr(runtime, "usage", None)
-        memory = getattr(runtime, "memory", None)
-        self._attach_runtime_resources(
-            state,
-            context=runtime_context,
-            usage=runtime_usage,
-            memory=memory,
-        )
+        state.context = context
         run.state = state
 
         current_node_name = self.start_node
@@ -648,11 +626,11 @@ class WorkflowEngine:
                         try:
                             if spec.policy.timeout_seconds is not None:
                                 result = await asyncio.wait_for(
-                                    self._execute_node(spec, state, state.context, runtime),
+                                    self._execute_node(spec, state, state.context, None),
                                     timeout=spec.policy.timeout_seconds,
                                 )
                             else:
-                                result = await self._execute_node(spec, state, state.context, runtime)
+                                result = await self._execute_node(spec, state, state.context, None)
                             break
                         except Exception as e:
                             # Nodes may attach structured trace metadata to exceptions.
@@ -718,15 +696,7 @@ class WorkflowEngine:
                 run.status = "completed"
                 run.final_output = state.final_output if state.final_output is not None else state.last_output
 
-            if run.status == "completed":
-                await self._persist_conversation(
-                    memory,
-                    [
-                        *self._normalize_conversation_input(state.input),
-                        *self._normalize_conversation_output(run.final_output),
-                    ],
-                )
-
+            
             return run
         finally:
             run.finished_at = datetime.now()
