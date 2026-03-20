@@ -7,12 +7,21 @@ from cortex.agent import Agent
 from cortex.message import Message, UserMessage
 
 from .agent import WorkflowAgent
-from .engine import WorkflowStateProtocol
+from .engine import WorkflowEdge, WorkflowStateProtocol
 from .node import FunctionNode, NodePolicy, ParallelNode, RouterNode, invoke_workflow_callback
+
+
+def edge(source: str | Any, target: str | Any) -> WorkflowEdge:
+    source_name = source.name if hasattr(source, "name") else str(source)
+    target_name = target.name if hasattr(target, "name") else str(target)
+    return WorkflowEdge(source=source_name, target=target_name)
+
+
 def workflow(
     *,
     name: str,
     nodes: Optional[list[Any]] = None,
+    edges: Optional[list[WorkflowEdge]] = None,
     start_node: Optional[str] = None,
     context: Any = None,
     usage: Any = None,
@@ -21,11 +30,10 @@ def workflow(
     state_type: Optional[type[WorkflowStateProtocol]] = None,
     state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None,
 ) -> WorkflowAgent:
-    if nodes is None:
-        raise ValueError("workflow(...) requires nodes")
     return WorkflowAgent(
         name=name,
-        nodes=nodes,
+        nodes=list(nodes or []),
+        edges=list(edges or []),
         start_node=start_node,
         context=context,
         usage=usage,
@@ -60,7 +68,6 @@ def function_node(
     name: str,
     func,
     *,
-    next_node: Optional[str] = None,
     policy: Optional[NodePolicy] = None,
     is_final: bool = False,
 ) -> FunctionNode:
@@ -71,7 +78,6 @@ def function_node(
     return FunctionNode(
         name=name,
         func=func,
-        next_node=next_node,
         policy=policy,
         is_final=is_final,
     )
@@ -81,7 +87,6 @@ def router_node(
     name: str,
     func,
     *,
-    next_node: Optional[str] = None,
     output_key: Optional[str] = None,
     possible_next_nodes: Optional[list[str]] = None,
     policy: Optional[NodePolicy] = None,
@@ -89,7 +94,6 @@ def router_node(
     return RouterNode(
         name=name,
         func=func,
-        next_node=next_node,
         output_key=output_key,
         possible_next_nodes=possible_next_nodes,
         policy=policy,
@@ -100,7 +104,6 @@ def parallel_node(
     name: str,
     nodes: Optional[list[Any]] = None,
     *,
-    next_node: Optional[str] = None,
     output_key: Optional[str] = None,
     merge_strategy: str = "error",
     policy: Optional[NodePolicy] = None,
@@ -111,7 +114,6 @@ def parallel_node(
     return ParallelNode(
         name=name,
         nodes=nodes,
-        next_node=next_node,
         output_key=output_key,
         merge_strategy=merge_strategy,
         policy=policy,
@@ -131,7 +133,6 @@ def llm_node(
     check_func=None,
     max_attempts: int = 3,
     llm_args: Optional[dict[str, Any]] = None,
-    next_node: Optional[str] = None,
     response_key: Optional[str] = None,
     is_final: bool = False,
     policy: Optional[NodePolicy] = None,
@@ -200,7 +201,6 @@ def llm_node(
     return FunctionNode(
         name=name,
         func=_llm_function,
-        next_node=next_node,
         policy=policy,
         is_final=is_final,
     )

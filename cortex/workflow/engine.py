@@ -239,11 +239,20 @@ class EngineRun:
 
 
 @dataclass
+class WorkflowEdge:
+    """Directed edge connecting two workflow nodes."""
+
+    source: str
+    target: str
+
+
+@dataclass
 class WorkflowEngine:
     """Execute a validated graph of workflow nodes against shared state."""
 
     name: str
     nodes: list[EngineNode]
+    edges: list[WorkflowEdge] = field(default_factory=list)
     start_node: Optional[str] = None
     max_steps: int = 50
     state_type: Optional[type[WorkflowStateProtocol]] = None
@@ -260,6 +269,9 @@ class WorkflowEngine:
         if len(self.nodes_by_name) != len(self.nodes):
             raise ValueError("WorkflowEngine node names must be unique")
         self.node_order = [node.name for node in self.nodes]
+        self.edges_by_source: dict[str, list[str]] = {}
+        for edge in self.edges:
+            self.edges_by_source.setdefault(edge.source, []).append(edge.target)
         self.start_node = self.start_node or self.nodes[0].name
         if self.start_node not in self.nodes_by_name:
             raise ValueError(f"Unknown start_node: {self.start_node}")
@@ -314,24 +326,28 @@ class WorkflowEngine:
         return node
 
     def get_next_node_name(self, current_node_name: str) -> Optional[str]:
-        """Return the default ordered successor for a node."""
+        """Return the default graph successor for a node when exactly one edge exists."""
 
-        try:
-            node_index = self.node_order.index(current_node_name)
-        except ValueError as e:
-            raise KeyError(f"Unknown workflow node: {current_node_name}") from e
-        if node_index + 1 < len(self.node_order):
-            return self.node_order[node_index + 1]
-        return None
+        if current_node_name not in self.nodes_by_name:
+            raise KeyError(f"Unknown workflow node: {current_node_name}")
+        next_nodes = self.edges_by_source.get(current_node_name, [])
+        if not next_nodes:
+            return None
+        if len(next_nodes) > 1:
+            raise ValueError(
+                f"Workflow node '{current_node_name}' has multiple outgoing edges; "
+                "the node must return an explicit next_node"
+            )
+        return next_nodes[0]
 
     def get_declared_graph(self) -> dict[str, dict[str, Any]]:
         """Describe the statically declared graph shape for inspection or tooling."""
 
         graph: dict[str, dict[str, Any]] = {}
-        for index, node in enumerate(self.nodes):
+        for node in self.nodes:
             graph[node.name] = {
-                "declared_next_nodes": sorted(node.declared_next_nodes()),
-                "default_next_node": self.node_order[index + 1] if index + 1 < len(self.node_order) else None,
+                "declared_next_nodes": sorted(set(node.declared_next_nodes()).union(self.edges_by_source.get(node.name, []))),
+                "default_next_node": self.get_next_node_name(node.name) if len(self.edges_by_source.get(node.name, [])) <= 1 else None,
                 "is_terminal": node.is_terminal(),
                 "fallback_node": node.policy.fallback_node,
             }
@@ -344,6 +360,7 @@ class WorkflowEngine:
             "name": self.name,
             "start_node": self.start_node,
             "node_order": list(self.node_order),
+            "edges": [{"source": edge.source, "target": edge.target} for edge in self.edges],
             "terminal_nodes": [node.name for node in self.nodes if node.is_terminal()],
             "graph": self.get_declared_graph(),
         }
@@ -355,15 +372,15 @@ class WorkflowEngine:
         invalid_references: list[tuple[str, str]] = []
         dead_end_nodes: list[str] = []
 
-        for index, node in enumerate(self.nodes):
-            for next_node in node.declared_next_nodes():
+        for node in self.nodes:
+            declared_targets = set(node.declared_next_nodes()).union(self.edges_by_source.get(node.name, []))
+            for next_node in declared_targets:
                 if next_node not in known_nodes:
                     invalid_references.append((node.name, next_node))
             if node.policy.fallback_node is not None and node.policy.fallback_node not in known_nodes:
                 invalid_references.append((f"{node.name} [fallback]", node.policy.fallback_node))
-            has_declared_successor = bool(node.declared_next_nodes())
-            has_order_successor = index + 1 < len(self.nodes)
-            if not node.is_terminal() and not has_declared_successor and not has_order_successor:
+            has_declared_successor = bool(declared_targets)
+            if not node.is_terminal() and not has_declared_successor:
                 dead_end_nodes.append(node.name)
 
         if invalid_references:

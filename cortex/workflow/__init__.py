@@ -5,7 +5,8 @@ adapters, and shared types that make up the supported `cortex.workflow` interfac
 """
 
 from .agent import WorkflowAgent
-from .helpers import function_node, llm_node, parallel_node, router_node, workflow
+from .engine import WorkflowEdge
+from .helpers import edge, function_node, llm_node, parallel_node, router_node, workflow
 from .node import FailureStrategy, FunctionNode, Node, NodePolicy, ParallelNode, RouterNode, WorkflowNodeResult
 from .state import NodeTrace, WorkflowRun, WorkflowState, WorkflowStateProtocol
 from .types import NodeFunction, NodeUpdates, NodeValue, PromptBuilder, RouterFunction, WorkflowMessageInput
@@ -15,6 +16,8 @@ from .types import NodeFunction, NodeUpdates, NodeValue, PromptBuilder, RouterFu
 __all__ = [
     "WorkflowAgent",
     "workflow",
+    "edge",
+    "WorkflowEdge",
     "function_node",
     "router_node",
     "parallel_node",

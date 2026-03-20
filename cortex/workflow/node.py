@@ -74,7 +74,6 @@ class EngineNode(Protocol):
     """Structural protocol implemented by node types that the engine can execute."""
 
     name: str
-    next_node: Optional[str]
     policy: NodePolicy
 
     async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None):
@@ -180,17 +179,16 @@ class WorkflowNodeResult:
 class Node(ABC):
     """Abstract base class for all workflow nodes."""
 
-    def __init__(self, name: str, next_node: Optional[str] = None, policy: Optional[NodePolicy] = None):
+    def __init__(self, name: str, policy: Optional[NodePolicy] = None):
         if not isinstance(name, str) or not name.strip():
             raise ValueError("Node name must be a non-empty string")
         self.name = name
-        self.next_node = next_node
         self.policy = policy or NodePolicy()
 
     def declared_next_nodes(self) -> set[str]:
         """Return statically declared successor nodes for validation and graph tooling."""
 
-        return {self.next_node} if self.next_node is not None else set()
+        return set()
 
     def is_terminal(self) -> bool:
         """Return whether this node always terminates the workflow."""
@@ -209,12 +207,11 @@ class RouterNode(Node):
         self,
         name: str,
         func: RouterFunction,
-        next_node: Optional[str] = None,
         output_key: Optional[str] = None,
         possible_next_nodes: Optional[list[str]] = None,
         policy: Optional[NodePolicy] = None,
     ):
-        super().__init__(name=name, next_node=next_node, policy=policy)
+        super().__init__(name=name, policy=policy)
         self.func = func
         self.output_key = output_key
         self.possible_next_nodes = set(possible_next_nodes or [])
@@ -222,7 +219,7 @@ class RouterNode(Node):
     def declared_next_nodes(self) -> set[str]:
         """Return both the default successor and any explicitly declared route targets."""
 
-        return super().declared_next_nodes().union(self.possible_next_nodes)
+        return set(self.possible_next_nodes)
 
     async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None) -> WorkflowNodeResult:
         """Execute the router and normalize its output into a workflow result."""
@@ -240,7 +237,7 @@ class RouterNode(Node):
             return result
 
         if result is None:
-            return WorkflowNodeResult(next_node=self.next_node)
+            return WorkflowNodeResult()
 
         output = result
         next_node = str(result)
@@ -257,15 +254,11 @@ class FunctionNode(Node):
         func,
         *,
         is_final: bool = False,
-        next_node: Optional[str] = None,
         policy: Optional[NodePolicy] = None,
     ):
-        super().__init__(name=name, next_node=next_node, policy=policy)
+        super().__init__(name=name, policy=policy)
         self.func = func
         self.is_final = is_final
-
-        if self.is_final and self.next_node is not None:
-            raise ValueError("Final FunctionNodes cannot declare next_node")
 
     @classmethod
     def final(
@@ -329,13 +322,12 @@ class ParallelNode(Node):
         name: str,
         nodes: list[Node],
         *,
-        next_node: Optional[str] = None,
         output_key: Optional[str] = None,
         merge_strategy: str = "error",
         policy: Optional[NodePolicy] = None,
         is_final: bool = False,
     ):
-        super().__init__(name=name, next_node=next_node, policy=policy)
+        super().__init__(name=name, policy=policy)
         self.nodes = nodes
         self.output_key = output_key
         self.merge_strategy = merge_strategy
@@ -346,14 +338,12 @@ class ParallelNode(Node):
         child_node_names = [node.name for node in self.nodes]
         if len(set(child_node_names)) != len(child_node_names):
             raise ValueError("ParallelNode child node names must be unique")
-        invalid_child_nodes = [node.name for node in self.nodes if node.next_node is not None or node.is_terminal()]
+        invalid_child_nodes = [node.name for node in self.nodes if node.is_terminal()]
         if invalid_child_nodes:
             formatted = ", ".join(invalid_child_nodes)
-            raise ValueError(f"ParallelNode child nodes cannot declare next_node or be terminal: {formatted}")
+            raise ValueError(f"ParallelNode child nodes cannot be terminal: {formatted}")
         if self.merge_strategy not in {"error", "last_write_wins"}:
             raise ValueError("ParallelNode merge_strategy must be 'error' or 'last_write_wins'")
-        if self.is_final and self.next_node is not None:
-            raise ValueError("Final ParallelNodes cannot declare next_node")
 
     @classmethod
     def final(
@@ -429,7 +419,6 @@ class ParallelNode(Node):
         return WorkflowNodeResult(
             updates=merged_updates,
             output=outputs,
-            next_node=self.next_node,
             stop=self.is_final,
             final_output=final_output,
             trace_data={
