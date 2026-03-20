@@ -20,7 +20,6 @@ from typing import Any, Callable, Optional
 
 from cortex.agent import Agent, Tool
 from cortex.workflow import WorkflowAgent
-from cortex.workflow.runtime import adapt_runnable, invoke_runnable
 
 
 @dataclass
@@ -130,6 +129,26 @@ async def _resolve_supervisor_worker(
     return built
 
 
+async def _invoke_worker(
+    worker: Any,
+    task: Any,
+    *,
+    context: Any = None,
+    usage: Any = None,
+    parent: Any = None,
+) -> Any:
+    """Invoke a resolved worker directly via its async_ask interface."""
+
+    if hasattr(worker, "async_ask"):
+        return await worker.async_ask(task, context=context)
+    if callable(worker):
+        result = worker(task)
+        if iscoroutine(result):
+            result = await result
+        return result
+    raise TypeError(f"Worker {worker!r} does not support async_ask or direct invocation")
+
+
 def _build_supervisor_worker_tool(
     spec: _SupervisorWorker,
     index: int,
@@ -152,14 +171,14 @@ def _build_supervisor_worker_tool(
             usage=getattr(tool_context, "usage", None) if tool_context is not None else None,
             parent=agent,
         )
-        invocation = await invoke_runnable(
+        result = await _invoke_worker(
             worker,
             task,
             context=tool_context if tool_context is not None else context,
             usage=getattr(tool_context, "usage", None) if tool_context is not None else None,
             parent=agent,
         )
-        return invocation.output
+        return result
 
     return Tool(
         name=tool_name,
@@ -295,30 +314,19 @@ async def invoke_supervisor_workers(
             usage=usage,
             parent=parent,
         )
-        try:
-            # Prefer `invoke_runnable(...)` so run-capable workers preserve nested
-            # run metadata when available.
-            invocation = await invoke_runnable(
-                worker,
-                task,
-                context=context,
-                usage=usage,
-                parent=parent,
-            )
-        except TypeError as exc:
-            if "does not support async_run" not in str(exc):
-                raise
-            adapted_worker = await adapt_runnable(worker)
-            output = await adapted_worker.async_ask(task, context=context, usage=usage, parent=parent)
-            runnable_name = adapted_worker.name
-        else:
-            output = invocation.output
-            runnable_name = invocation.runnable_name
+        output = await _invoke_worker(
+            worker,
+            task,
+            context=context,
+            usage=usage,
+            parent=parent,
+        )
+        worker_name = getattr(worker, "name", None) or worker_key
         return {
             "worker": worker_key,
             "task": task,
             "output": output,
-            "runnable_name": runnable_name,
+            "runnable_name": worker_name,
         }
 
     return await asyncio.gather(*[_run_delegation(item) for item in delegations]) if delegations else []

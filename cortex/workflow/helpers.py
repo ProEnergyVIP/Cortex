@@ -8,7 +8,7 @@ from cortex.message import Message, UserMessage
 
 from .agent import WorkflowAgent
 from .engine import WorkflowEdge, WorkflowStateProtocol
-from .node import FunctionNode, NodePolicy, ParallelNode, RouterNode, invoke_workflow_callback
+from .node import NodePolicy, NodeSpec, invoke_workflow_callback
 
 
 def edge(source: str | Any, target: str | Any) -> WorkflowEdge:
@@ -70,15 +70,12 @@ def function_node(
     *,
     policy: Optional[NodePolicy] = None,
     is_final: bool = False,
-) -> FunctionNode:
-    """Create a node that executes a plain function with the simplified contract.
-    
-    The function should have the signature: async def func(data: dict, context) -> dict
-    """
-    return FunctionNode(
+) -> NodeSpec:
+    """Create a function node: ``async def func(data: dict, context) -> dict``."""
+    return NodeSpec(
         name=name,
         func=func,
-        policy=policy,
+        policy=policy or NodePolicy(),
         is_final=is_final,
     )
 
@@ -90,33 +87,35 @@ def router_node(
     output_key: Optional[str] = None,
     possible_next_nodes: Optional[list[str]] = None,
     policy: Optional[NodePolicy] = None,
-) -> RouterNode:
-    return RouterNode(
+) -> NodeSpec:
+    return NodeSpec(
         name=name,
         func=func,
+        kind="router",
         output_key=output_key,
-        possible_next_nodes=possible_next_nodes,
-        policy=policy,
+        possible_next_nodes=set(possible_next_nodes or []),
+        policy=policy or NodePolicy(),
     )
 
 
 def parallel_node(
     name: str,
-    nodes: Optional[list[Any]] = None,
+    branches: Optional[dict[str, Callable]] = None,
     *,
     output_key: Optional[str] = None,
     merge_strategy: str = "error",
     policy: Optional[NodePolicy] = None,
     is_final: bool = False,
-) -> ParallelNode:
-    if nodes is None:
-        raise ValueError("parallel_node(...) requires nodes")
-    return ParallelNode(
+) -> NodeSpec:
+    if not branches:
+        raise ValueError("parallel_node(...) requires branches")
+    return NodeSpec(
         name=name,
-        nodes=nodes,
+        kind="parallel",
+        branches=branches,
         output_key=output_key,
         merge_strategy=merge_strategy,
-        policy=policy,
+        policy=policy or NodePolicy(),
         is_final=is_final,
     )
 
@@ -136,37 +135,43 @@ def llm_node(
     response_key: Optional[str] = None,
     is_final: bool = False,
     policy: Optional[NodePolicy] = None,
-) -> FunctionNode:
-    """Create a node that executes an LLM with the simplified contract."""
-    
+) -> NodeSpec:
+    """Create a function node backed by an LLM call.
+
+    The LLM and prompt are captured lazily — nothing is created until the
+    engine actually executes this node.
+    """
+
     async def _llm_function(data: dict, context) -> dict:
-        # Resolve prompt if it's callable
+        class _DataView:
+            def __init__(self, d, ctx):
+                self.data = d
+                self.context = ctx
+                self.input = d.get("input")
+            def get(self, key, default=None):
+                return self.data.get(key, default)
+            def require(self, key):
+                if key not in self.data:
+                    raise KeyError(f"Required key '{key}' not found in state data")
+                return self.data[key]
+
+        view = _DataView(data, context)
+
         resolved_prompt = prompt
         if callable(prompt):
-            # Create a mock state for the callback
-            class MockState:
-                def __init__(self, data_dict):
-                    self.data = data_dict
-                    self.context = context
-                def get(self, key, default=None):
-                    return self.data.get(key, default)
-            mock_state = MockState(data)
-            
             resolved_prompt = await invoke_workflow_callback(
                 prompt,
                 user_input=data,
                 context=context,
-                state=mock_state,
+                state=view,
                 workflow=None,
             )
 
-        # Normalize messages
-        messages = await _normalize_message_input(input_builder, mock_state, context, None)
+        messages = await _normalize_message_input(input_builder, view, context, None)
 
-        # Execute LLM
         if tools:
             if result_shape or check_func:
-                raise ValueError("llm_node with tools does not support result_shape or check_func in this version")
+                raise ValueError("llm_node with tools does not support result_shape or check_func")
             agent = Agent(
                 llm=llm,
                 tools=tools,
@@ -175,7 +180,7 @@ def llm_node(
                 json_reply=False,
                 mode="async",
             )
-            result = await agent.async_ask(messages, usage=getattr(mock_state, "usage", None))
+            result = await agent.async_ask(messages, usage=None)
         else:
             func_runnable = llmfunc(
                 llm,
@@ -185,9 +190,8 @@ def llm_node(
                 max_attempts=max_attempts,
                 llm_args=llm_args or {},
             )
-            result = await func_runnable.async_ask(messages, usage=getattr(mock_state, "usage", None))
+            result = await func_runnable.async_ask(messages, usage=None)
 
-        # Return updates
         updates = {}
         if output_key is not None:
             updates[output_key] = result
@@ -195,12 +199,11 @@ def llm_node(
             updates[response_key] = result
         else:
             updates["_output"] = result
-            
         return updates
-    
-    return FunctionNode(
+
+    return NodeSpec(
         name=name,
         func=_llm_function,
-        policy=policy,
+        policy=policy or NodePolicy(),
         is_final=is_final,
     )

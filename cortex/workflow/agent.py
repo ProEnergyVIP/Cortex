@@ -12,7 +12,7 @@ from typing import Any, Callable, Optional
 from cortex.message import AgentUsage
 
 from .engine import WorkflowEdge, WorkflowEngine, WorkflowStateProtocol
-from .node import Node
+from .node import NodeSpec
 from .state import WorkflowRun, WorkflowState
 
 
@@ -21,7 +21,7 @@ class WorkflowAgent:
     """Execute a named sequence or graph of workflow nodes against shared state."""
 
     name: str
-    nodes: list[Node] = field(default_factory=list)
+    nodes: list[NodeSpec] = field(default_factory=list)
     edges: list[WorkflowEdge] = field(default_factory=list)
     start_node: Optional[str] = None
     context: Any = None
@@ -68,26 +68,55 @@ class WorkflowAgent:
             raise ValueError("Workflow graph is empty; add at least one node before using it")
         return self._engine
 
-    def add_node(self, node: Node, *, start: bool = False) -> "WorkflowAgent":
-        """Add one node to the workflow graph and optionally set it as the start node."""
+    def add_node(self, name_or_spec, func=None, *, start: bool = False, **kwargs) -> "WorkflowAgent":
+        """Add a node to the workflow graph.
 
-        self.nodes.append(node)
+        Accepts any of:
+          - ``add_node(spec)``              — a pre-built ``NodeSpec``
+          - ``add_node("name", func)``      — inline name + function
+          - ``add_node("name", func, kind="router", ...)``
+        """
+
+        if isinstance(name_or_spec, NodeSpec):
+            spec = name_or_spec
+        elif func is not None:
+            spec = NodeSpec(name=str(name_or_spec), func=func, **kwargs)
+        elif callable(name_or_spec):
+            spec = NodeSpec(name=name_or_spec.__name__, func=name_or_spec, **kwargs)
+        else:
+            raise TypeError("add_node requires a NodeSpec, (name, func), or a callable")
+        self.nodes.append(spec)
         if start or self.start_node is None:
-            self.start_node = node.name
+            self.start_node = spec.name
         self._rebuild_engine()
         return self
 
-    def add_nodes(self, *nodes: Node) -> "WorkflowAgent":
-        """Add multiple nodes to the workflow graph."""
+    def add_nodes(self, *specs: NodeSpec) -> "WorkflowAgent":
+        """Add multiple pre-built NodeSpec instances."""
 
-        for node in nodes:
-            self.nodes.append(node)
+        for spec in specs:
+            self.nodes.append(spec)
         if self.start_node is None and self.nodes:
             self.start_node = self.nodes[0].name
         self._rebuild_engine()
         return self
 
-    def add_edge(self, source: str | Node, target: str | Node) -> "WorkflowAgent":
+    def node(self, name: str, **kwargs):
+        """Decorator that registers a function as a workflow node.
+
+        Usage::
+
+            @wf.node("step_a")
+            async def step_a(data, context):
+                return {"result": "done"}
+        """
+
+        def decorator(func):
+            self.add_node(NodeSpec(name=name, func=func, **kwargs))
+            return func
+        return decorator
+
+    def add_edge(self, source: str | NodeSpec, target: str | NodeSpec) -> "WorkflowAgent":
         """Add one directed edge to the workflow graph."""
 
         source_name = source.name if hasattr(source, "name") else str(source)
@@ -96,12 +125,12 @@ class WorkflowAgent:
         self._rebuild_engine()
         return self
 
-    def connect(self, source: str | Node, target: str | Node) -> "WorkflowAgent":
-        """Alias for `add_edge(...)` to keep the API short and readable."""
+    def connect(self, source: str | NodeSpec, target: str | NodeSpec) -> "WorkflowAgent":
+        """Alias for ``add_edge``."""
 
         return self.add_edge(source, target)
 
-    def set_start(self, node: str | Node) -> "WorkflowAgent":
+    def set_start(self, node: str | NodeSpec) -> "WorkflowAgent":
         """Set the workflow start node explicitly."""
 
         self.start_node = node.name if hasattr(node, "name") else str(node)

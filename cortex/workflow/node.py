@@ -1,17 +1,13 @@
-"""Core workflow node types and result objects.
+"""Core workflow node descriptors and result objects.
 
-This module defines the abstract node contract plus the concrete node implementations
-used by the workflow engine: routing nodes, runnable-backed nodes, and parallel nodes.
+Nodes are lightweight, lazy descriptors — just a named function reference with metadata.
+Nothing executes until the engine runs the node.
 """
 
 from __future__ import annotations
 
-import asyncio
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Protocol
-
-from .types import RouterFunction
+from typing import Any, Callable, Literal, Optional
 
 
 async def invoke_workflow_callback(
@@ -70,46 +66,6 @@ class NodePolicy:
             raise ValueError("fallback_node can only be set when failure_strategy='fallback'")
 
 
-class EngineNode(Protocol):
-    """Structural protocol implemented by node types that the engine can execute."""
-
-    name: str
-    policy: NodePolicy
-
-    async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None):
-        ...
-
-    def declared_next_nodes(self) -> set[str]:
-        ...
-
-    def is_terminal(self) -> bool:
-        ...
-
-
-def _get_effective_user_input(state, explicit_user_input: Any = None) -> Any:
-    """Return the best available workflow callback input for the current execution step."""
-
-    if explicit_user_input is not None:
-        return explicit_user_input
-    if state is None:
-        return None
-    if getattr(state, "data", None):
-        return state.data
-    return getattr(state, "input", None)
-
-
-async def _resolve_callable(value, state):
-    """Resolve a static value or invoke a sync/async builder with user input, context, and state."""
-
-    if callable(value):
-        callback_input = _get_effective_user_input(state)
-        return await invoke_workflow_callback(
-            value,
-            user_input=callback_input,
-            context=getattr(state, "context", None),
-            state=state,
-        )
-    return value
 
 
 class WorkflowNodeError(Exception):
@@ -176,254 +132,42 @@ class WorkflowNodeResult:
         return cls(updates=updates, output=output, next_node=next_node)
 
 
-class Node(ABC):
-    """Abstract base class for all workflow nodes."""
+@dataclass
+class NodeSpec:
+    """Lightweight, lazy node descriptor.
 
-    def __init__(self, name: str, policy: Optional[NodePolicy] = None):
-        if not isinstance(name, str) or not name.strip():
+    A node is just a named function reference with metadata. The function is only
+    called when the engine actually executes this node, making all nodes inherently lazy.
+    """
+
+    name: str
+    func: Optional[Callable] = None
+    kind: Literal["function", "router", "parallel"] = "function"
+    policy: NodePolicy = field(default_factory=NodePolicy)
+    is_final: bool = False
+    output_key: Optional[str] = None
+    # Router-specific
+    possible_next_nodes: set[str] = field(default_factory=set)
+    # Parallel-specific
+    branches: dict[str, Callable] = field(default_factory=dict)
+    merge_strategy: str = "error"
+
+    def __post_init__(self):
+        if not isinstance(self.name, str) or not self.name.strip():
             raise ValueError("Node name must be a non-empty string")
-        self.name = name
-        self.policy = policy or NodePolicy()
+        if self.kind == "parallel":
+            if not self.branches:
+                raise ValueError(f"Parallel node '{self.name}' requires at least one branch")
+            if self.merge_strategy not in {"error", "last_write_wins"}:
+                raise ValueError("Parallel merge_strategy must be 'error' or 'last_write_wins'")
+        elif self.func is None:
+            raise ValueError(f"Node '{self.name}' requires a func")
 
     def declared_next_nodes(self) -> set[str]:
-        """Return statically declared successor nodes for validation and graph tooling."""
-
+        """Return statically known successors for graph validation."""
+        if self.kind == "router":
+            return set(self.possible_next_nodes)
         return set()
 
     def is_terminal(self) -> bool:
-        """Return whether this node always terminates the workflow."""
-
-        return False
-
-    @abstractmethod
-    async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None) -> WorkflowNodeResult:
-        raise NotImplementedError
-
-
-class RouterNode(Node):
-    """Run a router function that decides the next node."""
-
-    def __init__(
-        self,
-        name: str,
-        func: RouterFunction,
-        output_key: Optional[str] = None,
-        possible_next_nodes: Optional[list[str]] = None,
-        policy: Optional[NodePolicy] = None,
-    ):
-        super().__init__(name=name, policy=policy)
-        self.func = func
-        self.output_key = output_key
-        self.possible_next_nodes = set(possible_next_nodes or [])
-
-    def declared_next_nodes(self) -> set[str]:
-        """Return both the default successor and any explicitly declared route targets."""
-
-        return set(self.possible_next_nodes)
-
-    async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None) -> WorkflowNodeResult:
-        """Execute the router and normalize its output into a workflow result."""
-
-        callback_input = _get_effective_user_input(state, user_input)
-        result = await invoke_workflow_callback(
-            self.func,
-            user_input=callback_input,
-            context=context,
-            state=state,
-            workflow=workflow,
-        )
-
-        if isinstance(result, WorkflowNodeResult):
-            return result
-
-        if result is None:
-            return WorkflowNodeResult()
-
-        output = result
-        next_node = str(result)
-        updates = {self.output_key: output} if self.output_key is not None else {}
-        return WorkflowNodeResult(updates=updates, output=output, next_node=next_node)
-
-
-class FunctionNode(Node):
-    """Execute a plain function and merge its returned updates into workflow state."""
-
-    def __init__(
-        self,
-        name: str,
-        func,
-        *,
-        is_final: bool = False,
-        policy: Optional[NodePolicy] = None,
-    ):
-        super().__init__(name=name, policy=policy)
-        self.func = func
-        self.is_final = is_final
-
-    @classmethod
-    def final(
-        cls,
-        name: str,
-        func,
-        *,
-        policy: Optional[NodePolicy] = None,
-    ) -> "FunctionNode":
-        """Construct a terminal function node."""
-
-        return cls(
-            name=name,
-            func=func,
-            policy=policy,
-            is_final=True,
-        )
-
-    def is_terminal(self) -> bool:
         return self.is_final
-
-    async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None) -> WorkflowNodeResult:
-        """Execute the function with current data and merge returned updates."""
-
-        # Create a mutable copy of current state data
-        current_data = dict(state.data) if state else {}
-
-        # Call the function with the simplified contract
-        if asyncio.iscoroutinefunction(self.func):
-            updates = await self.func(current_data, context)
-        else:
-            updates = self.func(current_data, context)
-            if asyncio.iscoroutine(updates):
-                updates = await updates
-
-        # Ensure we have a dict of updates
-        if updates is None:
-            updates = {}
-        elif not isinstance(updates, dict):
-            # If function returned a single value, store it as _output
-            updates = {"_output": updates}
-
-        # Merge updates into state data
-        if state:
-            state.update(updates)
-
-        # Build result
-        result_updates = dict(updates)
-        output = result_updates.get("_output")
-        if "_output" in result_updates:
-            del result_updates["_output"]
-
-        return WorkflowNodeResult(updates=result_updates, output=output)
-
-
-class ParallelNode(Node):
-    """Execute a set of child nodes concurrently and merge their outputs."""
-
-    def __init__(
-        self,
-        name: str,
-        nodes: list[Node],
-        *,
-        output_key: Optional[str] = None,
-        merge_strategy: str = "error",
-        policy: Optional[NodePolicy] = None,
-        is_final: bool = False,
-    ):
-        super().__init__(name=name, policy=policy)
-        self.nodes = nodes
-        self.output_key = output_key
-        self.merge_strategy = merge_strategy
-        self.is_final = is_final
-
-        if not self.nodes:
-            raise ValueError("ParallelNode requires at least one child node")
-        child_node_names = [node.name for node in self.nodes]
-        if len(set(child_node_names)) != len(child_node_names):
-            raise ValueError("ParallelNode child node names must be unique")
-        invalid_child_nodes = [node.name for node in self.nodes if node.is_terminal()]
-        if invalid_child_nodes:
-            formatted = ", ".join(invalid_child_nodes)
-            raise ValueError(f"ParallelNode child nodes cannot be terminal: {formatted}")
-        if self.merge_strategy not in {"error", "last_write_wins"}:
-            raise ValueError("ParallelNode merge_strategy must be 'error' or 'last_write_wins'")
-
-    @classmethod
-    def final(
-        cls,
-        name: str,
-        nodes: list[Node],
-        *,
-        output_key: Optional[str] = None,
-        merge_strategy: str = "error",
-        policy: Optional[NodePolicy] = None,
-    ) -> "ParallelNode":
-        """Construct a terminal parallel node."""
-
-        return cls(name=name, nodes=nodes, output_key=output_key, merge_strategy=merge_strategy, policy=policy, is_final=True)
-
-    def is_terminal(self) -> bool:
-        return self.is_final
-
-    async def run(self, user_input: Any = None, *, context: Any = None, state: Any = None, workflow: Any = None) -> WorkflowNodeResult:
-        """Run child nodes concurrently and merge their outputs into one result."""
-
-        branch_user_input = _get_effective_user_input(state, user_input)
-
-        async def _run_child(node: Node):
-            # Each branch gets a copy of state so concurrent child execution does not mutate
-            # shared state in place.
-            branch_state = state.clone(
-                current_node=node.name,
-            )
-            try:
-                result = await node.run(branch_user_input, context=context, state=branch_state, workflow=workflow)
-            except Exception as e:
-                raise WorkflowNodeError(
-                    f"ParallelNode '{self.name}' branch '{node.name}' failed: {e}",
-                    trace_data={
-                        "parallel_failed_branch": node.name,
-                        "parallel_failed_branch_state": branch_state.to_dict(),
-                        "parallel_failed_branch_error": str(e),
-                    },
-                ) from e
-            return node.name, result, branch_state
-
-        branch_results = await asyncio.gather(*[_run_child(node) for node in self.nodes])
-
-        merged_updates: dict[str, Any] = {}
-        outputs: dict[str, Any] = {}
-        branch_trace: dict[str, Any] = {}
-        update_sources: dict[str, str] = {}
-
-        for node_name, result, branch_state in branch_results:
-            for key, value in result.updates.items():
-                # Merge conflicts are either rejected or resolved deterministically based on
-                # the configured merge strategy.
-                if key in merged_updates and self.merge_strategy == "error":
-                    previous_node = update_sources[key]
-                    raise ValueError(
-                        f"ParallelNode '{self.name}' received conflicting updates for key '{key}' "
-                        f"from nodes '{previous_node}' and '{node_name}'"
-                    )
-                merged_updates[key] = value
-                update_sources[key] = node_name
-            outputs[node_name] = result.output
-            branch_trace[node_name] = {
-                "output": result.output,
-                "updates": dict(result.updates),
-                "state_after": branch_state.to_dict(),
-            }
-
-        if self.output_key is not None:
-            merged_updates[self.output_key] = outputs
-
-        final_output = outputs if self.is_final else None
-        return WorkflowNodeResult(
-            updates=merged_updates,
-            output=outputs,
-            stop=self.is_final,
-            final_output=final_output,
-            trace_data={
-                "parallel_branches": branch_trace,
-                "parallel_merge_strategy": self.merge_strategy,
-                "parallel_update_sources": dict(update_sources),
-            },
-        )

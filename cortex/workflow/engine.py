@@ -8,7 +8,7 @@ from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from cortex.message import AIMessage, Message, UserMessage
 
-from .node import EngineNode
+from .node import NodeSpec, WorkflowNodeError, WorkflowNodeResult, invoke_workflow_callback
 
 
 def _serialize_value(value: Any) -> Any:
@@ -251,7 +251,7 @@ class WorkflowEngine:
     """Execute a validated graph of workflow nodes against shared state."""
 
     name: str
-    nodes: list[EngineNode]
+    nodes: list[NodeSpec]
     edges: list[WorkflowEdge] = field(default_factory=list)
     start_node: Optional[str] = None
     max_steps: int = 50
@@ -275,7 +275,6 @@ class WorkflowEngine:
         self.start_node = self.start_node or self.nodes[0].name
         if self.start_node not in self.nodes_by_name:
             raise ValueError(f"Unknown start_node: {self.start_node}")
-        self._validate_declared_node_references()
 
     def create_state(self, user_input: Any = None, **kwargs) -> WorkflowStateProtocol:
         """Create a fresh workflow state seeded with user input and extra values."""
@@ -365,6 +364,162 @@ class WorkflowEngine:
             "graph": self.get_declared_graph(),
         }
 
+    async def _execute_node(
+        self,
+        spec: NodeSpec,
+        state: WorkflowStateProtocol,
+        context: Any,
+        workflow: Any,
+    ) -> WorkflowNodeResult:
+        """Dispatch node execution based on kind."""
+
+        if spec.kind == "function":
+            return await self._execute_function(spec, state, context)
+        elif spec.kind == "router":
+            return await self._execute_router(spec, state, context, workflow)
+        elif spec.kind == "parallel":
+            return await self._execute_parallel(spec, state, context, workflow)
+        raise ValueError(f"Unknown node kind: {spec.kind}")
+
+    async def _execute_function(
+        self,
+        spec: NodeSpec,
+        state: WorkflowStateProtocol,
+        context: Any,
+    ) -> WorkflowNodeResult:
+        """Run a plain function node: func(data, context) -> dict."""
+
+        current_data = dict(state.data) if state else {}
+
+        if asyncio.iscoroutinefunction(spec.func):
+            updates = await spec.func(current_data, context)
+        else:
+            updates = spec.func(current_data, context)
+            if asyncio.iscoroutine(updates):
+                updates = await updates
+
+        if updates is None:
+            updates = {}
+        elif not isinstance(updates, dict):
+            updates = {"_output": updates}
+
+        output = updates.pop("_output", None)
+        effective_output = output if output is not None else (updates if updates else None)
+        return WorkflowNodeResult(
+            updates=updates,
+            output=effective_output,
+            stop=spec.is_final,
+            final_output=effective_output if spec.is_final else None,
+        )
+
+    async def _execute_router(
+        self,
+        spec: NodeSpec,
+        state: WorkflowStateProtocol,
+        context: Any,
+        workflow: Any,
+    ) -> WorkflowNodeResult:
+        """Run a router function that decides the next node."""
+
+        callback_input = state.data if state and state.data else (state.input if state else None)
+        result = await invoke_workflow_callback(
+            spec.func,
+            user_input=callback_input,
+            context=context,
+            state=state,
+            workflow=workflow,
+        )
+
+        if isinstance(result, WorkflowNodeResult):
+            return result
+        if result is None:
+            return WorkflowNodeResult()
+
+        output = result
+        next_node = str(result)
+        updates = {spec.output_key: output} if spec.output_key else {}
+        return WorkflowNodeResult(updates=updates, output=output, next_node=next_node)
+
+    async def _execute_parallel(
+        self,
+        spec: NodeSpec,
+        state: WorkflowStateProtocol,
+        context: Any,
+        workflow: Any,
+    ) -> WorkflowNodeResult:
+        """Run parallel branches concurrently and merge their outputs."""
+
+        async def _run_branch(branch_name: str, branch_func):
+            branch_state = state.clone(current_node=branch_name)
+            current_data = dict(branch_state.data) if branch_state else {}
+            try:
+                if asyncio.iscoroutinefunction(branch_func):
+                    updates = await branch_func(current_data, context)
+                else:
+                    updates = branch_func(current_data, context)
+                    if asyncio.iscoroutine(updates):
+                        updates = await updates
+            except Exception as e:
+                raise WorkflowNodeError(
+                    f"Parallel node '{spec.name}' branch '{branch_name}' failed: {e}",
+                    trace_data={
+                        "parallel_failed_branch": branch_name,
+                        "parallel_failed_branch_state": branch_state.to_dict(),
+                        "parallel_failed_branch_error": str(e),
+                    },
+                ) from e
+
+            if updates is None:
+                updates = {}
+            elif not isinstance(updates, dict):
+                updates = {"_output": updates}
+
+            output = updates.pop("_output", None)
+            effective_output = output if output is not None else (updates if updates else None)
+            return branch_name, WorkflowNodeResult(updates=updates, output=effective_output), branch_state
+
+        branch_results = await asyncio.gather(
+            *[_run_branch(name, func) for name, func in spec.branches.items()]
+        )
+
+        merged_updates: dict[str, Any] = {}
+        outputs: dict[str, Any] = {}
+        branch_trace: dict[str, Any] = {}
+        update_sources: dict[str, str] = {}
+
+        for branch_name, result, branch_state in branch_results:
+            for key, value in result.updates.items():
+                if key in merged_updates and spec.merge_strategy == "error":
+                    previous = update_sources[key]
+                    raise ValueError(
+                        f"Parallel node '{spec.name}' received conflicting updates for key '{key}' "
+                        f"from branches '{previous}' and '{branch_name}'"
+                    )
+                merged_updates[key] = value
+                update_sources[key] = branch_name
+            outputs[branch_name] = result.output
+            branch_trace[branch_name] = {
+                "output": result.output,
+                "updates": dict(result.updates),
+                "state_after": branch_state.to_dict(),
+            }
+
+        if spec.output_key is not None:
+            merged_updates[spec.output_key] = outputs
+
+        final_output = outputs if spec.is_final else None
+        return WorkflowNodeResult(
+            updates=merged_updates,
+            output=outputs,
+            stop=spec.is_final,
+            final_output=final_output,
+            trace_data={
+                "parallel_branches": branch_trace,
+                "parallel_merge_strategy": spec.merge_strategy,
+                "parallel_update_sources": dict(update_sources),
+            },
+        )
+
     def _validate_declared_node_references(self) -> None:
         """Catch invalid edges and obvious dead ends before execution starts."""
 
@@ -445,6 +600,7 @@ class WorkflowEngine:
     ) -> EngineRun:
         """Run the workflow from `start_node` until a node stops or the graph ends."""
 
+        self._validate_declared_node_references()
         run = EngineRun(engine_name=self.name, started_at=datetime.now(), status="running")
         state = state or self.create_state(user_input)
         if user_input is not None and not state.data.get("input"):
@@ -472,7 +628,7 @@ class WorkflowEngine:
                 if steps_executed > self.max_steps:
                     raise RuntimeError(f"Workflow exceeded max_steps={self.max_steps}")
 
-                node = self.get_node(current_node_name)
+                spec = self.get_node(current_node_name)
                 state.current_node = current_node_name
                 trace = EngineTrace(
                     node_name=current_node_name,
@@ -489,29 +645,28 @@ class WorkflowEngine:
                         # remains easy to inspect.
                         attempt_count += 1
                         trace.attempt_count = attempt_count
-                        node_input = state.data if state.data else state.input
                         try:
-                            if node.policy.timeout_seconds is not None:
+                            if spec.policy.timeout_seconds is not None:
                                 result = await asyncio.wait_for(
-                                    node.run(node_input, context=state.context, state=state, workflow=runtime),
-                                    timeout=node.policy.timeout_seconds,
+                                    self._execute_node(spec, state, state.context, runtime),
+                                    timeout=spec.policy.timeout_seconds,
                                 )
                             else:
-                                result = await node.run(node_input, context=state.context, state=state, workflow=runtime)
+                                result = await self._execute_node(spec, state, state.context, runtime)
                             break
                         except Exception as e:
                             # Nodes may attach structured trace metadata to exceptions.
                             if hasattr(e, "trace_data") and e.trace_data:
                                 trace.metadata.update(e.trace_data)
                             if isinstance(e, TimeoutError):
-                                trace.metadata["timeout_seconds"] = node.policy.timeout_seconds
-                            if attempt_count <= node.policy.max_retries:
+                                trace.metadata["timeout_seconds"] = spec.policy.timeout_seconds
+                            if attempt_count <= spec.policy.max_retries:
                                 continue
-                            if node.policy.failure_strategy == "fallback" and node.policy.fallback_node is not None:
+                            if spec.policy.failure_strategy == "fallback" and spec.policy.fallback_node is not None:
                                 trace.status = "fallback"
                                 trace.error = str(e)
-                                trace.fallback_node = node.policy.fallback_node
-                                current_node_name = node.policy.fallback_node
+                                trace.fallback_node = spec.policy.fallback_node
+                                current_node_name = spec.policy.fallback_node
                                 result = None
                                 break
                             trace.status = "failed"
