@@ -24,6 +24,7 @@ def workflow(
     edges: Optional[list[WorkflowEdge]] = None,
     start_node: Optional[str] = None,
     context: Any = None,
+    memory: Any = None,
     max_steps: int = 50,
     state_type: Optional[type[WorkflowStateProtocol]] = None,
     state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None,
@@ -34,21 +35,22 @@ def workflow(
         edges=list(edges or []),
         start_node=start_node,
         context=context,
+        memory=memory,
         max_steps=max_steps,
         state_type=state_type,
         state_factory=state_factory,
     )
 
 
-async def _normalize_message_input(input_builder, state, context, workflow):
+async def _normalize_message_input(input_builder, state, context, memory):
     callback_input = state.data if state.data else state.input
     if input_builder is not None:
         built = await invoke_workflow_callback(
             input_builder,
             user_input=callback_input,
             context=context,
+            memory=memory,
             state=state,
-            workflow=workflow,
         )
     else:
         built = callback_input
@@ -138,11 +140,12 @@ def llm_node(
     engine actually executes this node.
     """
 
-    async def _llm_function(data: dict, context) -> dict:
+    async def _llm_function(data: dict, context, memory=None) -> dict:
         class _DataView:
-            def __init__(self, d, ctx):
+            def __init__(self, d, ctx, mem):
                 self.data = d
                 self.context = ctx
+                self.memory = mem
                 self.input = d.get("input")
             def get(self, key, default=None):
                 return self.data.get(key, default)
@@ -151,7 +154,7 @@ def llm_node(
                     raise KeyError(f"Required key '{key}' not found in state data")
                 return self.data[key]
 
-        view = _DataView(data, context)
+        view = _DataView(data, context, memory)
 
         resolved_prompt = prompt
         if callable(prompt):
@@ -159,11 +162,11 @@ def llm_node(
                 prompt,
                 user_input=data,
                 context=context,
+                memory=memory,
                 state=view,
-                workflow=None,
             )
 
-        messages = await _normalize_message_input(input_builder, view, context, None)
+        messages = await _normalize_message_input(input_builder, view, context, memory)
 
         if tools:
             if result_shape or check_func:

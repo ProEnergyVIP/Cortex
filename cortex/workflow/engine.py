@@ -369,15 +369,16 @@ class WorkflowEngine:
         spec: NodeSpec,
         state: WorkflowStateProtocol,
         context: Any,
+        memory: Any = None,
     ) -> WorkflowNodeResult:
         """Dispatch node execution based on kind."""
 
         if spec.kind == "function":
-            return await self._execute_function(spec, state, context)
+            return await self._execute_function(spec, state, context, memory)
         elif spec.kind == "router":
-            return await self._execute_router(spec, state, context)
+            return await self._execute_router(spec, state, context, memory)
         elif spec.kind == "parallel":
-            return await self._execute_parallel(spec, state, context)
+            return await self._execute_parallel(spec, state, context, memory)
         raise ValueError(f"Unknown node kind: {spec.kind}")
 
     async def _execute_function(
@@ -385,17 +386,33 @@ class WorkflowEngine:
         spec: NodeSpec,
         state: WorkflowStateProtocol,
         context: Any,
+        memory: Any = None,
     ) -> WorkflowNodeResult:
         """Run a plain function node: func(data, context) -> dict."""
 
+        import inspect
+
         current_data = dict(state.data) if state else {}
 
-        if asyncio.iscoroutinefunction(spec.func):
-            updates = await spec.func(current_data, context)
+        signature = inspect.signature(spec.func)
+        parameters = list(signature.parameters.values())
+        accepts_memory_kwarg = "memory" in signature.parameters
+        accepts_varargs = any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in parameters)
+        positional_params = [
+            param
+            for param in parameters
+            if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+
+        if accepts_memory_kwarg:
+            updates = spec.func(current_data, context, memory=memory)
+        elif accepts_varargs or len(positional_params) >= 3:
+            updates = spec.func(current_data, context, memory)
         else:
             updates = spec.func(current_data, context)
-            if asyncio.iscoroutine(updates):
-                updates = await updates
+
+        if asyncio.iscoroutine(updates):
+            updates = await updates
 
         if updates is None:
             updates = {}
@@ -416,6 +433,7 @@ class WorkflowEngine:
         spec: NodeSpec,
         state: WorkflowStateProtocol,
         context: Any,
+        memory: Any = None,
     ) -> WorkflowNodeResult:
         """Run a router function that decides the next node."""
 
@@ -424,8 +442,8 @@ class WorkflowEngine:
             spec.func,
             user_input=callback_input,
             context=context,
+            memory=memory,
             state=state,
-            workflow=self,
         )
 
         if isinstance(result, WorkflowNodeResult):
@@ -443,19 +461,35 @@ class WorkflowEngine:
         spec: NodeSpec,
         state: WorkflowStateProtocol,
         context: Any,
+        memory: Any = None,
     ) -> WorkflowNodeResult:
         """Run parallel branches concurrently and merge their outputs."""
 
         async def _run_branch(branch_name: str, branch_func):
+            import inspect
+
             branch_state = state.clone(current_node=branch_name)
             current_data = dict(branch_state.data) if branch_state else {}
             try:
-                if asyncio.iscoroutinefunction(branch_func):
-                    updates = await branch_func(current_data, context)
+                signature = inspect.signature(branch_func)
+                parameters = list(signature.parameters.values())
+                accepts_memory_kwarg = "memory" in signature.parameters
+                accepts_varargs = any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in parameters)
+                positional_params = [
+                    param
+                    for param in parameters
+                    if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                ]
+
+                if accepts_memory_kwarg:
+                    updates = branch_func(current_data, context, memory=memory)
+                elif accepts_varargs or len(positional_params) >= 3:
+                    updates = branch_func(current_data, context, memory)
                 else:
                     updates = branch_func(current_data, context)
-                    if asyncio.iscoroutine(updates):
-                        updates = await updates
+
+                if asyncio.iscoroutine(updates):
+                    updates = await updates
             except Exception as e:
                 raise WorkflowNodeError(
                     f"Parallel node '{spec.name}' branch '{branch_name}' failed: {e}",
@@ -580,6 +614,7 @@ class WorkflowEngine:
         *,
         state: Optional[WorkflowStateProtocol] = None,
         context: Any = None,
+        memory: Any = None,
     ) -> EngineRun:
         """Run the workflow from `start_node` until a node stops or the graph ends."""
 
@@ -591,6 +626,9 @@ class WorkflowEngine:
         if user_input is not None and not state.get("input"):
             state.update({"input": user_input})
         state.context = context
+        effective_memory = memory if memory is not None else (
+            getattr(context, "memory", None) if context is not None else None
+        )
         run.state = state
 
         current_node_name = self.start_node
@@ -623,11 +661,11 @@ class WorkflowEngine:
                         try:
                             if spec.policy.timeout_seconds is not None:
                                 result = await asyncio.wait_for(
-                                    self._execute_node(spec, state, state.context),
+                                    self._execute_node(spec, state, state.context, effective_memory),
                                     timeout=spec.policy.timeout_seconds,
                                 )
                             else:
-                                result = await self._execute_node(spec, state, state.context)
+                                result = await self._execute_node(spec, state, state.context, effective_memory)
                             break
                         except Exception as e:
                             # Nodes may attach structured trace metadata to exceptions.
@@ -694,9 +732,8 @@ class WorkflowEngine:
                 run.final_output = state.final_output if state.final_output is not None else state.last_output
 
             if run.status == "completed":
-                memory = getattr(state.context, "memory", None) if state.context is not None else None
                 await self._persist_conversation(
-                    memory,
+                    effective_memory,
                     [
                         *self._normalize_conversation_input(state.input),
                         *self._normalize_conversation_output(run.final_output),

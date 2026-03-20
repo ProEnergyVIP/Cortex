@@ -23,6 +23,7 @@ class WorkflowAgent:
     edges: list[WorkflowEdge] = field(default_factory=list)
     start_node: Optional[str] = None
     context: Any = None
+    memory: Any = None
     max_steps: int = 50
     state_type: Optional[type[WorkflowStateProtocol]] = None
     state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None
@@ -244,6 +245,7 @@ class WorkflowAgent:
             user_input,
             state=workflow_state,
             context=active_context,
+            memory=self.memory,
         )
 
     async def async_ask(

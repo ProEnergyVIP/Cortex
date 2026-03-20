@@ -15,8 +15,8 @@ async def invoke_workflow_callback(
     *,
     user_input: Any = None,
     context: Any = None,
+    memory: Any = None,
     state: Any = None,
-    workflow: Any = None,
 ):
     """Invoke a workflow callback with flexible signature support."""
     import inspect
@@ -30,10 +30,10 @@ async def invoke_workflow_callback(
         kwargs["user_input"] = user_input
     if "context" in params:
         kwargs["context"] = context
+    if "memory" in params:
+        kwargs["memory"] = memory
     if "state" in params:
         kwargs["state"] = state
-    if "workflow" in params:
-        kwargs["workflow"] = workflow
         
     # Call the function
     if inspect.iscoroutinefunction(func):
