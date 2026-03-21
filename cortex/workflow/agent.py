@@ -7,9 +7,16 @@ actual execution logic to the lower-level engine.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, AsyncIterator, Callable, Optional
 
-from .engine import WorkflowEdge, WorkflowEngine, WorkflowStateProtocol
+from .engine import (
+    WorkflowEdge,
+    WorkflowEngine,
+    WorkflowEvent,
+    WorkflowHooks,
+    WorkflowObservability,
+    WorkflowStateProtocol,
+)
 from .node import NodeSpec
 from .state import WorkflowRun, WorkflowState
 
@@ -27,6 +34,8 @@ class WorkflowAgent:
     max_steps: int = 50
     state_type: Optional[type[WorkflowStateProtocol]] = None
     state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None
+    observability: WorkflowObservability = field(default_factory=WorkflowObservability)
+    hooks: Optional[WorkflowHooks] = None
     _engine: Optional[WorkflowEngine] = field(init=False, repr=False, default=None)
     _graph_dirty: bool = field(init=False, repr=False, default=False)
 
@@ -48,6 +57,8 @@ class WorkflowAgent:
             max_steps=self.max_steps,
             state_type=self.state_type,
             state_factory=self.state_factory,
+            observability=self.observability,
+            hooks=self.hooks,
         )
         self.nodes = self._engine.nodes
         self.edges = self._engine.edges
@@ -235,6 +246,11 @@ class WorkflowAgent:
         *,
         state: Optional[WorkflowState] = None,
         context: Any = None,
+        hooks: Optional[WorkflowHooks] = None,
+        observability: Optional[WorkflowObservability] = None,
+        tags: Optional[dict[str, str]] = None,
+        parent_run_id: Optional[str] = None,
+        start_node: Optional[str] = None,
     ) -> WorkflowRun:
         """Run the workflow and return the full workflow run record."""
 
@@ -246,6 +262,11 @@ class WorkflowAgent:
             state=workflow_state,
             context=active_context,
             memory=self.memory,
+            hooks=hooks,
+            observability=observability,
+            tags=tags,
+            parent_run_id=parent_run_id,
+            start_node=start_node,
         )
 
     async def async_ask(
@@ -254,9 +275,65 @@ class WorkflowAgent:
         *,
         state: Optional[WorkflowState] = None,
         context: Any = None,
+        hooks: Optional[WorkflowHooks] = None,
+        observability: Optional[WorkflowObservability] = None,
+        tags: Optional[dict[str, str]] = None,
     ) -> Any:
         """Run the workflow and return only the final output."""
 
-        run = await self.async_run(user_input, state=state, context=context)
+        run = await self.async_run(
+            user_input,
+            state=state,
+            context=context,
+            hooks=hooks,
+            observability=observability,
+            tags=tags,
+        )
         return run.final_output
+
+    async def async_resume(
+        self,
+        run: WorkflowRun,
+        *,
+        user_input: Any = None,
+        context: Any = None,
+        hooks: Optional[WorkflowHooks] = None,
+        observability: Optional[WorkflowObservability] = None,
+    ) -> WorkflowRun:
+        """Resume a paused workflow run."""
+
+        active_context = context if context is not None else self.context
+        return await self._require_engine().async_resume(
+            run,
+            user_input=user_input,
+            context=active_context,
+            memory=self.memory,
+            hooks=hooks,
+            observability=observability,
+        )
+
+    async def async_run_events(
+        self,
+        user_input: Any = None,
+        *,
+        state: Optional[WorkflowState] = None,
+        context: Any = None,
+        hooks: Optional[WorkflowHooks] = None,
+        observability: Optional[WorkflowObservability] = None,
+        tags: Optional[dict[str, str]] = None,
+    ) -> AsyncIterator[WorkflowEvent]:
+        """Run a workflow and stream structured lifecycle events."""
+
+        active_context = context if context is not None else self.context
+        workflow_state = state or self.create_state(user_input)
+        async for event in self._require_engine().async_run_events(
+            user_input,
+            state=workflow_state,
+            context=active_context,
+            memory=self.memory,
+            hooks=hooks,
+            observability=observability,
+            tags=tags,
+        ):
+            yield event
 

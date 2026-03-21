@@ -4,7 +4,8 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from inspect import isawaitable
-from typing import Any, Callable, Optional, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Callable, Literal, Optional, Protocol, runtime_checkable
+from uuid import uuid4
 
 from cortex.message import AIMessage, Message, UserMessage
 
@@ -27,6 +28,117 @@ def _serialize_value(value: Any) -> Any:
     return value
 
 
+def _safe_type_name(value: Any) -> str:
+    """Return a stable type label for trace summaries."""
+
+    if value is None:
+        return "none"
+    return type(value).__name__
+
+
+def _summarize_payload(value: Any) -> dict[str, Any]:
+    """Return a compact summary for trace views without dumping full payloads."""
+
+    if isinstance(value, dict):
+        return {"type": "dict", "size": len(value), "keys": sorted(value.keys())[:20]}
+    if isinstance(value, list):
+        return {"type": "list", "size": len(value)}
+    if isinstance(value, str):
+        return {"type": "str", "chars": len(value)}
+    return {"type": _safe_type_name(value)}
+
+
+def _diff_state(before: Optional[dict[str, Any]], after: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Compute a shallow state diff suitable for timeline/debug UIs."""
+
+    before_data = before or {}
+    after_data = after or {}
+    before_keys = set(before_data.keys())
+    after_keys = set(after_data.keys())
+    added = sorted(after_keys - before_keys)
+    removed = sorted(before_keys - after_keys)
+    changed = sorted(
+        key
+        for key in (before_keys & after_keys)
+        if _serialize_value(before_data.get(key)) != _serialize_value(after_data.get(key))
+    )
+    return {
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+    }
+
+
+CaptureStateMode = Literal["none", "final", "full"]
+
+
+@dataclass
+class WorkflowObservability:
+    """Runtime observability settings for traces and event hooks."""
+
+    capture_state: CaptureStateMode = "full"
+    include_timing: bool = True
+    include_node_output: bool = True
+    redact: Optional[Callable[[str, Any], Any]] = None
+
+
+@dataclass
+class WorkflowRunPause:
+    """Pause descriptor produced when execution is interrupted for HITL."""
+
+    node_name: str
+    reason: str
+    payload: dict[str, Any] = field(default_factory=dict)
+    resume_node: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node_name": self.node_name,
+            "reason": self.reason,
+            "payload": _serialize_value(self.payload),
+            "resume_node": self.resume_node,
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowEvent:
+    """Structured event emitted during workflow execution."""
+
+    kind: Literal["run_start", "node_start", "node_end", "node_error", "run_end", "run_paused"]
+    run_id: str
+    engine_name: str
+    timestamp: datetime = field(default_factory=datetime.now)
+    node_name: Optional[str] = None
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkflowHooks:
+    """Optional callbacks fired at key lifecycle points."""
+
+    on_run_start: Optional[Callable[[WorkflowEvent], Any]] = None
+    on_node_start: Optional[Callable[[WorkflowEvent], Any]] = None
+    on_node_end: Optional[Callable[[WorkflowEvent], Any]] = None
+    on_node_error: Optional[Callable[[WorkflowEvent], Any]] = None
+    on_run_end: Optional[Callable[[WorkflowEvent], Any]] = None
+    on_pause: Optional[Callable[[WorkflowEvent], Any]] = None
+
+    def callback_for(self, event_kind: str) -> Optional[Callable[[WorkflowEvent], Any]]:
+        if event_kind == "run_start":
+            return self.on_run_start
+        if event_kind == "node_start":
+            return self.on_node_start
+        if event_kind == "node_end":
+            return self.on_node_end
+        if event_kind == "node_error":
+            return self.on_node_error
+        if event_kind == "run_end":
+            return self.on_run_end
+        if event_kind == "run_paused":
+            return self.on_pause
+        return None
+
+
 @dataclass
 class EngineTrace:
     """Trace record for one node execution, including retries and routing decisions."""
@@ -38,9 +150,16 @@ class EngineTrace:
     finished_at: Optional[datetime] = None
     duration_ms: Optional[float] = None
     next_node: Optional[str] = None
+    selected_next_node: Optional[str] = None
+    route_source: Optional[str] = None
     fallback_node: Optional[str] = None
+    node_kind: Optional[str] = None
+    policy_snapshot: dict[str, Any] = field(default_factory=dict)
     state_before: Optional[dict[str, Any]] = None
     state_after: Optional[dict[str, Any]] = None
+    state_diff: dict[str, Any] = field(default_factory=dict)
+    input_summary: dict[str, Any] = field(default_factory=dict)
+    output_summary: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     output: Any = None
     error: Optional[str] = None
@@ -56,9 +175,16 @@ class EngineTrace:
             "finished_at": self.finished_at.isoformat() if self.finished_at is not None else None,
             "duration_ms": self.duration_ms,
             "next_node": self.next_node,
+            "selected_next_node": self.selected_next_node,
+            "route_source": self.route_source,
             "fallback_node": self.fallback_node,
+            "node_kind": self.node_kind,
+            "policy_snapshot": _serialize_value(self.policy_snapshot),
             "state_before": _serialize_value(self.state_before),
             "state_after": _serialize_value(self.state_after),
+            "state_diff": _serialize_value(self.state_diff),
+            "input_summary": _serialize_value(self.input_summary),
+            "output_summary": _serialize_value(self.output_summary),
             "metadata": _serialize_value(self.metadata),
             "output": _serialize_value(self.output),
             "error": self.error,
@@ -201,11 +327,15 @@ class EngineRun:
     """Top-level record for a workflow execution."""
 
     engine_name: str
+    run_id: str = field(default_factory=lambda: str(uuid4()))
+    parent_run_id: Optional[str] = None
+    tags: dict[str, str] = field(default_factory=dict)
     traces: list[EngineTrace] = field(default_factory=list)
     state: Optional[EngineState] = None
     status: str = "pending"
     final_output: Any = None
     error: Optional[str] = None
+    pause: Optional[WorkflowRunPause] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
@@ -227,15 +357,74 @@ class EngineRun:
 
         return {
             "engine_name": self.engine_name,
+            "run_id": self.run_id,
+            "parent_run_id": self.parent_run_id,
+            "tags": dict(self.tags),
             "traces": [trace.to_dict() for trace in self.traces],
             "state": self.state.to_dict() if self.state is not None else None,
             "status": self.status,
             "final_output": _serialize_value(self.final_output),
             "error": self.error,
+            "pause": self.pause.to_dict() if self.pause is not None else None,
             "started_at": self.started_at.isoformat() if self.started_at is not None else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at is not None else None,
             "duration_ms": self.duration_ms,
         }
+
+    def to_timeline(self) -> list[dict[str, Any]]:
+        """Return a concise node-by-node timeline for human inspection."""
+
+        timeline: list[dict[str, Any]] = []
+        for idx, trace in enumerate(self.traces, start=1):
+            timeline.append(
+                {
+                    "step": idx,
+                    "node": trace.node_name,
+                    "kind": trace.node_kind,
+                    "status": trace.status,
+                    "attempts": trace.attempt_count,
+                    "duration_ms": trace.duration_ms,
+                    "next_node": trace.next_node,
+                    "route_source": trace.route_source,
+                    "state_diff": dict(trace.state_diff),
+                    "error": trace.error,
+                }
+            )
+        return timeline
+
+    def explain_failures(self) -> list[dict[str, Any]]:
+        """Return only failed/fallback/paused node traces with key diagnostics."""
+
+        failures: list[dict[str, Any]] = []
+        for trace in self.traces:
+            if trace.status not in {"failed", "fallback", "paused"}:
+                continue
+            failures.append(
+                {
+                    "node": trace.node_name,
+                    "status": trace.status,
+                    "error": trace.error,
+                    "attempts": trace.attempt_count,
+                    "fallback_node": trace.fallback_node,
+                    "metadata": dict(trace.metadata),
+                }
+            )
+        return failures
+
+    def to_mermaid(self) -> str:
+        """Render the executed path as a Mermaid graph snippet."""
+
+        if not self.traces:
+            return "graph TD\n"
+        lines = ["graph TD"]
+        for idx, trace in enumerate(self.traces, start=1):
+            current = f"N{idx}[\"{trace.node_name} ({trace.status})\"]"
+            lines.append(f"    {current}")
+            if trace.next_node is not None:
+                nxt = f"N{idx+1}[\"{trace.next_node}\"]"
+                lines.append(f"    N{idx} --> N{idx+1}")
+                lines.append(f"    {nxt}")
+        return "\n".join(lines)
 
 
 @dataclass
@@ -257,6 +446,8 @@ class WorkflowEngine:
     max_steps: int = 50
     state_type: Optional[type[WorkflowStateProtocol]] = None
     state_factory: Optional[Callable[..., WorkflowStateProtocol]] = None
+    observability: WorkflowObservability = field(default_factory=WorkflowObservability)
+    hooks: Optional[WorkflowHooks] = None
 
     def __post_init__(self):
         """Validate workflow structure and precompute fast lookup tables."""
@@ -364,6 +555,63 @@ class WorkflowEngine:
             "graph": self.get_declared_graph(),
         }
 
+    def _apply_redaction(self, observability: WorkflowObservability, key: str, value: Any) -> Any:
+        """Apply optional observability redaction hook to one value."""
+
+        redact = observability.redact
+        if redact is None:
+            return value
+        try:
+            return redact(key, value)
+        except Exception:
+            return value
+
+    def _capture_state_snapshot(
+        self,
+        observability: WorkflowObservability,
+        state: WorkflowStateProtocol,
+        *,
+        force: bool = False,
+    ) -> Optional[dict[str, Any]]:
+        """Capture state according to observability policy."""
+
+        if observability.capture_state == "none":
+            return None
+        if observability.capture_state == "final" and not force:
+            return None
+        raw = state.to_dict()
+        redacted = {key: self._apply_redaction(observability, key, value) for key, value in raw.items()}
+        return _serialize_value(redacted)
+
+    async def _emit_event(
+        self,
+        hooks: Optional[WorkflowHooks],
+        sink: Optional[list[WorkflowEvent]],
+        *,
+        kind: Literal["run_start", "node_start", "node_end", "node_error", "run_end", "run_paused"],
+        run_id: str,
+        node_name: Optional[str] = None,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> WorkflowEvent:
+        """Emit an execution event to hooks and an optional sink list."""
+
+        event = WorkflowEvent(
+            kind=kind,
+            run_id=run_id,
+            engine_name=self.name,
+            node_name=node_name,
+            payload=_serialize_value(payload or {}),
+        )
+        if sink is not None:
+            sink.append(event)
+        callback = hooks.callback_for(kind) if hooks is not None else None
+        if callback is None:
+            return event
+        result = callback(event)
+        if isawaitable(result):
+            await result
+        return event
+
     async def _execute_node(
         self,
         spec: NodeSpec,
@@ -413,6 +661,9 @@ class WorkflowEngine:
 
         if asyncio.iscoroutine(updates):
             updates = await updates
+
+        if isinstance(updates, WorkflowNodeResult):
+            return updates
 
         if updates is None:
             updates = {}
@@ -617,11 +868,26 @@ class WorkflowEngine:
         state: Optional[WorkflowStateProtocol] = None,
         context: Any = None,
         memory: Any = None,
+        hooks: Optional[WorkflowHooks] = None,
+        observability: Optional[WorkflowObservability] = None,
+        tags: Optional[dict[str, str]] = None,
+        parent_run_id: Optional[str] = None,
+        start_node: Optional[str] = None,
+        _event_sink: Optional[list[WorkflowEvent]] = None,
     ) -> EngineRun:
-        """Run the workflow from `start_node` until a node stops or the graph ends."""
+        """Run the workflow from `start_node` until complete, failed, or paused."""
 
         self._validate_declared_node_references()
-        run = EngineRun(engine_name=self.name, started_at=datetime.now(), status="running")
+        active_observability = observability if observability is not None else self.observability
+        active_hooks = hooks if hooks is not None else self.hooks
+
+        run = EngineRun(
+            engine_name=self.name,
+            started_at=datetime.now(),
+            status="running",
+            tags=dict(tags or {}),
+            parent_run_id=parent_run_id,
+        )
         state = state or self.create_state(user_input)
         if user_input is not None and not state.data.get("input"):
             state.set_input(user_input)
@@ -633,12 +899,19 @@ class WorkflowEngine:
         )
         run.state = state
 
-        current_node_name = self.start_node
+        await self._emit_event(
+            active_hooks,
+            _event_sink,
+            kind="run_start",
+            run_id=run.run_id,
+            payload={"start_node": start_node or self.start_node, "tags": run.tags},
+        )
+
+        current_node_name = start_node or self.start_node
         steps_executed = 0
 
         try:
             while current_node_name is not None:
-                # Guard against accidental cycles or routing bugs.
                 steps_executed += 1
                 if steps_executed > self.max_steps:
                     raise RuntimeError(f"Workflow exceeded max_steps={self.max_steps}")
@@ -647,17 +920,31 @@ class WorkflowEngine:
                 state.current_node = current_node_name
                 trace = EngineTrace(
                     node_name=current_node_name,
+                    node_kind=spec.kind,
+                    policy_snapshot={
+                        "max_retries": spec.policy.max_retries,
+                        "failure_strategy": spec.policy.failure_strategy,
+                        "fallback_node": spec.policy.fallback_node,
+                        "timeout_seconds": spec.policy.timeout_seconds,
+                    },
                     status="running",
                     started_at=datetime.now(),
-                    state_before=state.to_dict(),
+                    state_before=self._capture_state_snapshot(active_observability, state),
+                    input_summary=_summarize_payload(state.data),
                 )
                 run.add_trace(trace)
+                await self._emit_event(
+                    active_hooks,
+                    _event_sink,
+                    kind="node_start",
+                    run_id=run.run_id,
+                    node_name=current_node_name,
+                    payload={"attempt": trace.attempt_count + 1},
+                )
 
                 try:
                     attempt_count = 0
                     while True:
-                        # Retries are tracked on the same trace so a single node execution
-                        # remains easy to inspect.
                         attempt_count += 1
                         trace.attempt_count = attempt_count
                         try:
@@ -670,7 +957,6 @@ class WorkflowEngine:
                                 result = await self._execute_node(spec, state, state.context, effective_memory)
                             break
                         except Exception as e:
-                            # Nodes may attach structured trace metadata to exceptions.
                             if hasattr(e, "trace_data") and e.trace_data:
                                 trace.metadata.update(e.trace_data)
                             if isinstance(e, TimeoutError):
@@ -681,6 +967,9 @@ class WorkflowEngine:
                                 trace.status = "fallback"
                                 trace.error = str(e)
                                 trace.fallback_node = spec.policy.fallback_node
+                                trace.route_source = "fallback"
+                                trace.selected_next_node = spec.policy.fallback_node
+                                trace.next_node = spec.policy.fallback_node
                                 current_node_name = spec.policy.fallback_node
                                 result = None
                                 break
@@ -688,48 +977,113 @@ class WorkflowEngine:
                             trace.error = str(e)
                             run.status = "failed"
                             run.error = str(e)
+                            await self._emit_event(
+                                active_hooks,
+                                _event_sink,
+                                kind="node_error",
+                                run_id=run.run_id,
+                                node_name=current_node_name,
+                                payload={"error": str(e), "attempt": attempt_count},
+                            )
                             raise
 
                     if trace.status == "fallback":
-                        trace.state_after = state.to_dict()
+                        trace.state_after = self._capture_state_snapshot(active_observability, state)
+                        trace.state_diff = _diff_state(trace.state_before, trace.state_after)
+                        await self._emit_event(
+                            active_hooks,
+                            _event_sink,
+                            kind="node_end",
+                            run_id=run.run_id,
+                            node_name=trace.node_name,
+                            payload={"status": "fallback", "next_node": trace.next_node},
+                        )
                         continue
 
-                    # Node results are applied centrally so every node type follows the same
-                    # state transition rules.
                     result.apply(state)
                     state.completed_nodes.append(current_node_name)
                     if result.trace_data:
                         trace.metadata.update(result.trace_data)
 
                     next_node = result.next_node
-                    if result.stop:
-                        # A terminal result can still expose a next_node for debugging, but
-                        # execution stops immediately once `stop=True`.
-                        trace.status = "completed"
-                        trace.output = result.output
-                        trace.next_node = next_node
-                        trace.state_after = state.to_dict()
-                        run.final_output = state.final_output if state.final_output is not None else result.output
-                        run.status = "completed"
-                        break
-
+                    route_source = "explicit_next_node" if next_node is not None else "graph_default"
                     if next_node is None:
-                        # When a node does not explicitly route, fall back to declared order.
                         next_node = self.get_next_node_name(current_node_name)
 
+                    if result.interrupt:
+                        pause = WorkflowRunPause(
+                            node_name=current_node_name,
+                            reason=result.interrupt_reason or "interrupt",
+                            payload=dict(result.interrupt_payload),
+                            resume_node=result.resume_node or next_node,
+                        )
+                        run.pause = pause
+                        run.status = "paused"
+                        trace.status = "paused"
+                        trace.selected_next_node = pause.resume_node
+                        trace.route_source = "interrupt"
+                        trace.next_node = pause.resume_node
+                        if active_observability.include_node_output:
+                            trace.output = self._apply_redaction(active_observability, "output", result.output)
+                        trace.output_summary = _summarize_payload(result.output)
+                        trace.state_after = self._capture_state_snapshot(active_observability, state)
+                        trace.state_diff = _diff_state(trace.state_before, trace.state_after)
+                        await self._emit_event(
+                            active_hooks,
+                            _event_sink,
+                            kind="run_paused",
+                            run_id=run.run_id,
+                            node_name=current_node_name,
+                            payload=pause.to_dict(),
+                        )
+                        break
+
+                    if result.stop:
+                        trace.status = "completed"
+                        if active_observability.include_node_output:
+                            trace.output = self._apply_redaction(active_observability, "output", result.output)
+                        trace.output_summary = _summarize_payload(result.output)
+                        trace.selected_next_node = next_node
+                        trace.route_source = route_source
+                        trace.next_node = next_node
+                        trace.state_after = self._capture_state_snapshot(active_observability, state)
+                        trace.state_diff = _diff_state(trace.state_before, trace.state_after)
+                        run.final_output = state.final_output if state.final_output is not None else result.output
+                        run.status = "completed"
+                        await self._emit_event(
+                            active_hooks,
+                            _event_sink,
+                            kind="node_end",
+                            run_id=run.run_id,
+                            node_name=current_node_name,
+                            payload={"status": "completed", "next_node": trace.next_node, "stop": True},
+                        )
+                        break
+
                     trace.status = "completed"
-                    trace.output = result.output
+                    if active_observability.include_node_output:
+                        trace.output = self._apply_redaction(active_observability, "output", result.output)
+                    trace.output_summary = _summarize_payload(result.output)
+                    trace.selected_next_node = next_node
+                    trace.route_source = route_source
                     trace.next_node = next_node
-                    trace.state_after = state.to_dict()
+                    trace.state_after = self._capture_state_snapshot(active_observability, state)
+                    trace.state_diff = _diff_state(trace.state_before, trace.state_after)
+                    await self._emit_event(
+                        active_hooks,
+                        _event_sink,
+                        kind="node_end",
+                        run_id=run.run_id,
+                        node_name=current_node_name,
+                        payload={"status": "completed", "next_node": next_node},
+                    )
                     current_node_name = next_node
                 finally:
                     trace.finished_at = datetime.now()
-                    if trace.started_at is not None:
+                    if trace.started_at is not None and active_observability.include_timing:
                         trace.duration_ms = (trace.finished_at - trace.started_at).total_seconds() * 1000
 
             if run.status == "running":
-                # Reaching the end of the graph without an explicit stop still counts as a
-                # successful completion.
                 run.status = "completed"
                 run.final_output = state.final_output if state.final_output is not None else state.last_output
 
@@ -745,3 +1099,112 @@ class WorkflowEngine:
             return run
         finally:
             run.finished_at = datetime.now()
+            if active_observability.capture_state == "final" and run.state is not None:
+                final_snapshot = self._capture_state_snapshot(active_observability, run.state, force=True)
+                if run.traces and run.traces[-1].state_after is None:
+                    run.traces[-1].state_after = final_snapshot
+            await self._emit_event(
+                active_hooks,
+                _event_sink,
+                kind="run_end",
+                run_id=run.run_id,
+                payload={
+                    "status": run.status,
+                    "final_output": self._apply_redaction(active_observability, "final_output", run.final_output),
+                },
+            )
+
+    async def async_resume(
+        self,
+        run: EngineRun,
+        *,
+        user_input: Any = None,
+        context: Any = None,
+        memory: Any = None,
+        hooks: Optional[WorkflowHooks] = None,
+        observability: Optional[WorkflowObservability] = None,
+    ) -> EngineRun:
+        """Resume a paused run from its recorded resume node."""
+
+        if run.pause is None or run.status != "paused":
+            raise ValueError("Can only resume a paused workflow run")
+        if run.state is None:
+            raise ValueError("Paused run does not contain state")
+
+        resume_node = run.pause.resume_node
+        if resume_node is None:
+            raise ValueError("Paused run has no resume_node")
+
+        if user_input is not None:
+            run.state.update({"_human_input": user_input})
+
+        return await self.async_run(
+            user_input=run.state.get("input"),
+            state=run.state,
+            context=context if context is not None else run.state.context,
+            memory=memory,
+            hooks=hooks,
+            observability=observability,
+            parent_run_id=run.run_id,
+            start_node=resume_node,
+            tags=dict(run.tags),
+        )
+
+    async def async_run_events(
+        self,
+        user_input: Any = None,
+        *,
+        state: Optional[WorkflowStateProtocol] = None,
+        context: Any = None,
+        memory: Any = None,
+        hooks: Optional[WorkflowHooks] = None,
+        observability: Optional[WorkflowObservability] = None,
+        tags: Optional[dict[str, str]] = None,
+    ) -> AsyncIterator[WorkflowEvent]:
+        """Run the workflow and yield structured events as they occur."""
+
+        queue: asyncio.Queue[WorkflowEvent] = asyncio.Queue()
+
+        async def _enqueue(event: WorkflowEvent):
+            await queue.put(event)
+
+        base_hooks = hooks if hooks is not None else self.hooks
+
+        async def _chain(callback: Optional[Callable[[WorkflowEvent], Any]], event: WorkflowEvent):
+            if callback is not None:
+                result = callback(event)
+                if isawaitable(result):
+                    await result
+            await _enqueue(event)
+
+        chained_hooks = WorkflowHooks(
+            on_run_start=lambda event: _chain(base_hooks.on_run_start if base_hooks else None, event),
+            on_node_start=lambda event: _chain(base_hooks.on_node_start if base_hooks else None, event),
+            on_node_end=lambda event: _chain(base_hooks.on_node_end if base_hooks else None, event),
+            on_node_error=lambda event: _chain(base_hooks.on_node_error if base_hooks else None, event),
+            on_run_end=lambda event: _chain(base_hooks.on_run_end if base_hooks else None, event),
+            on_pause=lambda event: _chain(base_hooks.on_pause if base_hooks else None, event),
+        )
+
+        run_task = asyncio.create_task(
+            self.async_run(
+                user_input,
+                state=state,
+                context=context,
+                memory=memory,
+                hooks=chained_hooks,
+                observability=observability,
+                tags=tags,
+            )
+        )
+
+        while True:
+            if run_task.done() and queue.empty():
+                break
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=0.1)
+                yield event
+            except TimeoutError:
+                continue
+
+        await run_task

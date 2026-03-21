@@ -86,6 +86,10 @@ class WorkflowNodeResult:
     stop: bool = False
     final_output: Any = None
     trace_data: dict[str, Any] = field(default_factory=dict)
+    interrupt: bool = False
+    interrupt_reason: Optional[str] = None
+    interrupt_payload: dict[str, Any] = field(default_factory=dict)
+    resume_node: Optional[str] = None
 
     def apply(self, state) -> None:
         """Apply updates and output fields to the shared workflow state."""
@@ -130,6 +134,27 @@ class WorkflowNodeResult:
         """Create a result that only updates state and optionally routes onward."""
 
         return cls(updates=updates, output=output, next_node=next_node)
+
+    @classmethod
+    def interrupt_run(
+        cls,
+        *,
+        reason: str,
+        payload: Optional[dict[str, Any]] = None,
+        updates: Optional[dict[str, Any]] = None,
+        output: Any = None,
+        resume_node: Optional[str] = None,
+    ) -> "WorkflowNodeResult":
+        """Create a result that pauses execution for human-in-the-loop interaction."""
+
+        return cls(
+            updates=updates or {},
+            output=output,
+            interrupt=True,
+            interrupt_reason=reason,
+            interrupt_payload=payload or {},
+            resume_node=resume_node,
+        )
 
 
 @dataclass

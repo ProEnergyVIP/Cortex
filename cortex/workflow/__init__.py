@@ -5,7 +5,7 @@ adapters, and shared types that make up the supported `cortex.workflow` interfac
 """
 
 from .agent import WorkflowAgent
-from .engine import WorkflowEdge
+from .engine import WorkflowEdge, WorkflowEvent, WorkflowHooks, WorkflowObservability, WorkflowRunPause
 from .helpers import edge, function_node, llm_node, parallel_node, router_node, workflow
 from .node import FailureStrategy, NodePolicy, NodeSpec, WorkflowNodeResult
 from .react_agent import ReActAgent
@@ -20,6 +20,10 @@ __all__ = [
     "workflow",
     "edge",
     "WorkflowEdge",
+    "WorkflowEvent",
+    "WorkflowHooks",
+    "WorkflowObservability",
+    "WorkflowRunPause",
     "function_node",
     "router_node",
     "parallel_node",
