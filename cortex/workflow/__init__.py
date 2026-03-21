@@ -8,6 +8,7 @@ from .agent import WorkflowAgent
 from .engine import WorkflowEdge
 from .helpers import edge, function_node, llm_node, parallel_node, router_node, workflow
 from .node import FailureStrategy, NodePolicy, NodeSpec, WorkflowNodeResult
+from .react_agent import ReActAgent
 from .state import NodeTrace, WorkflowRun, WorkflowState, WorkflowStateProtocol
 from .types import NodeFunction, NodeUpdates, NodeValue, PromptBuilder, RouterFunction, WorkflowMessageInput
 
@@ -15,6 +16,7 @@ from .types import NodeFunction, NodeUpdates, NodeValue, PromptBuilder, RouterFu
 # for users importing from `cortex.workflow`.
 __all__ = [
     "WorkflowAgent",
+    "ReActAgent",
     "workflow",
     "edge",
     "WorkflowEdge",

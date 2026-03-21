@@ -420,10 +420,12 @@ class WorkflowEngine:
             updates = {"_output": updates}
 
         output = updates.pop("_output", None)
+        next_node = updates.pop("_next_node", None)
         effective_output = output if output is not None else (updates if updates else None)
         return WorkflowNodeResult(
             updates=updates,
             output=effective_output,
+            next_node=next_node,
             stop=spec.is_final,
             final_output=effective_output if spec.is_final else None,
         )
