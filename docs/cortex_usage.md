@@ -1166,6 +1166,183 @@ This separation works well because it keeps:
 - specialist behavior reusable
 - system growth modular instead of monolithic
 
+### 7.5.6 Observability: tracing and inspection
+
+Workflows provide rich tracing and inspection capabilities out of the box.
+
+#### Basic run inspection
+
+```python
+run = await wf.async_run("my input")
+
+# Check the result
+print(run.status)           # "completed", "paused", "error"
+print(run.final_output)     # final output from the workflow
+print(run.duration_ms)      # execution time in milliseconds
+
+# Inspect each node execution
+for trace in run.traces:
+    print(f"{trace.node_name}: {trace.status} in {trace.duration_ms}ms")
+    if trace.error:
+        print(f"  Error: {trace.error}")
+```
+
+#### Customizing what gets captured
+
+```python
+from cortex.workflow import WorkflowObservability
+
+obs = WorkflowObservability(
+    capture_state=True,           # capture state snapshots
+    capture_state_diff=True,      # capture what changed
+    include_node_output=True,     # include outputs in traces
+    include_input=True,           # include node inputs
+    include_timing=True,          # include timing data
+    include_errors=True,          # include error details
+    max_state_capture_size=5000,  # truncate large values
+    redact_patterns=["api_key", "password"],  # redact sensitive data
+)
+
+run = await wf.async_run("input", observability=obs)
+```
+
+#### Lifecycle hooks
+
+Inject custom logic at key points:
+
+```python
+from cortex.workflow import WorkflowHooks
+
+hooks = WorkflowHooks(
+    on_node_start=async def(node_name, state, context):
+        print(f"Starting: {node_name}"),
+    on_node_complete=async def(node_name, state, output, context):
+        print(f"Completed: {node_name} -> {output}"),
+    on_run_start=async def(run_id, input, context):
+        print(f"Run started: {run_id}"),
+    on_run_complete=async def(run, context):
+        print(f"Run completed with status: {run.status}"),
+)
+
+run = await wf.async_run("input", hooks=hooks)
+```
+
+#### Event streaming
+
+Stream lifecycle events as they happen:
+
+```python
+async for event in wf.async_run_events("my input"):
+    # event.type: "run_start", "node_start", "node_complete", "node_error", "run_complete", "pause", "resume"
+    print(f"[{event.timestamp}] {event.type}", end="")
+    if event.node_name:
+        print(f" on {event.node_name}", end="")
+    if event.data:
+        print(f" -> {event.data.get('output')}", end="")
+    print()
+```
+
+#### Explainability helpers
+
+The run object provides helpers for understanding execution:
+
+```python
+# Visual timeline
+timeline = run.to_timeline()
+# Returns: list of (node_name, start_time_ms, duration_ms, status)
+
+# Mermaid diagram
+mermaid = run.to_mermaid()
+# Returns: Mermaid flowchart markup showing the execution path
+
+# Failure explanations
+explanations = run.explain_failures()
+# Returns: list of {"node": str, "error": str, "suggestion": str}
+```
+
+### 7.5.7 Human-in-the-Loop (HITL)
+
+Workflows can pause for human approval and resume later.
+
+#### Basic pause and resume
+
+```python
+from cortex.workflow import WorkflowNodeResult
+
+def process_with_approval(data, context):
+    amount = data.get("amount", 0)
+    if amount > 1000:
+        # Pause for approval
+        return WorkflowNodeResult.interrupt_run(
+            reason="high_value_transaction",
+            payload={"amount": amount, "recipient": data.get("recipient")},
+            resume_node="after_approval",
+        )
+    return {"processed": True}
+
+def after_approval(data, context):
+    approval = data.get("_human_input", "")
+    if "approve" in approval.lower():
+        return {"processed": True, "approved": True}
+    return {"processed": False, "approved": False}
+```
+
+#### Using in a workflow
+
+```python
+from cortex import workflow, function_node, edge
+
+wf = workflow(
+    name="Approval Flow",
+    nodes=[
+        function_node("process", func=process_with_approval),
+        function_node("after_approval", func=after_approval, is_final=True),
+    ],
+    edges=[edge("process", "after_approval")],
+    start_node="process",
+)
+
+# First run - may pause
+run = await wf.async_run("process payment of $2000")
+if run.pause:
+    print(f"Paused: {run.pause.reason}")
+    print(f"Payload: {run.pause.payload}")
+    # Save run for later resumption
+    saved_run = run
+
+# Later - resume with user input
+resumed = await wf.async_resume(saved_run, user_input="Approved")
+print(resumed.final_output)  # {"processed": True, "approved": True}
+```
+
+#### Stateless workflow, stateful runs
+
+Key insight: `WorkflowAgent` is stateless and can be reused across requests.
+
+```python
+# Create once at startup
+wf = workflow(name="Approval Flow", nodes=[...], edges=[...])
+
+# Use for many requests
+async def handle_request(input_data):
+    run = await wf.async_run(input_data)
+    if run.pause:
+        # Store run somewhere (database, cache, etc.)
+        await db.save_run(run.run_id, run)
+        return {"status": "pending_approval", "run_id": run.run_id}
+    return {"result": run.final_output}
+
+async def handle_approval(run_id, user_response):
+    run = await db.load_run(run_id)
+    resumed = await wf.async_resume(run, user_input=user_response)
+    return {"result": resumed.final_output}
+```
+
+This pattern allows:
+- Single workflow instance shared across all requests
+- Pause state persisted externally (database, Redis, etc.)
+- Clean separation between workflow definition and execution state
+
 ### 7.6 Graph-first builder pattern
 
 For dynamic workflows, you can build incrementally:

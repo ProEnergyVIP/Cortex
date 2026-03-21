@@ -512,7 +512,58 @@ All are represented internally as `NodeSpec` and executed centrally by the engin
 
 Workflow execution is designed to be inspectable by default.
 
-#### `NodeTrace`
+#### Configuration: `WorkflowObservability`
+
+Fine-tune what gets captured during execution:
+
+```python
+from cortex.workflow import WorkflowObservability
+
+obs = WorkflowObservability(
+    capture_state=True,           # capture state snapshots per node
+    capture_state_diff=True,      # capture state changes (diff)
+    include_node_output=True,     # include node outputs in traces
+    include_input=True,           # include node inputs
+    include_timing=True,          # include timing data
+    include_usage=True,           # include token usage
+    include_errors=True,          # include error details
+    include_metadata=True,        # include arbitrary metadata
+    max_state_capture_size=10000, # truncate large state values
+    redact_patterns=[...],        # patterns to redact (e.g., API keys)
+)
+```
+
+#### Lifecycle hooks: `WorkflowHooks`
+
+Inject custom logic at key points:
+
+```python
+from cortex.workflow import WorkflowHooks
+
+hooks = WorkflowHooks(
+    on_node_start=async def(node_name, state, context): ...,
+    on_node_complete=async def(node_name, state, output, context): ...,
+    on_node_error=async def(node_name, error, context): ...,
+    on_run_start=async def(run_id, input, context): ...,
+    on_run_complete=async def(run, context): ...,
+    on_run_error=async def(run_id, error, context): ...,
+)
+```
+
+#### Event streaming: `WorkflowEvent`
+
+Stream structured lifecycle events during execution:
+
+```python
+async for event in wf.async_run_events("my input"):
+    # event types:
+    # - "run_start", "run_complete", "run_error"
+    # - "node_start", "node_complete", "node_error"
+    # - "pause", "resume"
+    print(event.type, event.node_name, event.timestamp)
+```
+
+#### `EngineTrace` (per-node trace)
 
 Each executed node records:
 
@@ -525,8 +576,9 @@ Each executed node records:
 - output
 - error
 - arbitrary metadata
+- **enhanced with**: `selected_next_node`, `route_source`, `node_kind`, `policy_snapshot`, `state_diff`, `input_summary`, `output_summary`
 
-#### `WorkflowRun`
+#### `WorkflowRun` (full run record)
 
 The full run record captures:
 
@@ -536,13 +588,60 @@ The full run record captures:
 - final output
 - overall status / error
 - timing
+- **enhanced with**: `run_id`, `parent_run_id`, `tags`, `pause` (pause state for HITL)
 
 Helper APIs include:
 
 - `duration_ms`
 - `to_dict()`
+- `to_timeline()` - visual timeline of execution
+- `to_mermaid()` - Mermaid diagram of the run
+- `explain_failures()` - explain what went wrong
 
 Serialization helpers normalize nested workflow runs and trace metadata into plain Python data, which is especially important for parallel branches and custom trace metadata.
+
+#### 8.7.1 Human-in-the-Loop (HITL)
+
+Workflows can pause execution for human intervention and resume later.
+
+**Interrupting a node:**
+
+```python
+from cortex.workflow import WorkflowNodeResult
+
+def my_node(data, context):
+    # Pause and ask for human input
+    return WorkflowNodeResult.interrupt_run(
+        reason="approval_needed",
+        payload={"amount": data.get("amount")},
+        resume_node="after_approval",  # where to continue
+    )
+```
+
+**Resuming with user input:**
+
+```python
+# The run returns with pause info
+run = await wf.async_run("process payment")
+if run.pause:
+    print(f"Paused: {run.pause.reason}")  # "approval_needed"
+    print(f"Payload: {run.pause.payload}")  # {"amount": ...}
+
+# Later, resume with user response
+resumed_run = await wf.async_resume(run, user_input="Approved")
+print(resumed_run.final_output)
+```
+
+**Key concepts:**
+
+- `WorkflowAgent` is **stateless** — the workflow definition can be reused
+- `WorkflowRun` is **stateful** — it holds the runtime state including pause points
+- For HITL, persist the `WorkflowRun` (or its `run_id`) and resume with `async_resume(run, user_input=...)`
+
+This design allows:
+- Single workflow instance shared across requests
+- Pause/resume without recreating the workflow
+- Clean separation between workflow definition and execution state
 
 ### 8.8 Public construction helpers
 
