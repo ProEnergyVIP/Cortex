@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from cortex.message import AIMessage, Message, UserMessage
 
-from .node import NodeSpec, WorkflowNodeError, WorkflowNodeResult
+from .workflow_node import NodeSpec, WorkflowNodeError, WorkflowNodeResult
 
 
 def _serialize_value(value: Any) -> Any:

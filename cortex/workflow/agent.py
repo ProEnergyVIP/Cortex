@@ -17,7 +17,7 @@ from .engine import (
     WorkflowObservability,
     WorkflowStateProtocol,
 )
-from .node import NodeSpec
+from .workflow_node import NodeSpec
 from .state import WorkflowRun, WorkflowState
 
 

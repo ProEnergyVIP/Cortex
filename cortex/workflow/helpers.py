@@ -8,7 +8,7 @@ from cortex.message import Message, UserMessage
 
 from .agent import WorkflowAgent
 from .engine import WorkflowEdge, WorkflowStateProtocol
-from .node import NodePolicy, NodeSpec, invoke_workflow_callback
+from .workflow_node import NodePolicy, NodeSpec, invoke_workflow_callback
 
 
 def edge(source: str | Any, target: str | Any) -> WorkflowEdge:
