@@ -6,6 +6,7 @@ from cortex.workflow import (
     workflow,
     edge,
     WorkflowEdge,
+    node,
     function_node,
     router_node,
     parallel_node,
@@ -124,7 +125,7 @@ __all__ = [
     # Workflow Agent - Composed workflow-oriented API
     'WorkflowAgent', 'FailureStrategy', 'NodePolicy', 'NodeSpec', 'WorkflowNodeResult',
     'WorkflowRun', 'WorkflowState', 'WorkflowStateProtocol', 'NodeTrace',
-    'workflow', 'edge', 'WorkflowEdge', 'function_node', 'router_node', 'parallel_node', 'llm_node',
+    'workflow', 'edge', 'WorkflowEdge', 'node', 'function_node', 'router_node', 'parallel_node', 'llm_node',
     'PromptBuilder', 'NodeFunction', 'RouterFunction', 'NodeValue', 'NodeUpdates', 'WorkflowMessageInput',
     # Whiteboard models
     'Whiteboard', 'WhiteboardStorage', 'InMemoryStorage', 'RedisStorage',

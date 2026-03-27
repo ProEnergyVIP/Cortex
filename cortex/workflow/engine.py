@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from cortex.message import AIMessage, Message, UserMessage
 
-from .node import NodeSpec, WorkflowNodeError, WorkflowNodeResult, invoke_workflow_callback
+from .node import NodeSpec, WorkflowNodeError, WorkflowNodeResult
 
 
 def _serialize_value(value: Any) -> Any:
@@ -690,14 +690,28 @@ class WorkflowEngine:
     ) -> WorkflowNodeResult:
         """Run a router function that decides the next node."""
 
-        callback_input = state.data if state and state.data else (state.input if state else None)
-        result = await invoke_workflow_callback(
-            spec.func,
-            user_input=callback_input,
-            context=context,
-            memory=memory,
-            state=state,
-        )
+        import inspect
+
+        current_data = dict(state.data) if state else {}
+        signature = inspect.signature(spec.func)
+        parameters = list(signature.parameters.values())
+        accepts_memory_kwarg = "memory" in signature.parameters
+        accepts_varargs = any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in parameters)
+        positional_params = [
+            param
+            for param in parameters
+            if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+
+        if accepts_memory_kwarg:
+            result = spec.func(current_data, context, memory=memory)
+        elif accepts_varargs or len(positional_params) >= 3:
+            result = spec.func(current_data, context, memory)
+        else:
+            result = spec.func(current_data, context)
+
+        if asyncio.iscoroutine(result):
+            result = await result
 
         if isinstance(result, WorkflowNodeResult):
             return result

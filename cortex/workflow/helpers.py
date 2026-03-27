@@ -81,6 +81,18 @@ def function_node(
     )
 
 
+def node(
+    name: str,
+    func,
+    *,
+    policy: Optional[NodePolicy] = None,
+    is_final: bool = False,
+) -> NodeSpec:
+    """Alias of ``function_node`` for the common function-based node case."""
+
+    return function_node(name=name, func=func, policy=policy, is_final=is_final)
+
+
 def router_node(
     name: str,
     func,

@@ -88,6 +88,7 @@ Use these when:
 The preferred workflow API is function-first:
 
 - `workflow(...)`
+- `node(...)` (alias of `function_node(...)`)
 - `function_node(...)`
 - `router_node(...)`
 - `parallel_node(...)`
@@ -105,6 +106,9 @@ Use explicit graph edges for control flow and return either:
 
 - a `dict` of updates (most common)
 - a `WorkflowNodeResult` for explicit routing/stop behavior
+
+For most deterministic Python steps, prefer `node(...)` for readability. Use
+`function_node(...)` when you want the explicit name.
 
 ---
 
@@ -731,7 +735,7 @@ from cortex import (
     LLM,
     GPTModels,
     create_supervisor,
-    function_node,
+    node,
     workflow,
 )
 
@@ -771,8 +775,8 @@ def build_supervisor_workflow(*, tools, name, context, memory):
         context=context,
         memory=memory,
         nodes=[
-            function_node("plan_and_delegate", func=plan_and_delegate),
-            function_node("finish", func=finish, is_final=True),
+            node("plan_and_delegate", func=plan_and_delegate),
+            node("finish", func=finish, is_final=True),
         ],
         edges=[edge("plan_and_delegate", "finish")],
         start_node="plan_and_delegate",
@@ -848,7 +852,7 @@ Choose it when you need:
 Example:
 
 ```python
-from cortex import edge, function_node, router_node, workflow
+from cortex import edge, node, router_node, workflow
 
 def route_request(data, context):
     if data.get("kind") == "math":
@@ -863,8 +867,8 @@ wf = workflow(
             func=route_request,
             possible_next_nodes=["solve_math", "answer_directly"],
         ),
-        function_node("solve_math", func=lambda data, context: {"_output": "42"}, is_final=True),
-        function_node("answer_directly", func=lambda data, context: {"_output": "done"}, is_final=True),
+        node("solve_math", func=lambda data, context: {"_output": "42"}, is_final=True),
+        node("answer_directly", func=lambda data, context: {"_output": "done"}, is_final=True),
     ],
     edges=[
         edge("route_request", "solve_math"),
@@ -893,7 +897,7 @@ A workflow usually has:
 
 The most common node-building pattern is:
 
-- `function_node(...)` for deterministic Python logic
+- `node(...)` (or `function_node(...)`) for deterministic Python logic
 - `router_node(...)` for branching
 - `parallel_node(...)` for concurrent branches
 - `llm_node(...)` for direct LLM-backed nodes
@@ -901,7 +905,7 @@ The most common node-building pattern is:
 Example with explicit state updates and routing:
 
 ```python
-from cortex import WorkflowNodeResult, edge, function_node, router_node, workflow
+from cortex import WorkflowNodeResult, edge, node, router_node, workflow
 
 def classify(data, context):
     text = str(data.get("input") or "")
@@ -916,18 +920,18 @@ def route(data, context):
 wf = workflow(
     name="Support Workflow",
     nodes=[
-        function_node("classify", func=classify),
+        node("classify", func=classify),
         router_node(
             "route",
             func=route,
             possible_next_nodes=["billing_reply", "general_reply"],
         ),
-        function_node(
+        node(
             "billing_reply",
             func=lambda data, context: {"_output": "Let me help with billing."},
             is_final=True,
         ),
-        function_node(
+        node(
             "general_reply",
             func=lambda data, context: {"_output": "How can I help?"},
             is_final=True,
@@ -971,7 +975,7 @@ Example:
 ```python
 from dataclasses import dataclass, field
 
-from cortex import WorkflowState, edge, function_node, workflow
+from cortex import WorkflowState, edge, node, workflow
 
 
 @dataclass
@@ -992,8 +996,8 @@ def finish(data, context):
 wf = workflow(
     name="Support Workflow",
     nodes=[
-        function_node("classify", func=classify),
-        function_node("finish", func=finish, is_final=True),
+        node("classify", func=classify),
+        node("finish", func=finish, is_final=True),
     ],
     edges=[edge("classify", "finish")],
     start_node="classify",
@@ -1075,7 +1079,7 @@ When using `AgentSystemContext`, `memory_bank` is shared across agents. For work
 create one memory instance per workflow runtime and pass it into `WorkflowAgent`.
 
 ```python
-from cortex import workflow, function_node
+from cortex import workflow, node
 
 workflow_memory = context.memory_bank.get_memory("support_workflow")
 
@@ -1087,7 +1091,7 @@ wf = workflow(
     name="Support Workflow",
     context=context,
     memory=workflow_memory,
-    nodes=[function_node("step", step, is_final=True)],
+    nodes=[node("step", step, is_final=True)],
 )
 ```
 
@@ -1155,10 +1159,10 @@ intake -> classify -> analyze_in_parallel -> verify -> finalize
 
 Where:
 
-- `intake` and `verify` are often `function_node(...)`
+- `intake` and `verify` are often `node(...)`
 - `classify` is often `router_node(...)` or `llm_node(...)`
 - `analysis` stages are often `parallel_node(...)` or `llm_node(...)`
-- `finalize` is often a final `function_node(...)` or `llm_node(...)`
+- `finalize` is often a final `node(...)` or `llm_node(...)`
 
 This separation works well because it keeps:
 
@@ -1290,13 +1294,13 @@ def after_approval(data, context):
 #### Using in a workflow
 
 ```python
-from cortex import workflow, function_node, edge
+from cortex import workflow, node, edge
 
 wf = workflow(
     name="Approval Flow",
     nodes=[
-        function_node("process", func=process_with_approval),
-        function_node("after_approval", func=after_approval, is_final=True),
+        node("process", func=process_with_approval),
+        node("after_approval", func=after_approval, is_final=True),
     ],
     edges=[edge("process", "after_approval")],
     start_node="process",
