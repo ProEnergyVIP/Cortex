@@ -16,7 +16,7 @@ import asyncio
 from dataclasses import dataclass
 from asyncio import iscoroutine
 from inspect import signature
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from cortex.agent import Agent, Tool
 from cortex.workflow import WorkflowAgent
@@ -347,7 +347,7 @@ def _call_with_supported_kwargs(func, **kwargs):
     return func(**accepted_kwargs)
 
 
-def create_supervisor(
+async def create_supervisor(
     *,
     name: str,
     workers: list[Any],
@@ -356,8 +356,9 @@ def create_supervisor(
     sys_prompt: Optional[str] = None,
     instructions: Optional[str] = None,
     tools: Optional[list[Tool]] = None,
-    workflow_builder: Optional[Callable[..., WorkflowAgent]] = None,
+    workflow_builder: Optional[Callable[..., WorkflowAgent | Awaitable[WorkflowAgent]]] = None,
     context: Any = None,
+    memory: Any = None,
     usage: Any = None,
 ) -> Agent | WorkflowAgent:
     """Create a supervisor over a set of lazily built worker runnables.
@@ -367,7 +368,7 @@ def create_supervisor(
     - Agent supervisor mode: pass `llm` and optionally `sys_prompt`, `instructions`,
       and extra `tools`. This returns a normal `Agent`.
     - Workflow supervisor mode: pass `workflow_builder`. The builder is called after
-      worker tools are prepared and must return a `WorkflowAgent`.
+      worker tools are prepared and must return a `WorkflowAgent` (sync or async).
 
     Worker inputs must be callables that lazily return a runnable, or dict specs like:
 
@@ -387,6 +388,7 @@ def create_supervisor(
     - `tools` / `worker_tools`: the prepared worker tools
     - `name`: supervisor name
     - `context`: shared context
+    - `memory`: optional memory object for supervisor runtime
     - `usage`: shared usage tracker
     - `workers`: normalized internal worker specs
     - `worker_descriptions`: prompt-friendly worker descriptions
@@ -419,6 +421,7 @@ def create_supervisor(
             tools=supervisor_tools,
             sys_prompt=sys_prompt or _default_supervisor_prompt(name, worker_descriptions, instructions=instructions),
             context=context,
+            memory=memory,
             json_reply=False,
             mode="async",
         )
@@ -431,12 +434,13 @@ def create_supervisor(
         worker_tools=worker_tools,
         name=name,
         context=context,
+        memory=memory,
         usage=usage,
         workers=worker_specs,
         worker_descriptions=worker_descriptions,
     )
     if iscoroutine(built):
-        raise TypeError("create_supervisor(..., workflow_builder=...) must return a WorkflowAgent directly, not a coroutine")
+        built = await built
     if isinstance(built, WorkflowAgent):
         return built
     raise TypeError("create_supervisor(..., workflow_builder=...) must return a WorkflowAgent")

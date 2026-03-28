@@ -696,7 +696,7 @@ writer_worker = Agent(
     mode="async",
 )
 
-supervisor = create_supervisor(
+supervisor = await create_supervisor(
     name="Research Manager",
     workers=[
         {
@@ -782,7 +782,7 @@ def build_supervisor_workflow(*, tools, name, context, memory):
         start_node="plan_and_delegate",
     )
 
-supervisor = create_supervisor(
+supervisor = await create_supervisor(
     name="Workflow Research Manager",
     workers=[
         {
